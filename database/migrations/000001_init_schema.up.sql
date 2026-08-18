@@ -1,6 +1,4 @@
--- ИСТОРИЧЕСКИЙ СНИМОК. Приложение больше не использует этот файл напрямую —
--- актуальная схема и её версионирование теперь в database/migrations/
--- (см. database/migrate.go и docs/deploy.md).
+-- Схема для myauthservice (pet-app)
 
 CREATE TABLE IF NOT EXISTS users (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),

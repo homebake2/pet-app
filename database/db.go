@@ -24,12 +24,15 @@ func InitDB() {
 	}
 
 	DB, err = sql.Open("postgres", connStr)
-	DB, err = sql.Open("postgres", connStr)
 	if err != nil {
 		log.Fatalf("Ошибка подключения к базе: %v", err)
 	}
 	if err = DB.Ping(); err != nil {
 		log.Fatalf("Не удалось подключиться к базе: %v", err)
+	}
+
+	if err := RunMigrations(); err != nil {
+		log.Fatalf("Ошибка применения миграций: %v", err)
 	}
 }
 
