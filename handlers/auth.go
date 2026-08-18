@@ -39,14 +39,7 @@ func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Вставка нового пользователя
-	_, err = database.DB.Exec("INSERT INTO users (login, password) VALUES ($1, $2)", user.Login, user.Password)
-	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
-		return
-	}
-
-	// Получение uuid нового пользователя
+	// Вставка нового пользователя и получение его uuid
 	var userId uuid.UUID
 	err = database.DB.QueryRow(
 		"INSERT INTO users (login, password) VALUES ($1, $2) RETURNING id",
