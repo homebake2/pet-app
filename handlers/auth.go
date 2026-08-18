@@ -6,6 +6,7 @@ import (
 	"log"
 	"myauthservice/database"
 	"myauthservice/models"
+	"myauthservice/openapi"
 	"myauthservice/utils"
 	"net/http"
 	"time"
@@ -16,236 +17,201 @@ import (
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Обработчик /auth/register вызван")
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return
 	}
 
 	var user models.User
-	err := json.NewDecoder(r.Body).Decode(&user)
-	if err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return
 	}
 
-	// Проверка, есть ли пользователь уже
+	if user.Login == "" || user.Password == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля login и password обязательны")
+		return
+	}
+
 	var exists bool
-	err = database.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE login=$1)", user.Login).Scan(&exists)
-	if err != nil {
-		http.Error(w, "Database error", http.StatusInternalServerError)
+	if err := database.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE login=$1)", user.Login).Scan(&exists); err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
 	}
 	if exists {
-		http.Error(w, "Пользователь уже существует", http.StatusConflict)
+		writeError(w, http.StatusConflict, openapi.CONFLICT, "Пользователь с таким login уже существует")
 		return
 	}
 
-	// Вставка нового пользователя и получение его uuid
 	var userId uuid.UUID
-	err = database.DB.QueryRow(
+	err := database.DB.QueryRow(
 		"INSERT INTO users (login, password) VALUES ($1, $2) RETURNING id",
 		user.Login, user.Password,
 	).Scan(&userId)
 	if err != nil {
-		// Обработка ошибки
-		http.Error(w, "Ошибка при вставке пользователя", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании пользователя")
 		return
 	}
 
-	// Генерация токенов
 	accessToken, err := utils.GenerateToken(user.Login, userId.String(), "access", 14*24*time.Hour)
 	if err != nil {
-		http.Error(w, "Failed to generate access token", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сгенерировать access token")
 		return
 	}
 	refreshToken, err := utils.GenerateToken(user.Login, userId.String(), "refresh", 60*24*time.Hour)
 	if err != nil {
-		http.Error(w, "Failed to generate refresh token", http.StatusInternalServerError)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сгенерировать refresh token")
 		return
 	}
 
-	// Обновляем таблицу для сохранения refresh_token
-	_, err = database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, user.Login)
-	if err != nil {
+	if _, err := database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, user.Login); err != nil {
 		log.Printf("Ошибка при сохранении refresh_token: %v", err)
-		// Можно оставить продолжение, если не критично
 	}
 
-	resp := models.AuthResponse{
+	writeJSON(w, http.StatusOK, models.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	})
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return
 	}
 
 	var req models.User
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Некорректный запрос", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный запрос")
 		return
 	}
 
-	// Ищем пользователя по логину
+	if req.Login == "" || req.Password == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля login и password обязательны")
+		return
+	}
+
 	var userPassword string
 	var userId uuid.UUID
 	err := database.DB.QueryRow("SELECT id, password FROM users WHERE login=$1", req.Login).Scan(&userId, &userPassword)
 	if err == sql.ErrNoRows {
-		// Пользователь не найден
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Пользователь не найден")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+		return
 	}
 
-	// Проверяем пароль
 	if userPassword != req.Password {
-		// Неверный пароль
+		writeError(w, http.StatusForbidden, openapi.FORBIDDEN, "Неверный пароль")
+		return
 	}
 
 	accessToken, err := utils.GenerateToken(req.Login, userId.String(), "access", 14*24*time.Hour)
-	refreshToken, err := utils.GenerateToken(req.Login, userId.String(), "refresh", 60*24*time.Hour)
-
-	_, err = database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, req.Login)
 	if err != nil {
-		log.Printf("Ошибка при обновлении refresh_token: %v", err)
-		// Можно решить: продолжать ли или возвращать ошибку, но лучше логировать
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сгенерировать access token")
+		return
+	}
+	refreshToken, err := utils.GenerateToken(req.Login, userId.String(), "refresh", 60*24*time.Hour)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сгенерировать refresh token")
+		return
 	}
 
-	resp := models.AuthResponse{
+	if _, err := database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, req.Login); err != nil {
+		log.Printf("Ошибка при обновлении refresh_token: %v", err)
+	}
+
+	writeJSON(w, http.StatusOK, models.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	})
 }
 
 func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return
 	}
 
 	var input struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-
-	err := json.NewDecoder(r.Body).Decode(&input)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный запрос",
-			Code:  "Некорректный запрос",
-		})
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный запрос")
 		return
 	}
 
 	if input.RefreshToken == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Отсутствует refresh_token",
-			Code:  "Отсутствует refresh_token",
-		})
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Отсутствует refresh_token")
 		return
 	}
 
-	// Распарсить и проверить токен
 	claims, err := utils.ParseToken(input.RefreshToken)
 	if err != nil {
-		// обработка ошибки
-	}
-
-	// извлечение типа токена
-	claimType, ok := claims["type"].(string)
-	if !ok || claimType != "refresh" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный refresh token",
-			Code:  "Некорректный refresh token",
-		})
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный или истёкший refresh token")
 		return
 	}
 
-	login := claims["login"].(string)
-	userIdStr := claims["user_id"].(string) // или claims["id"], если так хранится
+	if claimType, ok := claims["type"].(string); !ok || claimType != "refresh" {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Некорректный тип токена")
+		return
+	}
 
-	// преобразуем из строки в uuid.UUID, если нужно (можете оставить строку, если utils умеет принимать string)
+	login, ok := claims["login"].(string)
+	if !ok || login == "" {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный refresh token")
+		return
+	}
+
+	userIdStr, ok := claims["id"].(string)
+	if !ok || userIdStr == "" {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный refresh token")
+		return
+	}
+
 	userId, err := uuid.Parse(userIdStr)
 	if err != nil {
-		// обработка ошибки
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный user ID в токене",
-			Code:  "Некорректный user ID",
-		})
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный user id в токене")
 		return
 	}
 
-	// Проверка, что токен совпадает с сохраненным (если есть такая логика)
 	var storedRefreshToken string
 	err = database.DB.QueryRow("SELECT refresh_token FROM users WHERE login=$1", login).Scan(&storedRefreshToken)
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Пользователь не найден",
-			Code:  "Пользователь не найден",
-		})
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Пользователь не найден")
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		log.Printf("Ошибка при поиске пользователя: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Внутренняя ошибка сервера",
-			Code:  "Внутренняя ошибка",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Внутренняя ошибка сервера")
 		return
 	}
 
 	if storedRefreshToken != input.RefreshToken {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Несовпадение токена",
-			Code:  "Несовпадение токена",
-		})
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Токен отозван или устарел")
 		return
 	}
 
-	// Генерация новых токенов
 	accessToken, err := utils.GenerateToken(login, userId.String(), "access", 14*24*time.Hour)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка генерации access токена",
-			Code:  "Генерация токена",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка генерации access токена")
 		return
 	}
 
 	refreshToken, err := utils.GenerateToken(login, userId.String(), "refresh", 60*24*time.Hour)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка генерации refresh токена",
-			Code:  "Генерация токена",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка генерации refresh токена")
 		return
 	}
 
-	// Обновляем refresh токен в базе
-	_, err = database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, login)
-	if err != nil {
+	if _, err := database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, login); err != nil {
 		log.Printf("Ошибка обновления refresh токена: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка обновления токена",
-			Code:  "Обновление токена",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления токена")
 		return
 	}
 
-	// Отправляем ответ
-	json.NewEncoder(w).Encode(models.AuthResponse{
+	writeJSON(w, http.StatusOK, models.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	})

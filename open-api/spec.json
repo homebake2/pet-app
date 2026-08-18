@@ -1,0 +1,1714 @@
+{
+  "openapi": "3.1.0",
+  "x-stoplight": {
+    "id": "lfdxypard7cxv"
+  },
+  "info": {
+    "title": "OpenApi",
+    "version": "1.0",
+    "summary": ""
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "security": [
+    {
+      "Authorization": []
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "/auth/login",
+        "tags": [
+          "public",
+          "auth-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-login",
+        "x-stoplight": {
+          "id": "xhmd6pr7x2m42"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetLoginRequest"
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "parameters": []
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "/auth/refresh",
+        "tags": [
+          "public",
+          "auth-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-refresh",
+        "x-stoplight": {
+          "id": "8cdtqyhu8nl8x"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetRefreshRequest"
+              }
+            }
+          }
+        },
+        "security": []
+      },
+      "parameters": []
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "/auth/logout",
+        "tags": [
+          "auth-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-logout",
+        "x-stoplight": {
+          "id": "jbqq8ft9jh00z"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetRefreshRequest"
+              }
+            }
+          }
+        },
+        "parameters": []
+      },
+      "parameters": []
+    },
+    "/profile": {
+      "get": {
+        "summary": "/profile",
+        "tags": [
+          "profile-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMasterProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-profile",
+        "x-stoplight": {
+          "id": "pz8fyeqpu7qd2"
+        },
+        "description": "Получение профиля пользователя",
+        "parameters": []
+      },
+      "post": {
+        "summary": "/profile",
+        "tags": [
+          "profile-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-profile",
+        "x-stoplight": {
+          "id": "h2o7mvl6qzxvv"
+        },
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetProfileRequest"
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "/profile",
+        "tags": [
+          "profile-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "put-profile",
+        "x-stoplight": {
+          "id": "1c13h5k11wtfe"
+        },
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetProfileRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/activities": {
+      "get": {
+        "summary": "/activities",
+        "tags": [
+          "activities-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetActivitiesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-activities",
+        "x-stoplight": {
+          "id": "28cxfxp8jaka1"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "in": "query",
+            "name": "pet_id",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "from",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "to",
+            "required": true
+          }
+        ]
+      },
+      "parameters": []
+    },
+    "/events": {
+      "post": {
+        "summary": "/events",
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEventIdResponseRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-event",
+        "x-stoplight": {
+          "id": "sig6gyg2h2b4o"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetEventRequest"
+              }
+            }
+          }
+        },
+        "tags": [
+          "event-controller"
+        ]
+      }
+    },
+    "/pet/{id}": {
+      "get": {
+        "summary": "/pet/{id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPetProfileResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-pet",
+        "x-stoplight": {
+          "id": "wlwjq3qkm169v"
+        },
+        "description": "Получение данных по определенному питомцу",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LanguageCode"
+          }
+        ]
+      },
+      "put": {
+        "summary": "/pet/{id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "put-pet",
+        "x-stoplight": {
+          "id": "u9ttl1d2zc9es"
+        },
+        "description": "Изменение данных для питомца",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetPetProfileRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/pet/{id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "delete-pet",
+        "x-stoplight": {
+          "id": "467w1be2926js"
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet": {
+      "get": {
+        "summary": "/pet",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetShortInfoAllPetResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-pets",
+        "x-stoplight": {
+          "id": "b8w04ke48j222"
+        },
+        "description": "Получение данных по всем питомцам",
+        "tags": [
+          "pets-controller"
+        ],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LanguageCode"
+          }
+        ]
+      },
+      "post": {
+        "summary": "/pet",
+        "tags": [
+          "pets-controller"
+        ],
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPetProfileResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-pet",
+        "x-stoplight": {
+          "id": "671sbc23x7a11"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetPetProfileRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/event/{id}",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEventIdResponseRequest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-event",
+        "x-stoplight": {
+          "id": "kb2zd9ejkeg68"
+        },
+        "description": "Получение данных о мероприятии",
+        "tags": [
+          "event-controller"
+        ]
+      },
+      "put": {
+        "summary": "/event/{id}",
+        "tags": [
+          "event-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "put-event",
+        "x-stoplight": {
+          "id": "xxh851kuvn2cp"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetEventIdResponseRequest"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/events/{id}",
+        "tags": [
+          "event-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "delete-event",
+        "x-stoplight": {
+          "id": "q5qunvigb1ujj"
+        }
+      }
+    },
+    "/auth/register": {
+      "post": {
+        "summary": "/auth/register",
+        "tags": [
+          "public",
+          "auth-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-register",
+        "x-stoplight": {
+          "id": "2cb01qy3pvqdn"
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetLoginRequest"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/pet/{id}/events": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/events",
+        "tags": [
+          "event-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GetEventResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-pet-events",
+        "x-stoplight": {
+          "id": "1t44318vbjcoj"
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GetPetProfileResponse": {
+        "title": "GetPetProfileResponse",
+        "x-stoplight": {
+          "id": "056a96wxiztkv"
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "species",
+          "icon"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "pulp3i31fzfvp"
+            },
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "oi9z5suak0k66"
+            }
+          },
+          "gender": {
+            "$ref": "#/components/schemas/GetGenderEnum",
+            "x-stoplight": {
+              "id": "4uz8t1qz57du7"
+            }
+          },
+          "species": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "4oljngs9i24yu"
+            }
+          },
+          "birth_date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "m4f5hcgz995g8"
+            },
+            "format": "date"
+          },
+          "color": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "c6b4238nqzy8e"
+            }
+          },
+          "sterilized": {
+            "type": "boolean",
+            "x-stoplight": {
+              "id": "lrl7h3qscd1sv"
+            }
+          },
+          "habilitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "wt8mc9frmkluw"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "aa33ifdwkpom3"
+            }
+          },
+          "is_deleted": {
+            "type": "boolean",
+            "x-stoplight": {
+              "id": "5mpd8c58i9b55"
+            }
+          },
+          "breed": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "b29ija62yatih"
+            }
+          },
+          "icon": {
+            "$ref": "#/components/schemas/PetIconEnum",
+            "x-stoplight": {
+              "id": "haojphtomr3j9"
+            }
+          }
+        }
+      },
+      "GetEventResponse": {
+        "title": "GetEventResponse",
+        "x-stoplight": {
+          "id": "44vhrsrurrbfo"
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "type",
+          "value"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "q0in5fxw2r2xc"
+            },
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "hctw18v2s5su7"
+            },
+            "format": "date"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum",
+            "x-stoplight": {
+              "id": "25pbnk4907nl2"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "iwkqkxoab1bwh"
+            }
+          },
+          "value": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "2yt0h1jjq2k0r"
+            }
+          }
+        }
+      },
+      "GetMasterProfileResponse": {
+        "title": "GetMasterProfileResponse",
+        "x-stoplight": {
+          "id": "xpsyorzp5snnw"
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "first_name",
+          "login"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "51jblis41boh4"
+            },
+            "format": "uuid"
+          },
+          "first_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "pwxc9lk11exvn"
+            }
+          },
+          "middle_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "2xncn40762qbc"
+            }
+          },
+          "last_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "abuprpoobvlp2"
+            }
+          },
+          "email": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "nmh7hohhavxr4"
+            }
+          },
+          "phone": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "wh9rj21q1mupe"
+            }
+          },
+          "login": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "tud9r7wirdywd"
+            }
+          }
+        }
+      },
+      "GetLoginRequest": {
+        "title": "GetLoginRequest",
+        "x-stoplight": {
+          "id": "5ehq4g5u4znlf"
+        },
+        "type": "object",
+        "required": [
+          "login",
+          "password"
+        ],
+        "properties": {
+          "login": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "p1qghmsznh9cn"
+            }
+          },
+          "password": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "6kdiewc0z7304"
+            }
+          }
+        }
+      },
+      "GetLoginResponse": {
+        "title": "GetLoginResponse",
+        "x-stoplight": {
+          "id": "emvghoddtu5o1"
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "65af2inus04pd"
+            }
+          },
+          "refresh_token": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "xku9ccsd4c35p"
+            }
+          }
+        }
+      },
+      "GetRefreshRequest": {
+        "title": "GetRefreshRequest",
+        "x-stoplight": {
+          "id": "ttv3d6k65r4rv"
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "5s5sv3lb9t7ng"
+            }
+          }
+        }
+      },
+      "GetErrorResponse": {
+        "title": "GetErrorResponse",
+        "x-stoplight": {
+          "id": "etc7jnm4bpffi"
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ErrorCodeEnum",
+            "x-stoplight": {
+              "id": "xfm06whrrolt8"
+            }
+          },
+          "message": {
+            "type": "string",
+            "description": "Техническое описание ошибки для отладки",
+            "x-stoplight": {
+              "id": "m8m58ex8zn0f1"
+            }
+          },
+          "payload": {
+            "description": "Произвольные дополнительные данные об ошибке"
+          }
+        }
+      },
+      "ErrorCodeEnum": {
+        "title": "ErrorCodeEnum",
+        "type": "string",
+        "description": "Код ошибки для маппинга на фронте",
+        "enum": [
+          "BAD_REQUEST",
+          "VALIDATION_ERROR",
+          "UNAUTHORIZED",
+          "FORBIDDEN",
+          "NOT_FOUND",
+          "CONFLICT",
+          "INTERNAL_ERROR"
+        ]
+      },
+      "GetProfileRequest": {
+        "title": "GetProfileRequest",
+        "x-stoplight": {
+          "id": "l8fqanticltw9"
+        },
+        "type": "object",
+        "required": [
+          "first_name"
+        ],
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "xpw5s9tzwczoj"
+            }
+          },
+          "middle_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "w3r90vlk3hkid"
+            }
+          },
+          "last_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "isfegviahvbaz"
+            }
+          },
+          "email": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "y3otyrz6ae15r"
+            }
+          },
+          "phone": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "cpb9s6cjq0egk"
+            }
+          }
+        }
+      },
+      "GetActivitiesResponse": {
+        "title": "GetActivitiesResponse",
+        "x-stoplight": {
+          "id": "xaeb5jmyctqfi"
+        },
+        "type": "object",
+        "required": [
+          "pet_name",
+          "items"
+        ],
+        "properties": {
+          "pet_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "2w5tqaa79473x"
+            }
+          },
+          "items": {
+            "type": "array",
+            "x-stoplight": {
+              "id": "2wsq3lsuc93ao"
+            },
+            "items": {
+              "$ref": "#/components/schemas/ItemsArrayActivitiesModel",
+              "x-stoplight": {
+                "id": "wzfl3fvm6wsaz"
+              }
+            }
+          }
+        }
+      },
+      "GetEventEnum": {
+        "title": "GetEventEnum",
+        "x-stoplight": {
+          "id": "hkks81hqjp60q"
+        },
+        "enum": [
+          "weight",
+          "urine",
+          "defecation",
+          "vomit",
+          "diarrhea",
+          "other"
+        ],
+        "type": "string"
+      },
+      "GetHabilitationEnum": {
+        "title": "GetHabilitationEnum",
+        "x-stoplight": {
+          "id": "d3bjbisipmjry"
+        },
+        "enum": [
+          "indoor",
+          "outside",
+          "both"
+        ],
+        "type": "string"
+      },
+      "GetGenderEnum": {
+        "title": "GetGenderEnum",
+        "x-stoplight": {
+          "id": "jgjwnr6uxud7n"
+        },
+        "enum": [
+          "male",
+          "female",
+          "other"
+        ],
+        "type": "string"
+      },
+      "GetEventRequest": {
+        "title": "GetEventRequest",
+        "x-stoplight": {
+          "id": "fxvqa2sr45swy"
+        },
+        "type": "object",
+        "required": [
+          "pet_id",
+          "date",
+          "type",
+          "value"
+        ],
+        "properties": {
+          "pet_id": {
+            "type": "string",
+            "format": "uuid",
+            "x-stoplight": {
+              "id": "3n1cgz20wehe4"
+            }
+          },
+          "date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "7hv3zsnes6z19"
+            },
+            "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum",
+            "x-stoplight": {
+              "id": "j84eym8bk9u9f"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "nde5qu3cm46oy"
+            }
+          },
+          "value": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "yajgqq4i16atj"
+            }
+          }
+        }
+      },
+      "GetShortInfoPetResponse": {
+        "title": "GetShortInfoPetResponse",
+        "x-stoplight": {
+          "id": "qp53kea8egvkf"
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "breed",
+          "species",
+          "icon"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "xhmw3s3o1zbay"
+            },
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "s0h2ptivs0qyk"
+            }
+          },
+          "breed": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "ukdxphop4efhj"
+            }
+          },
+          "species": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "vqg1av50893iu"
+            }
+          },
+          "icon": {
+            "$ref": "#/components/schemas/PetIconEnum",
+            "x-stoplight": {
+              "id": "5qkx712hq6syj"
+            }
+          }
+        }
+      },
+      "GetShortInfoAllPetResponse": {
+        "title": "GetShortInfoAllPetResponse",
+        "x-stoplight": {
+          "id": "fl7hptc7rkjz6"
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "x-stoplight": {
+              "id": "e09mjhxjng5v3"
+            },
+            "items": {
+              "$ref": "#/components/schemas/GetShortInfoPetResponse"
+            }
+          }
+        }
+      },
+      "GetPetProfileRequest": {
+        "title": "GetPetProfileRequest",
+        "x-stoplight": {
+          "id": "a83h7c4bgcx4j"
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "species"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "kdbnb7e8btuxa"
+            }
+          },
+          "gender": {
+            "$ref": "#/components/schemas/GetGenderEnum",
+            "x-stoplight": {
+              "id": "nzh83sxaanru7"
+            }
+          },
+          "species": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "2vgy2cvo53bnm"
+            }
+          },
+          "birth_date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "94d3lf7rkiuwm"
+            },
+            "format": "date"
+          },
+          "color": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "7ohevwqkegead"
+            }
+          },
+          "sterilized": {
+            "type": "boolean",
+            "x-stoplight": {
+              "id": "sy44dczs900zh"
+            }
+          },
+          "habilitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "evi4rzr8r8uu6"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "y1073k67wpf05"
+            }
+          },
+          "breed": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "pecllq0en6sfm"
+            }
+          }
+        }
+      },
+      "GetEventIdResponseRequest": {
+        "title": "GetEventIdResponseRequest",
+        "x-stoplight": {
+          "id": "eogbghdq5j8cv"
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "value",
+          "pet_id",
+          "pet_name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "as8h79dli0i9a"
+            },
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "pl2ag4bbhwyr3"
+            },
+            "format": "date-time"
+          },
+          "value": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "yw3lmzfj2u4yq"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "kfp7x6mgpy200"
+            }
+          },
+          "pet_id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "rno7m3v3jk1rx"
+            },
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "0djmc9eljuzad"
+            }
+          }
+        }
+      },
+      "ItemsArrayActivitiesModel": {
+        "title": "ItemsArrayActivitiesModel",
+        "x-stoplight": {
+          "id": "dh83jdessl7u5"
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "events"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "qigy5gtq6srlo"
+            },
+            "format": "date"
+          },
+          "events": {
+            "type": "array",
+            "x-stoplight": {
+              "id": "nsluzrca1irv3"
+            },
+            "items": {
+              "$ref": "#/components/schemas/GetEventResponse",
+              "x-stoplight": {
+                "id": "799sakykq105s"
+              }
+            }
+          }
+        }
+      },
+      "PetIconEnum": {
+        "title": "PetIconEnum",
+        "x-stoplight": {
+          "id": "t30dpm2g95s9h"
+        },
+        "enum": [
+          "DOG",
+          "CAT",
+          "HAMSTER",
+          "GUINEA_PIG",
+          "RABBIT",
+          "PARROT",
+          "CANARY",
+          "FISH",
+          "TURTLE",
+          "RAT",
+          "MOUSE",
+          "FERRET",
+          "HEDGEHOG",
+          "CHINCHILLA",
+          "MINI_PIG",
+          "MINI_GOAT",
+          "CHICKEN",
+          "DUCK",
+          "PIGEON",
+          "IGUANA",
+          "GECKO",
+          "BEARDED_AGAMA",
+          "SNAKE",
+          "PYTHON",
+          "FROG",
+          "AXOLOTL",
+          "TARANTULA",
+          "HERMIT_CRAB",
+          "ANT_FARM",
+          "SNAIL",
+          "OTHER"
+        ],
+        "type": "string"
+      }
+    },
+    "securitySchemes": {
+      "Authorization": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    },
+    "parameters": {
+      "LanguageCode": {
+        "name": "LanguageCode",
+        "in": "header",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": [
+            "ru",
+            "en"
+          ]
+        }
+      }
+    }
+  }
+}

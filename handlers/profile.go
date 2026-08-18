@@ -5,7 +5,7 @@ import (
 	"log"
 	"myauthservice/database"
 	"myauthservice/models"
-	"myauthservice/utils"
+	"myauthservice/openapi"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,138 +20,47 @@ func ProfileHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		CreateProfileHandler(w, r)
 	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 	}
 }
 
 // CreateProfileHandler обрабатывает POST /profile
 func CreateProfileHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	// 1. Парсим токен из заголовка Authorization
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Authorization header missing",
-			Code:  "AuthorizationHeaderMissing",
-		})
-		return
-	}
-
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid authorization header",
-			Code:  "InvalidAuthorizationHeader",
-		})
-		return
-	}
-
-	token := parts[1]
-
-	// 2. Проверяем валидность токена и получаем claims
-	claims, err := utils.ParseToken(token)
-	if err != nil {
-		// В utils можно сделать: возвращать ошибку или nil
-		// Свои ошибки можно расширить
-		if strings.Contains(err.Error(), "token is expired") {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Token expired",
-				Code:  "TokenExpired",
-			})
-			return
-		} else {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Invalid token",
-				Code:  "InvalidToken",
-			})
-			return
-		}
-	}
-
-	// 3. Из claims получаем user_id
-	userID, ok := claims["id"].(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token payload",
-			Code:  "InvalidTokenPayload",
-		})
-		return
-	}
-
-	// 4. Находим пользователя в базе (опционально, если есть необходимость)
-	// В данном случае предполагаем, что user_id есть и валиден.
-
-	// 5. Обрабатываем тело запроса
 	var input models.Profile
-	err = json.NewDecoder(r.Body).Decode(&input)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid request body",
-			Code:  "InvalidRequestBody",
-		})
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return
 	}
 
-	// Обязательное поле
 	if strings.TrimSpace(input.FirstName) == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "first_name is required",
-			Code:  "FirstNameRequired",
-		})
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле first_name обязательно")
 		return
 	}
 
-	// 6. Проверяем, есть ли профиль у пользователя, и создаем или обновляем
 	const queryFind = "SELECT COUNT(*) FROM profile WHERE user_id=$1"
 	var count int
-	err = database.DB.QueryRow(queryFind, userID).Scan(&count)
-	if err != nil {
+	if err := database.DB.QueryRow(queryFind, userID).Scan(&count); err != nil {
 		log.Printf("DB error: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "DB error",
-			Code:  "DBError",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
 	}
 
 	if count == 0 {
-		// Создаем профиль
 		const queryInsert = `
 			INSERT INTO profile (user_id, first_name, middle_name, last_name, email, phone)
 			VALUES ($1, $2, $3, $4, $5, $6)
 		`
-		_, err := database.DB.Exec(queryInsert, userID, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone)
-		if err != nil {
+		if _, err := database.DB.Exec(queryInsert, userID, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone); err != nil {
 			log.Printf("DB insert error: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Failed to create profile",
-				Code:  "CreateProfileError",
-			})
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать профиль")
 			return
 		}
 	} else {
-		// Обновляем профиль
 		const queryUpdate = `
 			UPDATE profile
 			SET first_name=$1,
@@ -161,93 +70,22 @@ func CreateProfileHandler(w http.ResponseWriter, r *http.Request) {
 				phone=$5
 			WHERE user_id=$6
 		`
-		_, err := database.DB.Exec(queryUpdate, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone, userID)
-		if err != nil {
+		if _, err := database.DB.Exec(queryUpdate, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone, userID); err != nil {
 			log.Printf("DB update error: %v", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Failed to update profile",
-				Code:  "UpdateProfileError",
-			})
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось обновить профиль")
 			return
 		}
 	}
 
-	// 7. Возвращаем успешный ответ
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(struct {
-		Message string `json:"message"`
-	}{
-		Message: "Profile saved successfully",
-	})
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	// 1. Парсим токен из заголовка Authorization
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Authorization header missing",
-			Code:  "AuthorizationHeaderMissing",
-		})
-		return
-	}
-
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid authorization header",
-			Code:  "InvalidAuthorizationHeader",
-		})
-		return
-	}
-
-	token := parts[1]
-
-	// 2. Проверка валидности токена
-	claims, err := utils.ParseToken(token)
-	if err != nil {
-		// Проверка на истекший токен
-		if strings.Contains(err.Error(), "token is expired") {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Token expired",
-				Code:  "TokenExpired",
-			})
-			return
-		}
-		// Другие ошибки
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token",
-			Code:  "InvalidToken",
-		})
-		return
-	}
-
-	// 3. Получаем user_id из claims
-	userID, ok := claims["id"].(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token payload",
-			Code:  "InvalidTokenPayload",
-		})
-		return
-	}
-
-	// 4. парсим тело запроса с необязательными полями
 	var input struct {
 		FirstName  *string `json:"first_name"`
 		MiddleName *string `json:"middle_name"`
@@ -255,18 +93,11 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 		Email      *string `json:"email"`
 		Phone      *string `json:"phone"`
 	}
-	err = json.NewDecoder(r.Body).Decode(&input)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid request body",
-			Code:  "InvalidRequestBody",
-		})
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return
 	}
 
-	// 5. Формируем динамический запрос для обновления только переданных полей
-	// (более удобно делать через `sql`, чтобы избежать обновления NULL, если поле не передано)
 	setClauses := []string{}
 	args := []interface{}{}
 	argIdx := 1
@@ -298,42 +129,23 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(setClauses) == 0 {
-		// Нечего обновлять
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "No fields to update",
-			Code:  "NoFieldsToUpdate",
-		})
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Не передано ни одного поля для обновления")
 		return
 	}
 
-	// Добавляем WHERE
 	query := "UPDATE profile SET " + strings.Join(setClauses, ", ") + " WHERE user_id=$" + strconv.Itoa(argIdx)
 	args = append(args, userID)
 
-	// Выполняем запрос
-	_, err = database.DB.Exec(query, args...)
-	if err != nil {
+	if _, err := database.DB.Exec(query, args...); err != nil {
 		log.Printf("DB update error: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Failed to update profile",
-			Code:  "UpdateProfileError",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось обновить профиль")
 		return
 	}
 
-	// Возвращаем успешный ответ
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(struct {
-		Message string `json:"message"`
-	}{
-		Message: "Profile updated successfully",
-	})
 }
 
 func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
-	// Вспомогательная функция
 	ptrToString := func(s *string) string {
 		if s != nil {
 			return *s
@@ -341,103 +153,28 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return ""
 	}
 
-	if r.Method != http.MethodGet {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Authorization header missing",
-			Code:  "AuthorizationHeaderMissing",
-		})
-		return
-	}
-
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid authorization header",
-			Code:  "InvalidAuthorizationHeader",
-		})
-		return
-	}
-
-	token := parts[1]
-	claims, err := utils.ParseToken(token)
-	if err != nil {
-		if strings.Contains(err.Error(), "token is expired") {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Token expired",
-				Code:  "TokenExpired",
-			})
-			return
-		}
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token",
-			Code:  "InvalidToken",
-		})
-		return
-	}
-
-	userID, ok := claims["id"].(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token payload",
-			Code:  "InvalidTokenPayload",
-		})
-		return
-	}
-
-	// получаем профиль
 	profile, err := database.GetProfileByUserID(userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "DB error",
-			Code:  "DBError",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
 	}
 	if profile == nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Profile not found",
-			Code:  "ProfileNotFound",
-		})
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Профиль не найден")
 		return
 	}
 
-	// получаем логин
 	login, err := database.GetLoginByUserID(userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Failed to get login",
-			Code:  "DBError",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить логин")
 		return
 	}
 
-	resp := struct {
-		ID         string `json:"id"`
-		FirstName  string `json:"first_name"`
-		MiddleName string `json:"middle_name,omitempty"`
-		LastName   string `json:"last_name,omitempty"`
-		Email      string `json:"email,omitempty"`
-		Phone      string `json:"phone,omitempty"`
-		Login      string `json:"login"`
-	}{
+	resp := models.ProfileResponse{
 		ID:         profile.UserID,
 		FirstName:  profile.FirstName,
 		MiddleName: ptrToString(profile.MiddleName),
@@ -447,6 +184,5 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		Login:      login,
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusOK, resp)
 }

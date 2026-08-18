@@ -255,8 +255,9 @@ func GetPetByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdResponse, 
 		pet.Breed = &petDB.Breed.String
 	}
 
-	if petDB.Icon.Valid {
-		pet.Icon = &petDB.Icon.String
+	pet.Icon = "OTHER"
+	if petDB.Icon.Valid && petDB.Icon.String != "" {
+		pet.Icon = petDB.Icon.String
 	}
 
 	return &pet, nil

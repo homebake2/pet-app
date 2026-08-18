@@ -7,229 +7,102 @@ import (
 	"log"
 	"myauthservice/database"
 	"myauthservice/models"
-	"myauthservice/utils"
+	"myauthservice/openapi"
 	"net/http"
 	"strings"
 
 	"github.com/google/uuid"
 )
 
+// PetHandler обрабатывает /pet (без id): список и создание.
 func PetHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		GetAllPetHandler(w, r)
 	case http.MethodPost:
 		CreatePetHandler(w, r)
-	case http.MethodDelete:
-		DeletePetHandler(w, r)
 	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 	}
 }
 
+// PetByIDHandler обрабатывает /pet/{id}: получение, изменение, удаление.
 func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		GetPetHandler(w, r)
 	case http.MethodPut:
 		UpdatePetHandler(w, r)
+	case http.MethodDelete:
+		DeletePetHandler(w, r)
 	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 	}
+}
+
+func parsePetIDFromPath(r *http.Request) (uuid.UUID, error) {
+	petIDStr := strings.TrimPrefix(r.URL.Path, "/pet/")
+	return uuid.Parse(petIDStr)
 }
 
 // CreatePetHandler обрабатывает POST /pet
 func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Парсим токен из заголовка Authorization
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Authorization header missing",
-			Code:  "AuthorizationHeaderMissing",
-		})
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid authorization header",
-			Code:  "InvalidAuthorizationHeader",
-		})
-		return
-	}
-
-	token := parts[1]
-
-	// 2. Проверка валидности токена
-	claims, err := utils.ParseToken(token)
-	if err != nil {
-		// Проверка на истекший токен
-		if strings.Contains(err.Error(), "token is expired") {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Token expired",
-				Code:  "TokenExpired",
-			})
-			return
-		}
-		// Другие ошибки
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token",
-			Code:  "InvalidToken",
-		})
-		return
-	}
-
-	// 3. Получаем user_id из claims
-	userID, ok := claims["id"].(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token payload",
-			Code:  "InvalidTokenPayload",
-		})
-		return
-	}
-
-	// 4. Парсим тело запроса
 	var req models.CreatePetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResp := models.ErrorResponse{Error: "Invalid request body", Code: "INVALID_BODY"}
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(errorResp)
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return
 	}
 
-	// 5. Валидация поля Icon
 	if req.Icon != nil && !models.IsValidIcon(*req.Icon) {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректное значение icon",
-			Code:  "BAD_REQUEST",
-		})
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение icon")
 		return
 	}
+
 	profileID, err := database.GetProfileIDByUserID(userID)
 	if err != nil {
-		// Обработка ошибки
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Profile not found",
-			Code:  "ProfileNotFound",
-		})
-		return
-	}
-	// 5. Создаем запись в таблице pet
-	newPetID, err := database.InsertPet(profileID, req)
-	if err != nil {
-		// Обработка ошибок базы данных
-		errorResp := models.ErrorResponse{Error: "Failed to create pet", Code: "DB_ERROR"}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(errorResp)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Профиль пользователя не найден")
 		return
 	}
 
-	// 6. Возвращаем успех (опционально можно вернуть созданного питомца)
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(struct {
-		ID uuid.UUID `json:"id"`
-	}{
-		ID: newPetID,
-	})
+	newPetID, err := database.InsertPet(profileID, req)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать питомца")
+		return
+	}
+
+	pet, err := database.GetPetByIDAndProfileID(newPetID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Питомец создан, но не удалось получить его данные")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, pet)
 }
 
 // GetAllPetHandler обрабатывает GET /pet
 func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Парсим токен из заголовка Authorization
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Authorization header missing",
-			Code:  "AuthorizationHeaderMissing",
-		})
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
 
-	parts := strings.Split(authHeader, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid authorization header",
-			Code:  "InvalidAuthorizationHeader",
-		})
-		return
-	}
-
-	token := parts[1]
-
-	// 2. Проверка валидности токена
-	claims, err := utils.ParseToken(token)
-	if err != nil {
-		// Проверка на истекший токен
-		if strings.Contains(err.Error(), "token is expired") {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: "Token expired",
-				Code:  "TokenExpired",
-			})
-			return
-		}
-		// Другие ошибки
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token",
-			Code:  "InvalidToken",
-		})
-		return
-	}
-
-	// 3. Получаем user_id из claims
-	userID, ok := claims["id"].(string)
-	if !ok || userID == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Invalid token payload",
-			Code:  "InvalidTokenPayload",
-		})
-		return
-	}
-
-	// 3. Получаем profile_id по user_id
 	profileID, err := database.GetProfileIDByUserID(userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Failed to get profile",
-			Code:  "PROFILE_NOT_FOUND",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить профиль")
 		return
 	}
 
-	// 4. Получаем питомцев по profile_id
 	pets, err := database.GetPetsByProfileID(profileID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Failed to get pets",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить питомцев")
 		return
 	}
 
-	// 5. Формируем ответ
 	response := models.PetResponse{
 		Items: make([]models.PetItem, 0, len(pets)),
 	}
@@ -250,343 +123,120 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Если массив пустой, возвращаем его как есть
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(response)
+	writeJSON(w, http.StatusOK, response)
 }
 
 // GetPetHandler обрабатывает GET /pet/{id}
 func GetPetHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Получаем ID питомца
-	petIDStr := strings.TrimPrefix(r.URL.Path, "/pet/")
-	petID, err := uuid.Parse(petIDStr)
+	petID, err := parsePetIDFromPath(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный id питомца",
-			Code:  "BAD_REQUEST",
-		})
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
 		return
 	}
 
-	// 2. Получаем Authorization header
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Отсутствует токен",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	tokenParts := strings.Split(authHeader, "Bearer ")
-	if len(tokenParts) != 2 {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный токен",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	tokenStr := tokenParts[1]
-
-	// 3. Парсим токен через utils
-	claims, err := utils.ParseToken(tokenStr)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Токен истек",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	// 4. Достаём user_id
-	userIDRaw, ok := claims["id"]
+	userID, ok := requireUserID(w, r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Невалидный токен",
-			Code:  "UNAUTHORIZED",
-		})
 		return
 	}
 
-	userID, ok := userIDRaw.(string)
-	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Невалидный токен",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	// 5. Получаем profile_id
 	profileID, err := database.GetProfileIDByUserID(userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка получения профиля",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return
 	}
 
 	pet, err := database.GetPetByIDAndProfileID(petID, profileID)
-
 	if err == sql.ErrNoRows {
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: fmt.Sprintf("У данного пользователя нет питомца %s", petID.String()),
-			Code:  "Недостаточно прав",
-		})
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
 		return
 	}
-
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка получения питомца",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(pet)
+	writeJSON(w, http.StatusOK, pet)
 }
 
 func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	petIDStr := strings.TrimPrefix(r.URL.Path, "/pet/")
-	petID, err := uuid.Parse(petIDStr)
+	petID, err := parsePetIDFromPath(r)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный id питомца",
-			Code:  "BAD_REQUEST",
-		})
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
 		return
 	}
 
-	// токен
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Отсутствует токен",
-			Code:  "UNAUTHORIZED",
-		})
+	userID, ok := requireUserID(w, r)
+	if !ok {
 		return
 	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-
-	claims, err := utils.ParseToken(token)
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Токен истек",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	userID := claims["id"].(string)
 
 	profileID, err := database.GetProfileIDByUserID(userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка профиля",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return
 	}
 
-	// проверка владельца
-	_, err = database.GetPetByIDAndProfileID(petID, profileID)
-	if err != nil {
+	if _, err := database.GetPetByIDAndProfileID(petID, profileID); err != nil {
 		if err == sql.ErrNoRows {
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: fmt.Sprintf("у данного пользователя нет питомца %s", petID),
-				Code:  "Недостаточно прав",
-			})
+			writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
 			return
 		}
-
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка получения питомца",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 		return
 	}
 
-	// decode body
 	var req models.UpdatePetRequest
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный JSON",
-			Code:  "BAD_REQUEST",
-		})
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный JSON")
 		return
 	}
 
-	// Валидация поля Icon
 	if req.Icon != nil && !models.IsValidIcon(*req.Icon) {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректное значение icon",
-			Code:  "BAD_REQUEST",
-		})
-		return
-	}
-	log.Printf("REQ: %+v\n", req)
-	// update
-	err = database.UpdatePet(petID, profileID, req)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка обновления питомца",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение icon")
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
+	log.Printf("REQ: %+v\n", req)
+	if err := database.UpdatePet(petID, profileID, req); err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления питомца")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeletePetHandler обрабатывает DELETE /pet/{id}
 func DeletePetHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// 1. Проверка метода
-	if r.Method != http.MethodDelete {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Method not allowed",
-			Code:  "MethodNotAllowed",
-		})
-		return
-	}
-
-	// 2. Токен
-	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Отсутствует токен",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	token := strings.TrimPrefix(authHeader, "Bearer ")
-
-	claims, err := utils.ParseToken(token)
+	petID, err := parsePetIDFromPath(r)
 	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Токен истек",
-			Code:  "UNAUTHORIZED",
-		})
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
 		return
 	}
 
-	// 3. user_id
-	userIDRaw, ok := claims["id"]
+	userID, ok := requireUserID(w, r)
 	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Невалидный токен",
-			Code:  "UNAUTHORIZED",
-		})
 		return
 	}
 
-	userID, ok := userIDRaw.(string)
-	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Невалидный токен",
-			Code:  "UNAUTHORIZED",
-		})
-		return
-	}
-
-	// 4. profile_id
 	profileID, err := database.GetProfileIDByUserID(userID)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка профиля",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return
 	}
 
-	// 5. body
-	var req struct {
-		ID string `json:"id"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный JSON или отсутствует id",
-			Code:  "BAD_REQUEST",
-		})
-		return
-	}
-
-	petID, err := uuid.Parse(req.ID)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Некорректный id питомца",
-			Code:  "BAD_REQUEST",
-		})
-		return
-	}
-
-	// 6. Проверка владельца
-	_, err = database.GetPetByIDAndProfileID(petID, profileID)
-	if err != nil {
+	if _, err := database.GetPetByIDAndProfileID(petID, profileID); err != nil {
 		if err == sql.ErrNoRows {
-			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(models.ErrorResponse{
-				Error: fmt.Sprintf("у данного пользователя нет питомца %s", petID),
-				Code:  "Недостаточно прав",
-			})
+			writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
 			return
 		}
-
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка получения питомца",
-			Code:  "DB_ERROR",
-		})
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 		return
 	}
 
-	// 7. Удаление (soft delete)
-	err = database.DeletePet(petID, profileID)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(models.ErrorResponse{
-			Error: "Ошибка удаления питомца",
-			Code:  "DB_ERROR",
-		})
+	if err := database.DeletePet(petID, profileID); err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления питомца")
 		return
 	}
 
-	// 8. OK
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusNoContent)
 }

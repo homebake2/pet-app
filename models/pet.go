@@ -21,7 +21,7 @@ func IsValidEventType(eventType string) bool {
 }
 
 type CreateEventRequest struct {
-	ID    string  `json:"id"`              // обязательный (pet id)
+	PetID string  `json:"pet_id"`          // обязательный
 	Date  string  `json:"date"`            // обязательный
 	Type  string  `json:"type"`            // обязательный
 	Notes *string `json:"notes,omitempty"` // необязательный
@@ -99,7 +99,7 @@ type CreatePetRequest struct {
 	BirthDate  *string `json:"birth_date,omitempty"` // дата в формате "YYYY-MM-DD"
 	Color      *string `json:"color,omitempty"`
 	Sterilized *bool   `json:"sterilized,omitempty"`
-	Habitation *string `json:"habitation,omitempty"` // enum: indoor, outside, both
+	Habitation *string `json:"habilitation,omitempty"` // enum: indoor, outside, both
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  *bool   `json:"is_deleted,omitempty"` // необязательное, можно оставить без заполнения
 	Breed      *string `json:"breed,omitempty"`
@@ -134,11 +134,13 @@ type PetIdResponse struct {
 	BirthDate  *string `json:"birth_date,omitempty"`
 	Color      *string `json:"color,omitempty"`
 	Sterilized bool    `json:"sterilized"`
-	Habitation *string `json:"habitation,omitempty"`
+	Habitation *string `json:"habilitation,omitempty"`
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  bool    `json:"is_deleted"`
 	Breed      *string `json:"breed,omitempty"`
-	Icon       *string `json:"icon,omitempty"`
+	// Icon обязателен по спеке (GetPetProfileResponse.icon) — всегда заполняется,
+	// при отсутствии значения в БД используется дефолт "OTHER" (см. database.GetPetByIDAndProfileID).
+	Icon string `json:"icon"`
 }
 
 type PetIdDB struct {
@@ -163,7 +165,7 @@ type UpdatePetRequest struct {
 	BirthDate  *string `json:"birth_date,omitempty"`
 	Color      *string `json:"color,omitempty"`
 	Sterilized *bool   `json:"sterilized,omitempty"`
-	Habitation *string `json:"habitation,omitempty"`
+	Habitation *string `json:"habilitation,omitempty"`
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  *bool   `json:"is_deleted,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
