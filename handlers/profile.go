@@ -98,6 +98,11 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if input.FirstName == nil || strings.TrimSpace(*input.FirstName) == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле first_name обязательно")
+		return
+	}
+
 	setClauses := []string{}
 	args := []interface{}{}
 	argIdx := 1

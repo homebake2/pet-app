@@ -140,6 +140,69 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+// PetEventItem represents a single event as returned by GET /pet/{id}/events (GetEventResponse).
+type PetEventItem struct {
+	ID    string  `json:"id"`
+	Date  string  `json:"date"`
+	Type  string  `json:"type"`
+	Notes *string `json:"notes,omitempty"`
+	Value string  `json:"value"`
+}
+
+// PetEventsResponse is the response body for GET /pet/{id}/events.
+type PetEventsResponse struct {
+	Items []PetEventItem `json:"items"`
+}
+
+// GET /pet/{id}/events
+func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
+	log.Println("Обработчик /pet/{id}/events GET вызван")
+
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	profileID, err := database.GetProfileIDByUserID(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
+		return
+	}
+
+	belongs, err := database.CheckPetBelongsToProfile(petID, profileID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
+		return
+	}
+	if !belongs {
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец не найден")
+		return
+	}
+
+	eventsDB, err := database.GetEventsByPetID(petID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
+		return
+	}
+
+	items := make([]PetEventItem, 0, len(eventsDB))
+	for _, eventDB := range eventsDB {
+		var notes *string
+		if eventDB.Notes.Valid {
+			notes = &eventDB.Notes.String
+		}
+		items = append(items, PetEventItem{
+			ID:    eventDB.ID.String(),
+			Date:  eventDB.Date.Format("2006-01-02"),
+			Type:  eventDB.Type,
+			Notes: notes,
+			Value: eventDB.Value,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, PetEventsResponse{Items: items})
+}
+
 func EventIDResonseHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

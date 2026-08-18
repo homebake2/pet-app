@@ -19,6 +19,7 @@ func main() {
 	})
 	mux.HandleFunc("/auth/login", handlers.LoginHandler)
 	mux.HandleFunc("/auth/refresh", handlers.RefreshTokenHandler)
+	mux.HandleFunc("/auth/logout", handlers.LogoutHandler)
 	mux.HandleFunc("/profile", handlers.ProfileHandler)
 	mux.HandleFunc("/pet/", handlers.PetByIDHandler)
 	mux.HandleFunc("/pet", handlers.PetHandler)

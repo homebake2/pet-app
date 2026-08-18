@@ -128,6 +128,68 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func LogoutHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
+		return
+	}
+
+	var input struct {
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный запрос")
+		return
+	}
+
+	if input.RefreshToken == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Отсутствует refresh_token")
+		return
+	}
+
+	claims, err := utils.ParseToken(input.RefreshToken)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный или истёкший refresh token")
+		return
+	}
+
+	if claimType, ok := claims["type"].(string); !ok || claimType != "refresh" {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Некорректный тип токена")
+		return
+	}
+
+	login, ok := claims["login"].(string)
+	if !ok || login == "" {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный refresh token")
+		return
+	}
+
+	var storedRefreshToken string
+	err = database.DB.QueryRow("SELECT refresh_token FROM users WHERE login=$1", login).Scan(&storedRefreshToken)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Пользователь не найден")
+		return
+	}
+	if err != nil {
+		log.Printf("Ошибка при поиске пользователя: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Внутренняя ошибка сервера")
+		return
+	}
+
+	if storedRefreshToken != input.RefreshToken {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Токен отозван или устарел")
+		return
+	}
+
+	if err := database.ClearRefreshToken(login); err != nil {
+		log.Printf("Ошибка при инвалидации refresh_token: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось выполнить выход")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")

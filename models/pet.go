@@ -13,7 +13,7 @@ var allowedEventTypes = map[string]bool{
 	"defecation": true,
 	"vomit":      true,
 	"diarrhea":   true,
-	"type":       true,
+	"other":      true,
 }
 
 func IsValidEventType(eventType string) bool {

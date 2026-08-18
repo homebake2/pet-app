@@ -73,6 +73,12 @@ func GetLoginByUserID(userID string) (string, error) {
 	return login, nil
 }
 
+// ClearRefreshToken - инвалидирует refresh_token пользователя (logout)
+func ClearRefreshToken(login string) error {
+	_, err := DB.Exec("UPDATE users SET refresh_token=NULL WHERE login=$1", login)
+	return err
+}
+
 // Получить id профиля по user_id из profile
 func GetProfileIDByUserID(userID string) (uuid.UUID, error) {
 
@@ -660,6 +666,37 @@ func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) (
 
 	if err := rows.Err(); err != nil {
 		log.Println("GetEventsByPetIDAndDateRange rows error:", err)
+		return nil, err
+	}
+
+	return events, nil
+}
+
+// GetEventsByPetID returns all events for a pet, ordered by date
+func GetEventsByPetID(petID uuid.UUID) ([]models.EventDB, error) {
+	query := `
+	SELECT id, pet_id, date_time, type, notes, value
+	FROM event
+	WHERE pet_id = $1
+	ORDER BY date_time
+	`
+	rows, err := DB.Query(query, petID)
+	if err != nil {
+		log.Println("GetEventsByPetID error:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []models.EventDB
+	for rows.Next() {
+		var eventDB models.EventDB
+		if err := rows.Scan(&eventDB.ID, &eventDB.PetID, &eventDB.Date, &eventDB.Type, &eventDB.Notes, &eventDB.Value); err != nil {
+			return nil, err
+		}
+		events = append(events, eventDB)
+	}
+
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 

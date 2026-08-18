@@ -26,8 +26,26 @@ func PetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// PetByIDHandler обрабатывает /pet/{id}: получение, изменение, удаление.
+// PetByIDHandler обрабатывает /pet/{id} (получение, изменение, удаление)
+// и /pet/{id}/events (получение событий питомца).
 func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/pet/"), "/")
+	parts := strings.Split(rest, "/")
+
+	if len(parts) == 2 && parts[1] == "events" {
+		petID, err := uuid.Parse(parts[0])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
+			return
+		}
+		GetPetEventsHandler(w, r, petID)
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		GetPetHandler(w, r)
@@ -45,6 +63,17 @@ func parsePetIDFromPath(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(petIDStr)
 }
 
+// requireLanguageCode проверяет обязательный заголовок LanguageCode (ru|en),
+// как того требует components.parameters.LanguageCode из open-api/spec.json.
+func requireLanguageCode(w http.ResponseWriter, r *http.Request) bool {
+	lang := r.Header.Get("LanguageCode")
+	if lang != "ru" && lang != "en" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Заголовок LanguageCode обязателен и должен быть ru или en")
+		return false
+	}
+	return true
+}
+
 // CreatePetHandler обрабатывает POST /pet
 func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
@@ -55,6 +84,11 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 	var req models.CreatePetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
+		return
+	}
+
+	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Species) == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля name и species обязательны")
 		return
 	}
 
@@ -86,6 +120,10 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetAllPetHandler обрабатывает GET /pet
 func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireLanguageCode(w, r) {
+		return
+	}
+
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -128,6 +166,10 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetPetHandler обрабатывает GET /pet/{id}
 func GetPetHandler(w http.ResponseWriter, r *http.Request) {
+	if !requireLanguageCode(w, r) {
+		return
+	}
+
 	petID, err := parsePetIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
@@ -188,6 +230,11 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 	var req models.UpdatePetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный JSON")
+		return
+	}
+
+	if req.Name == nil || strings.TrimSpace(*req.Name) == "" || req.Species == nil || strings.TrimSpace(*req.Species) == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля name и species обязательны")
 		return
 	}
 
