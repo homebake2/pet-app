@@ -1,0 +1,6 @@
+.DS_Store
+pgdata/
+*.env
+.env
+myauthservice
+/app

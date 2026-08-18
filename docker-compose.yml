@@ -1,0 +1,12 @@
+services:
+  postgres:
+    container_name: postgres-pet
+    hostname: postgres
+    image: postgres:15-alpine3.19
+    ports:
+      - "127.0.0.1:5555:5433"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_HOST_AUTH_METHOD: trust
+      PGPORT: 5433
+      POSTGRES_DB: pets
