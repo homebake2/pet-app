@@ -807,7 +807,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GetEventIdResponseRequest"
+                "$ref": "#/components/schemas/UpdateEventRequest"
               }
             }
           }
@@ -1688,6 +1688,32 @@
           "OTHER"
         ],
         "type": "string"
+      },
+      "UpdateEventRequest": {
+        "title": "UpdateEventRequest",
+        "type": "object",
+        "required": [
+          "pet_id"
+        ],
+        "properties": {
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
       }
     },
     "securitySchemes": {

@@ -248,6 +248,15 @@ type ItemsArrayActivitiesModel struct {
 // PetIconEnum defines model for PetIconEnum.
 type PetIconEnum string
 
+// UpdateEventRequest defines model for UpdateEventRequest.
+type UpdateEventRequest struct {
+	Date  *time.Time         `json:"date,omitempty"`
+	Notes *string            `json:"notes,omitempty"`
+	PetId openapi_types.UUID `json:"pet_id"`
+	Type  *GetEventEnum      `json:"type,omitempty"`
+	Value *string            `json:"value,omitempty"`
+}
+
 // LanguageCode defines model for LanguageCode.
 type LanguageCode string
 
@@ -290,7 +299,7 @@ type PostRegisterJSONRequestBody = GetLoginRequest
 type PostEventJSONRequestBody = GetEventRequest
 
 // PutEventJSONRequestBody defines body for PutEvent for application/json ContentType.
-type PutEventJSONRequestBody = GetEventIdResponseRequest
+type PutEventJSONRequestBody = UpdateEventRequest
 
 // PostPetJSONRequestBody defines body for PostPet for application/json ContentType.
 type PostPetJSONRequestBody = GetPetProfileRequest
