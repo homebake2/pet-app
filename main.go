@@ -4,6 +4,7 @@ import (
 	"log"
 	"myauthservice/database"
 	"myauthservice/handlers"
+	"myauthservice/utils"
 	"net/http"
 	"os"
 )
@@ -34,7 +35,7 @@ func main() {
 
 	log.Printf("Запускаю на :%s", port)
 
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, utils.CORSMiddleware(mux)); err != nil {
 		log.Fatalf("Ошибка: %v", err)
 	}
 }
