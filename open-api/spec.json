@@ -22,13 +22,14 @@
     "/auth/login": {
       "post": {
         "summary": "/auth/login",
+        "description": "Вход или регистрация одним запросом: если пользователь с указанным login уже существует, выполняется проверка пароля (вход); если не существует — пользователь автоматически создаётся с указанными данными (регистрация). Пароль хранится в виде bcrypt-хеша.",
         "tags": [
           "public",
           "auth-controller"
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "OK. Возвращается как при успешном входе, так и при успешной автоматической регистрации.",
             "content": {
               "application/json": {
                 "schema": {
@@ -48,17 +49,7 @@
             }
           },
           "403": {
-            "description": "Forbidden",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found",
+            "description": "Forbidden. Пользователь существует, но пароль неверный.",
             "content": {
               "application/json": {
                 "schema": {
@@ -852,13 +843,14 @@
     "/auth/register": {
       "post": {
         "summary": "/auth/register",
+        "description": "Полностью эквивалентен /auth/login: если пользователь с указанным login уже существует, выполняется проверка пароля (вход); если не существует — пользователь автоматически создаётся (регистрация). Оставлен как отдельный путь для совместимости с существующими клиентами.",
         "tags": [
           "public",
           "auth-controller"
         ],
         "responses": {
           "200": {
-            "description": "OK",
+            "description": "OK. Возвращается как при успешном входе, так и при успешной регистрации.",
             "content": {
               "application/json": {
                 "schema": {
@@ -877,8 +869,8 @@
               }
             }
           },
-          "409": {
-            "description": "Conflict",
+          "403": {
+            "description": "Forbidden. Пользователь существует, но пароль неверный.",
             "content": {
               "application/json": {
                 "schema": {

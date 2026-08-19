@@ -12,68 +12,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
+// RegisterHandler и LoginHandler объединены: если пользователь с таким login
+// уже существует — выполняется попытка входа (проверка пароля), если нет —
+// пользователь автоматически регистрируется.
 func RegisterHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /auth/register вызван")
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
-		return
-	}
-
-	var user models.User
-	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
-		return
-	}
-
-	if user.Login == "" || user.Password == "" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля login и password обязательны")
-		return
-	}
-
-	var exists bool
-	if err := database.DB.QueryRow("SELECT EXISTS(SELECT 1 FROM users WHERE login=$1)", user.Login).Scan(&exists); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
-		return
-	}
-	if exists {
-		writeError(w, http.StatusConflict, openapi.CONFLICT, "Пользователь с таким login уже существует")
-		return
-	}
-
-	var userId uuid.UUID
-	err := database.DB.QueryRow(
-		"INSERT INTO users (login, password) VALUES ($1, $2) RETURNING id",
-		user.Login, user.Password,
-	).Scan(&userId)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании пользователя")
-		return
-	}
-
-	accessToken, err := utils.GenerateToken(user.Login, userId.String(), "access", 14*24*time.Hour)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сгенерировать access token")
-		return
-	}
-	refreshToken, err := utils.GenerateToken(user.Login, userId.String(), "refresh", 60*24*time.Hour)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сгенерировать refresh token")
-		return
-	}
-
-	if _, err := database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, user.Login); err != nil {
-		log.Printf("Ошибка при сохранении refresh_token: %v", err)
-	}
-
-	writeJSON(w, http.StatusOK, models.AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-	})
+	authenticateOrRegister(w, r)
 }
 
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
+	authenticateOrRegister(w, r)
+}
+
+func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return
@@ -81,7 +34,7 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	var req models.User
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный запрос")
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return
 	}
 
@@ -90,21 +43,24 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var userPassword string
 	var userId uuid.UUID
-	err := database.DB.QueryRow("SELECT id, password FROM users WHERE login=$1", req.Login).Scan(&userId, &userPassword)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Пользователь не найден")
-		return
-	}
-	if err != nil {
+	var passwordHash string
+	err := database.DB.QueryRow("SELECT id, password FROM users WHERE login=$1", req.Login).Scan(&userId, &passwordHash)
+	switch {
+	case err == sql.ErrNoRows:
+		userId, err = createUser(req.Login, req.Password)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании пользователя")
+			return
+		}
+	case err != nil:
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
-	}
-
-	if userPassword != req.Password {
-		writeError(w, http.StatusForbidden, openapi.FORBIDDEN, "Неверный пароль")
-		return
+	default:
+		if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
+			writeError(w, http.StatusForbidden, openapi.FORBIDDEN, "Неверный пароль")
+			return
+		}
 	}
 
 	accessToken, err := utils.GenerateToken(req.Login, userId.String(), "access", 14*24*time.Hour)
@@ -126,6 +82,21 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	})
+}
+
+// createUser хеширует пароль и создаёт новую запись пользователя.
+func createUser(login, password string) (uuid.UUID, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return uuid.UUID{}, err
+	}
+
+	var userId uuid.UUID
+	err = database.DB.QueryRow(
+		"INSERT INTO users (login, password) VALUES ($1, $2) RETURNING id",
+		login, string(hash),
+	).Scan(&userId)
+	return userId, err
 }
 
 func LogoutHandler(w http.ResponseWriter, r *http.Request) {

@@ -10,6 +10,7 @@ require (
 	github.com/lib/pq v1.11.2
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/stretchr/testify v1.12.0
+	golang.org/x/crypto v0.46.0
 )
 
 require (

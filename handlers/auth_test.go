@@ -12,7 +12,15 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 )
+
+func hashPassword(t *testing.T, password string) string {
+	t.Helper()
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	require.NoError(t, err)
+	return string(hash)
+}
 
 func doRequest(method, path string, body any) *http.Request {
 	var reader *bytes.Reader
@@ -44,22 +52,9 @@ func TestRegisterHandler_MissingFields(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestRegisterHandler_UserExists(t *testing.T) {
+func TestRegisterHandler_LookupDBError(t *testing.T) {
 	mock := setupMockDB(t)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE login=\$1\)`).
-		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
-
-	w := httptest.NewRecorder()
-	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "pw"}))
-
-	assert.Equal(t, http.StatusConflict, w.Code)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestRegisterHandler_ExistsCheckDBError(t *testing.T) {
-	mock := setupMockDB(t)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE login=\$1\)`).
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
 		WillReturnError(assertError)
 
@@ -71,11 +66,11 @@ func TestRegisterHandler_ExistsCheckDBError(t *testing.T) {
 
 func TestRegisterHandler_InsertError(t *testing.T) {
 	mock := setupMockDB(t)
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE login=\$1\)`).
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO users \(login, password\) VALUES \(\$1, \$2\) RETURNING id`).
-		WithArgs("john", "pw").
+		WithArgs("john", sqlmock.AnyArg()).
 		WillReturnError(assertError)
 
 	w := httptest.NewRecorder()
@@ -84,14 +79,15 @@ func TestRegisterHandler_InsertError(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
-func TestRegisterHandler_Success(t *testing.T) {
+// Регистрация и вход объединены: если пользователя с таким login нет — он создаётся.
+func TestRegisterHandler_CreatesNewUserWithHashedPassword(t *testing.T) {
 	mock := setupMockDB(t)
 	newID := "11111111-1111-1111-1111-111111111111"
-	mock.ExpectQuery(`SELECT EXISTS\(SELECT 1 FROM users WHERE login=\$1\)`).
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery(`INSERT INTO users \(login, password\) VALUES \(\$1, \$2\) RETURNING id`).
-		WithArgs("john", "pw").
+		WithArgs("john", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE login=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -107,6 +103,26 @@ func TestRegisterHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// /auth/login тоже автоматически регистрирует пользователя, если его ещё нет.
+func TestLoginHandler_AutoRegistersUnknownUser(t *testing.T) {
+	mock := setupMockDB(t)
+	newID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
+		WithArgs("john").
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(`INSERT INTO users \(login, password\) VALUES \(\$1, \$2\) RETURNING id`).
+		WithArgs("john", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
+	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE login=\$2`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "pw"}))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestLoginHandler_MethodNotAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	LoginHandler(w, doRequest(http.MethodGet, "/auth/login", nil))
@@ -119,24 +135,12 @@ func TestLoginHandler_MissingFields(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestLoginHandler_UserNotFound(t *testing.T) {
-	mock := setupMockDB(t)
-	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
-		WithArgs("john").
-		WillReturnError(sql.ErrNoRows)
-
-	w := httptest.NewRecorder()
-	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "pw"}))
-
-	assert.Equal(t, http.StatusNotFound, w.Code)
-}
-
 func TestLoginHandler_WrongPassword(t *testing.T) {
 	mock := setupMockDB(t)
 	userID := "11111111-1111-1111-1111-111111111111"
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, "correct"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "correct")))
 
 	w := httptest.NewRecorder()
 	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "wrong"}))
@@ -149,7 +153,7 @@ func TestLoginHandler_Success(t *testing.T) {
 	userID := "11111111-1111-1111-1111-111111111111"
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, "pw"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "pw")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE login=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
