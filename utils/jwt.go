@@ -2,21 +2,32 @@ package utils
 
 import (
 	"errors"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt"
 )
 
-// Ваш секретный ключ (замените на свой)
-var jwtKey = []byte("ваш_секретный_ключ")
+// Секрет подписи токенов читается из JWT_SECRET; при отсутствии переменной
+// окружения используется дефолтное значение (для локальной разработки).
+var jwtKey = []byte(jwtSecretFromEnv())
+
+func jwtSecretFromEnv() string {
+	if secret := os.Getenv("JWT_SECRET"); secret != "" {
+		return secret
+	}
+	return "ваш_секретный_ключ"
+}
 
 // Генерация токена с логином, id пользователя и типом
 func GenerateToken(login string, userID string, tokenType string, duration time.Duration) (string, error) {
+	now := time.Now()
 	claims := jwt.MapClaims{
 		"login": login,
 		"id":    userID,
 		"type":  tokenType,
-		"exp":   time.Now().Add(duration).Unix(),
+		"iat":   now.Unix(),
+		"exp":   now.Add(duration).Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(jwtKey)

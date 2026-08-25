@@ -43,6 +43,9 @@ func TestCreatePetHandler_Unauthorized(t *testing.T) {
 }
 
 func TestCreatePetHandler_MissingFields(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "", Species: ""}, true)
 	CreatePetHandler(w, r)
@@ -50,6 +53,9 @@ func TestCreatePetHandler_MissingFields(t *testing.T) {
 }
 
 func TestCreatePetHandler_InvalidIcon(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+
 	badIcon := "NOT_AN_ICON"
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Icon: &badIcon}, true)
@@ -59,6 +65,7 @@ func TestCreatePetHandler_InvalidIcon(t *testing.T) {
 
 func TestCreatePetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -86,6 +93,7 @@ func TestGetAllPetHandler_MissingLanguageCode(t *testing.T) {
 
 func TestGetAllPetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -116,6 +124,7 @@ func TestGetPetHandler_InvalidID(t *testing.T) {
 
 func TestGetPetHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -132,6 +141,7 @@ func TestGetPetHandler_NotFound(t *testing.T) {
 
 func TestGetPetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -150,6 +160,7 @@ func TestGetPetHandler_Success(t *testing.T) {
 
 func TestUpdatePetHandler_MissingRequiredFields(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -167,6 +178,7 @@ func TestUpdatePetHandler_MissingRequiredFields(t *testing.T) {
 
 func TestUpdatePetHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -184,6 +196,7 @@ func TestUpdatePetHandler_NotFound(t *testing.T) {
 
 func TestUpdatePetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -205,6 +218,7 @@ func TestUpdatePetHandler_Success(t *testing.T) {
 
 func TestDeletePetHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -220,6 +234,7 @@ func TestDeletePetHandler_NotFound(t *testing.T) {
 
 func TestDeletePetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -239,6 +254,7 @@ func TestDeletePetHandler_Success(t *testing.T) {
 
 func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -273,6 +289,7 @@ func TestPetByIDHandler_EventsInvalidID(t *testing.T) {
 
 func TestGetPetEventsHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))

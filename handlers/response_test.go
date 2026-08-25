@@ -1,12 +1,15 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"myauthservice/openapi"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
+	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,6 +78,9 @@ func TestRequireUserID(t *testing.T) {
 }
 
 func TestRequireUserID_Valid(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, "user-42")
+
 	token := validAccessToken(t, "user-42")
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -83,4 +89,39 @@ func TestRequireUserID_Valid(t *testing.T) {
 	id, ok := requireUserID(w, r)
 	require.True(t, ok)
 	assert.Equal(t, "user-42", id)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestRequireUserID_UserNotFound(t *testing.T) {
+	mock := setupMockDB(t)
+	mock.ExpectQuery(`SELECT tokens_invalidated_at FROM users WHERE id=\$1`).
+		WithArgs("user-42").
+		WillReturnError(sql.ErrNoRows)
+
+	token := validAccessToken(t, "user-42")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+
+	id, ok := requireUserID(w, r)
+	assert.False(t, ok)
+	assert.Empty(t, id)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestRequireUserID_RevokedToken(t *testing.T) {
+	mock := setupMockDB(t)
+	mock.ExpectQuery(`SELECT tokens_invalidated_at FROM users WHERE id=\$1`).
+		WithArgs("user-42").
+		WillReturnRows(sqlmock.NewRows([]string{"tokens_invalidated_at"}).AddRow(time.Now().Add(time.Hour)))
+
+	token := validAccessToken(t, "user-42")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+
+	id, ok := requireUserID(w, r)
+	assert.False(t, ok)
+	assert.Empty(t, id)
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }

@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
+	"myauthservice/database"
 	"myauthservice/openapi"
 	"myauthservice/utils"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // writeJSON записывает JSON-тело с заданным статусом.
@@ -51,6 +54,26 @@ func requireUserID(w http.ResponseWriter, r *http.Request) (userID string, ok bo
 	id, isString := claims["id"].(string)
 	if !isString || id == "" {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный токен")
+		return "", false
+	}
+
+	iat, isNumber := claims["iat"].(float64)
+	if !isNumber {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Невалидный токен")
+		return "", false
+	}
+
+	invalidatedAt, err := database.GetTokensInvalidatedAt(id)
+	if err == sql.ErrNoRows {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Пользователь не найден")
+		return "", false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+		return "", false
+	}
+	if invalidatedAt.Valid && time.Unix(int64(iat), 0).Before(invalidatedAt.Time) {
+		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Токен отозван")
 		return "", false
 	}
 

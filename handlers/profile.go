@@ -19,9 +19,29 @@ func ProfileHandler(w http.ResponseWriter, r *http.Request) {
 		UpdateProfileHandler(w, r)
 	case http.MethodPost:
 		CreateProfileHandler(w, r)
+	case http.MethodDelete:
+		DeleteAccountHandler(w, r)
 	default:
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 	}
+}
+
+// DeleteAccountHandler обрабатывает DELETE /profile — удаляет аккаунт
+// пользователя целиком. profile/pet/event удаляются каскадно через
+// ON DELETE CASCADE (см. database/migrations/000001_init_schema.up.sql).
+func DeleteAccountHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	if err := database.DeleteUser(userID); err != nil {
+		log.Printf("DB delete user error: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить аккаунт")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // CreateProfileHandler обрабатывает POST /profile

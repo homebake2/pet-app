@@ -43,6 +43,11 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Password) < 8 {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Пароль должен быть не короче 8 символов")
+		return
+	}
+
 	var userId uuid.UUID
 	var passwordHash string
 	err := database.DB.QueryRow("SELECT id, password FROM users WHERE login=$1", req.Login).Scan(&userId, &passwordHash)
@@ -76,6 +81,8 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 
 	if _, err := database.DB.Exec("UPDATE users SET refresh_token=$1 WHERE login=$2", refreshToken, req.Login); err != nil {
 		log.Printf("Ошибка при обновлении refresh_token: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить refresh token")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, models.AuthResponse{

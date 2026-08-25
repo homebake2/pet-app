@@ -58,6 +58,7 @@ func TestGetActivitiesHandler_InvalidPetID(t *testing.T) {
 
 func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -77,6 +78,7 @@ func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 
 func TestGetActivitiesHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
@@ -123,6 +125,7 @@ func expectProfileLookup(mock sqlmock.Sqlmock) {
 
 func TestCreateEventHandler_MissingFields(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 
 	w := httptest.NewRecorder()
@@ -133,6 +136,7 @@ func TestCreateEventHandler_MissingFields(t *testing.T) {
 
 func TestCreateEventHandler_InvalidType(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 
 	w := httptest.NewRecorder()
@@ -144,6 +148,7 @@ func TestCreateEventHandler_InvalidType(t *testing.T) {
 
 func TestCreateEventHandler_InvalidPetID(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 
 	w := httptest.NewRecorder()
@@ -155,6 +160,7 @@ func TestCreateEventHandler_InvalidPetID(t *testing.T) {
 
 func TestCreateEventHandler_PetNotFound(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnError(sql.ErrNoRows)
@@ -169,6 +175,7 @@ func TestCreateEventHandler_PetNotFound(t *testing.T) {
 
 func TestCreateEventHandler_PetDeleted(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
@@ -185,6 +192,7 @@ func TestCreateEventHandler_PetDeleted(t *testing.T) {
 
 func TestCreateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
@@ -215,6 +223,7 @@ func TestGetEventHandler_InvalidID(t *testing.T) {
 
 func TestGetEventHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnError(sql.ErrNoRows)
@@ -229,6 +238,7 @@ func TestGetEventHandler_NotFound(t *testing.T) {
 
 func TestGetEventHandler_NotOwned(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
@@ -246,6 +256,7 @@ func TestGetEventHandler_NotOwned(t *testing.T) {
 
 func TestGetEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
@@ -264,6 +275,7 @@ func TestGetEventHandler_Success(t *testing.T) {
 
 func TestDeleteEventHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
@@ -280,6 +292,7 @@ func TestDeleteEventHandler_NotFound(t *testing.T) {
 
 func TestDeleteEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
 		WithArgs(testProfileID).
@@ -302,6 +315,7 @@ func TestDeleteEventHandler_Success(t *testing.T) {
 
 func TestUpdateEventHandler_MissingPetID(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
@@ -317,6 +331,7 @@ func TestUpdateEventHandler_MissingPetID(t *testing.T) {
 
 func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
@@ -332,6 +347,7 @@ func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 
 func TestUpdateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).

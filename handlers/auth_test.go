@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"myauthservice/models"
+	"myauthservice/openapi"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -52,6 +53,16 @@ func TestRegisterHandler_MissingFields(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestRegisterHandler_PasswordTooShort(t *testing.T) {
+	w := httptest.NewRecorder()
+	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "short"}))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	var body openapi.GetErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, openapi.VALIDATIONERROR, body.Code)
+}
+
 func TestRegisterHandler_LookupDBError(t *testing.T) {
 	mock := setupMockDB(t)
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
@@ -59,7 +70,7 @@ func TestRegisterHandler_LookupDBError(t *testing.T) {
 		WillReturnError(assertError)
 
 	w := httptest.NewRecorder()
-	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "pw"}))
+	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "password"}))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -74,7 +85,7 @@ func TestRegisterHandler_InsertError(t *testing.T) {
 		WillReturnError(assertError)
 
 	w := httptest.NewRecorder()
-	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "pw"}))
+	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "password"}))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
@@ -93,7 +104,7 @@ func TestRegisterHandler_CreatesNewUserWithHashedPassword(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
-	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "pw"}))
+	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "password"}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp models.AuthResponse
@@ -117,9 +128,25 @@ func TestLoginHandler_AutoRegistersUnknownUser(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
-	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "pw"}))
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLoginHandler_SaveRefreshTokenError(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE login=\$2`).
+		WillReturnError(assertError)
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -140,10 +167,10 @@ func TestLoginHandler_WrongPassword(t *testing.T) {
 	userID := "11111111-1111-1111-1111-111111111111"
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "correct")))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "correctpw")))
 
 	w := httptest.NewRecorder()
-	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "wrong"}))
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "wrongpass"}))
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
 }
@@ -153,12 +180,12 @@ func TestLoginHandler_Success(t *testing.T) {
 	userID := "11111111-1111-1111-1111-111111111111"
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE login=\$1`).
 		WithArgs("john").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "pw")))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE login=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
-	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "pw"}))
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -253,7 +280,7 @@ func TestLogoutHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT refresh_token FROM users WHERE login=\$1`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"refresh_token"}).AddRow(token))
-	mock.ExpectExec(`UPDATE users SET refresh_token=NULL WHERE login=\$1`).
+	mock.ExpectExec(`UPDATE users SET refresh_token=NULL, tokens_invalidated_at=now\(\) WHERE login=\$1`).
 		WithArgs("john").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -270,7 +297,7 @@ func TestLogoutHandler_ClearError(t *testing.T) {
 	mock.ExpectQuery(`SELECT refresh_token FROM users WHERE login=\$1`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"refresh_token"}).AddRow(token))
-	mock.ExpectExec(`UPDATE users SET refresh_token=NULL WHERE login=\$1`).
+	mock.ExpectExec(`UPDATE users SET refresh_token=NULL, tokens_invalidated_at=now\(\) WHERE login=\$1`).
 		WithArgs("john").
 		WillReturnError(assertError)
 

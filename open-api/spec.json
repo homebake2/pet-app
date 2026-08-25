@@ -57,6 +57,16 @@
                 }
               }
             }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "post-login",
@@ -113,6 +123,16 @@
                 }
               }
             }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "post-refresh",
@@ -154,6 +174,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
             "content": {
               "application/json": {
                 "schema": {
@@ -314,6 +344,30 @@
             }
           }
         }
+      },
+      "delete": {
+        "summary": "/profile",
+        "description": "Удаление аккаунта пользователя. Каскадно удаляет профиль, питомцев и события пользователя.",
+        "tags": [
+          "profile-controller"
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "delete-profile",
+        "parameters": []
       }
     },
     "/activities": {
@@ -871,6 +925,16 @@
           },
           "403": {
             "description": "Forbidden. Пользователь существует, но пароль неверный.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
             "content": {
               "application/json": {
                 "schema": {
