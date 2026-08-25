@@ -62,39 +62,20 @@ func CreateProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	const queryFind = "SELECT COUNT(*) FROM profile WHERE user_id=$1"
-	var count int
-	if err := database.DB.QueryRow(queryFind, userID).Scan(&count); err != nil {
-		log.Printf("DB error: %v", err)
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+	const queryUpsert = `
+		INSERT INTO profile (user_id, first_name, middle_name, last_name, email, phone)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (user_id) DO UPDATE
+		SET first_name=EXCLUDED.first_name,
+			middle_name=EXCLUDED.middle_name,
+			last_name=EXCLUDED.last_name,
+			email=EXCLUDED.email,
+			phone=EXCLUDED.phone
+	`
+	if _, err := database.DB.Exec(queryUpsert, userID, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone); err != nil {
+		log.Printf("DB upsert error: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить профиль")
 		return
-	}
-
-	if count == 0 {
-		const queryInsert = `
-			INSERT INTO profile (user_id, first_name, middle_name, last_name, email, phone)
-			VALUES ($1, $2, $3, $4, $5, $6)
-		`
-		if _, err := database.DB.Exec(queryInsert, userID, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone); err != nil {
-			log.Printf("DB insert error: %v", err)
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать профиль")
-			return
-		}
-	} else {
-		const queryUpdate = `
-			UPDATE profile
-			SET first_name=$1,
-				middle_name=$2,
-				last_name=$3,
-				email=$4,
-				phone=$5
-			WHERE user_id=$6
-		`
-		if _, err := database.DB.Exec(queryUpdate, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone, userID); err != nil {
-			log.Printf("DB update error: %v", err)
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось обновить профиль")
-			return
-		}
 	}
 
 	w.WriteHeader(http.StatusNoContent)
@@ -118,8 +99,8 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.FirstName == nil || strings.TrimSpace(*input.FirstName) == "" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле first_name обязательно")
+	if input.FirstName != nil && strings.TrimSpace(*input.FirstName) == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле first_name не может быть пустым")
 		return
 	}
 
@@ -161,9 +142,21 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 	query := "UPDATE profile SET " + strings.Join(setClauses, ", ") + " WHERE user_id=$" + strconv.Itoa(argIdx)
 	args = append(args, userID)
 
-	if _, err := database.DB.Exec(query, args...); err != nil {
+	result, err := database.DB.Exec(query, args...)
+	if err != nil {
 		log.Printf("DB update error: %v", err)
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось обновить профиль")
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		log.Printf("DB rows affected error: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось обновить профиль")
+		return
+	}
+	if rowsAffected == 0 {
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Профиль не найден, используйте POST для создания")
 		return
 	}
 
@@ -195,6 +188,14 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 
 	login, err := database.GetLoginByUserID(userID)
 	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить логин")
+		return
+	}
+	if login == "" {
+		// profile.user_id ссылается на users(id) внешним ключом, поэтому
+		// пустой login означает ошибку выполнения запроса (например,
+		// некорректный JOIN), а не отсутствие пользователя.
+		log.Printf("Empty login for existing profile, user_id=%s", userID)
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить логин")
 		return
 	}

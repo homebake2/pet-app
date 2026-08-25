@@ -10,6 +10,8 @@ type Profile struct {
 }
 
 type ProfileResponse struct {
+	// ID — это идентификатор пользователя (users.id), а не первичный ключ
+	// строки profile: последний никогда не возвращается клиенту.
 	ID         string `json:"id"`
 	FirstName  string `json:"first_name"`
 	MiddleName string `json:"middle_name,omitempty"`

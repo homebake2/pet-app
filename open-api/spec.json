@@ -246,6 +246,16 @@
                 }
               }
             }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "get-profile",
@@ -257,6 +267,7 @@
       },
       "post": {
         "summary": "/profile",
+        "description": "Создаёт профиль пользователя, если он ещё не существует, либо полностью перезаписывает существующий (upsert). Поле first_name обязательно.",
         "tags": [
           "profile-controller"
         ],
@@ -302,6 +313,7 @@
       },
       "put": {
         "summary": "/profile",
+        "description": "Частично обновляет уже существующий профиль пользователя: обновляются только переданные поля, first_name необязателен. Если профиль ещё не создан — возвращает 404 (используйте POST для создания).",
         "tags": [
           "profile-controller"
         ],
@@ -328,6 +340,16 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "put-profile",
@@ -339,7 +361,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GetProfileRequest"
+                "$ref": "#/components/schemas/GetProfileUpdateRequest"
               }
             }
           }
@@ -1169,6 +1191,7 @@
         "properties": {
           "id": {
             "type": "string",
+            "description": "Идентификатор пользователя (users.id), а не первичный ключ строки profile",
             "x-stoplight": {
               "id": "51jblis41boh4"
             },
@@ -1362,6 +1385,28 @@
             "x-stoplight": {
               "id": "cpb9s6cjq0egk"
             }
+          }
+        }
+      },
+      "GetProfileUpdateRequest": {
+        "title": "GetProfileUpdateRequest",
+        "type": "object",
+        "description": "Частичное обновление профиля через PUT /profile: все поля необязательны, но должно быть передано хотя бы одно.",
+        "properties": {
+          "first_name": {
+            "type": "string"
+          },
+          "middle_name": {
+            "type": "string"
+          },
+          "last_name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string"
           }
         }
       },
