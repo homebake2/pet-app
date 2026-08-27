@@ -15,6 +15,11 @@ import (
 	"github.com/google/uuid"
 )
 
+const (
+	maxActivitiesRange = 366 * 24 * time.Hour
+	maxEventFieldLen   = 500
+)
+
 // GetActivitiesHandler handles GET requests to /activities endpoint
 func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("Обработчик /activities GET вызван")
@@ -54,6 +59,11 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if toDate.Sub(fromDate) > maxActivitiesRange {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Диапазон дат не должен превышать 366 дней")
+		return
+	}
+
 	petID, err := uuid.Parse(petIDStr)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат pet_id")
@@ -77,13 +87,8 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /activities отдаёт список — вместо 404 на отсутствующего/чужого питомца
-	// отдаём пустой результат, как для питомца без событий.
 	if !belongs {
-		writeJSON(w, http.StatusOK, models.ActivitiesResponse{
-			PetName: "",
-			Items:   []models.ActivityDay{},
-		})
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец не найден")
 		return
 	}
 
@@ -154,7 +159,10 @@ type PetEventsResponse struct {
 	Items []PetEventItem `json:"items"`
 }
 
-// GET /pet/{id}/events
+// GET /pet/{id}/events возвращает плоский список всех событий питомца без
+// фильтра по датам и без группировки по дням (в отличие от /activities) —
+// задел на будущий сценарий вида «вся история питомца». На момент написания
+// клиентом не используется.
 func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
 	log.Println("Обработчик /pet/{id}/events GET вызван")
 
@@ -207,7 +215,7 @@ func EventIDResonseHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		GetEventHandler(w, r)
-	case http.MethodPut:
+	case http.MethodPatch:
 		UpdateEventHandler(w, r)
 	case http.MethodDelete:
 		DeleteEventHandler(w, r)
@@ -367,8 +375,18 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(req.Value) > maxEventFieldLen || (req.Notes != nil && len(*req.Notes) > maxEventFieldLen) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes/value не должно превышать 500 символов")
+		return
+	}
+
 	if !models.IsValidEventType(req.Type) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение type")
+		return
+	}
+
+	if _, err := time.Parse(time.RFC3339, req.Date); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат даты")
 		return
 	}
 
@@ -416,9 +434,9 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PUT /events/{id}
+// PATCH /events/{id}
 func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /events/{id} PUT вызван")
+	log.Println("Обработчик /events/{id} PATCH вызван")
 
 	eventID, err := parseEventIDFromPath(r)
 	if err != nil {
@@ -460,6 +478,11 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Необходимо указать хотя бы одно поле для обновления")
+		return
+	}
+
+	if (req.Value != nil && len(*req.Value) > maxEventFieldLen) || (req.Notes != nil && len(*req.Notes) > maxEventFieldLen) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes/value не должно превышать 500 символов")
 		return
 	}
 

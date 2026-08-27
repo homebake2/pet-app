@@ -25,7 +25,7 @@ func main() {
 	mux.HandleFunc("/pet/", handlers.PetByIDHandler)
 	mux.HandleFunc("/pet", handlers.PetHandler)
 	mux.HandleFunc("/events", handlers.CreateEventHandler)
-	mux.HandleFunc("/events/", handlers.EventIDResonseHandler)
+	mux.HandleFunc("/events/", handlers.EventIDResonseHandler) // PATCH /events/{id} — частичное обновление
 	mux.HandleFunc("/activities", handlers.GetActivitiesHandler)
 
 	port := os.Getenv("PORT")

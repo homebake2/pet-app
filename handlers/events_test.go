@@ -69,11 +69,7 @@ func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 	path := "/activities?from=2024-01-01&to=2024-01-02&pet_id=" + testPetID
 	GetActivitiesHandler(w, eventRequest(t, http.MethodGet, path, nil, true))
 
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp models.ActivitiesResponse
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Empty(t, resp.PetName)
-	assert.Empty(t, resp.Items)
+	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
 func TestGetActivitiesHandler_Success(t *testing.T) {
@@ -323,7 +319,7 @@ func TestUpdateEventHandler_MissingPetID(t *testing.T) {
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg"))
 
 	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodPut, "/events/"+eventID, models.UpdateEventRequest{}, true)
+	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{}, true)
 	UpdateEventHandler(w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -339,7 +335,7 @@ func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg"))
 
 	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodPut, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID}, true)
+	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID}, true)
 	UpdateEventHandler(w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -363,7 +359,7 @@ func TestUpdateEventHandler_Success(t *testing.T) {
 
 	newValue := "6kg"
 	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodPut, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID, Value: &newValue}, true)
+	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID, Value: &newValue}, true)
 	UpdateEventHandler(w, r)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)

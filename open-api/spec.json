@@ -395,6 +395,7 @@
     "/activities": {
       "get": {
         "summary": "/activities",
+        "description": "Возвращает 404, если питомец не найден или не принадлежит текущему профилю. Диапазон from..to не должен превышать 366 дней, иначе 400 VALIDATION_ERROR.",
         "tags": [
           "activities-controller"
         ],
@@ -421,6 +422,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
             "content": {
               "application/json": {
                 "schema": {
@@ -816,8 +827,9 @@
           "event-controller"
         ]
       },
-      "put": {
+      "patch": {
         "summary": "/event/{id}",
+        "description": "Частичное обновление события — обновляются только переданные поля. Метод назван PATCH в соответствии со своей семантикой (ранее назывался PUT).",
         "tags": [
           "event-controller"
         ],
@@ -856,7 +868,7 @@
             }
           }
         },
-        "operationId": "put-event",
+        "operationId": "patch-event",
         "x-stoplight": {
           "id": "xxh851kuvn2cp"
         },
@@ -872,6 +884,7 @@
       },
       "delete": {
         "summary": "/events/{id}",
+        "description": "Удаление события разрешено даже если питомец, к которому оно относится, мягко удалён (в отличие от создания/обновления событий) — это осознанное поведение, полезное для очистки истории после удаления питомца.",
         "tags": [
           "event-controller"
         ],
@@ -986,6 +999,7 @@
       ],
       "get": {
         "summary": "/pet/{id}/events",
+        "description": "Плоский список всех событий питомца без фильтра по датам и без группировки по дням (в отличие от /activities). Задел на будущий сценарий «вся история питомца»; на момент написания клиентом не используется.",
         "tags": [
           "event-controller"
         ],
@@ -1505,12 +1519,14 @@
           },
           "notes": {
             "type": "string",
+            "maxLength": 500,
             "x-stoplight": {
               "id": "nde5qu3cm46oy"
             }
           },
           "value": {
             "type": "string",
+            "maxLength": 500,
             "x-stoplight": {
               "id": "yajgqq4i16atj"
             }
@@ -1863,10 +1879,12 @@
             "$ref": "#/components/schemas/GetEventEnum"
           },
           "notes": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 500
           },
           "value": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 500
           }
         }
       }
