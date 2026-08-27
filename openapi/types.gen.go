@@ -85,20 +85,8 @@ const (
 
 // Defines values for LanguageCode.
 const (
-	LanguageCodeEn LanguageCode = "en"
-	LanguageCodeRu LanguageCode = "ru"
-)
-
-// Defines values for GetPetsParamsLanguageCode.
-const (
-	GetPetsParamsLanguageCodeEn GetPetsParamsLanguageCode = "en"
-	GetPetsParamsLanguageCodeRu GetPetsParamsLanguageCode = "ru"
-)
-
-// Defines values for GetPetParamsLanguageCode.
-const (
-	En GetPetParamsLanguageCode = "en"
-	Ru GetPetParamsLanguageCode = "ru"
+	En LanguageCode = "en"
+	Ru LanguageCode = "ru"
 )
 
 // ErrorCodeEnum Код ошибки для маппинга на фронте
@@ -132,6 +120,7 @@ type GetEventIdResponseRequest struct {
 	Notes   *string            `json:"notes,omitempty"`
 	PetId   openapi_types.UUID `json:"pet_id"`
 	PetName string             `json:"pet_name"`
+	Type    GetEventEnum       `json:"type"`
 	Value   string             `json:"value"`
 }
 
@@ -173,8 +162,10 @@ type GetLoginResponse struct {
 
 // GetMasterProfileResponse defines model for GetMasterProfileResponse.
 type GetMasterProfileResponse struct {
-	Email      *string            `json:"email,omitempty"`
-	FirstName  string             `json:"first_name"`
+	Email     *string `json:"email,omitempty"`
+	FirstName string  `json:"first_name"`
+
+	// Id Идентификатор пользователя (users.id), а не первичный ключ строки profile
 	Id         openapi_types.UUID `json:"id"`
 	LastName   *string            `json:"last_name,omitempty"`
 	Login      string             `json:"login"`
@@ -220,6 +211,15 @@ type GetProfileRequest struct {
 	Phone      *string `json:"phone,omitempty"`
 }
 
+// GetProfileUpdateRequest Частичное обновление профиля через PUT /profile: все поля необязательны, но должно быть передано хотя бы одно.
+type GetProfileUpdateRequest struct {
+	Email      *string `json:"email,omitempty"`
+	FirstName  *string `json:"first_name,omitempty"`
+	LastName   *string `json:"last_name,omitempty"`
+	MiddleName *string `json:"middle_name,omitempty"`
+	Phone      *string `json:"phone,omitempty"`
+}
+
 // GetRefreshRequest defines model for GetRefreshRequest.
 type GetRefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
@@ -257,6 +257,19 @@ type UpdateEventRequest struct {
 	Value *string            `json:"value,omitempty"`
 }
 
+// UpdatePetProfileRequest defines model for UpdatePetProfileRequest.
+type UpdatePetProfileRequest struct {
+	BirthDate    *openapi_types.Date  `json:"birth_date,omitempty"`
+	Breed        *string              `json:"breed,omitempty"`
+	Color        *string              `json:"color,omitempty"`
+	Gender       *GetGenderEnum       `json:"gender,omitempty"`
+	Habilitation *GetHabilitationEnum `json:"habilitation,omitempty"`
+	Name         *string              `json:"name,omitempty"`
+	Notes        *string              `json:"notes,omitempty"`
+	Species      *string              `json:"species,omitempty"`
+	Sterilized   *bool                `json:"sterilized,omitempty"`
+}
+
 // LanguageCode defines model for LanguageCode.
 type LanguageCode string
 
@@ -266,22 +279,6 @@ type GetActivitiesParams struct {
 	From  openapi_types.Date `form:"from" json:"from"`
 	To    openapi_types.Date `form:"to" json:"to"`
 }
-
-// GetPetsParams defines parameters for GetPets.
-type GetPetsParams struct {
-	LanguageCode GetPetsParamsLanguageCode `json:"LanguageCode"`
-}
-
-// GetPetsParamsLanguageCode defines parameters for GetPets.
-type GetPetsParamsLanguageCode string
-
-// GetPetParams defines parameters for GetPet.
-type GetPetParams struct {
-	LanguageCode GetPetParamsLanguageCode `json:"LanguageCode"`
-}
-
-// GetPetParamsLanguageCode defines parameters for GetPet.
-type GetPetParamsLanguageCode string
 
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = GetLoginRequest
@@ -298,17 +295,17 @@ type PostRegisterJSONRequestBody = GetLoginRequest
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = GetEventRequest
 
-// PutEventJSONRequestBody defines body for PutEvent for application/json ContentType.
-type PutEventJSONRequestBody = UpdateEventRequest
+// PatchEventJSONRequestBody defines body for PatchEvent for application/json ContentType.
+type PatchEventJSONRequestBody = UpdateEventRequest
 
 // PostPetJSONRequestBody defines body for PostPet for application/json ContentType.
 type PostPetJSONRequestBody = GetPetProfileRequest
 
 // PutPetJSONRequestBody defines body for PutPet for application/json ContentType.
-type PutPetJSONRequestBody = GetPetProfileRequest
+type PutPetJSONRequestBody = UpdatePetProfileRequest
 
 // PostProfileJSONRequestBody defines body for PostProfile for application/json ContentType.
 type PostProfileJSONRequestBody = GetProfileRequest
 
 // PutProfileJSONRequestBody defines body for PutProfile for application/json ContentType.
-type PutProfileJSONRequestBody = GetProfileRequest
+type PutProfileJSONRequestBody = GetProfileUpdateRequest

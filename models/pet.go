@@ -39,6 +39,7 @@ type UpdateEventRequest struct {
 type EventResponse struct {
 	ID      string  `json:"id"`
 	Date    string  `json:"date"`
+	Type    string  `json:"type"`
 	Value   string  `json:"value"`
 	Notes   *string `json:"notes,omitempty"`
 	PetID   string  `json:"pet_id"`

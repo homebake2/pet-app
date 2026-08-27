@@ -336,6 +336,7 @@ func GetEventHandler(w http.ResponseWriter, r *http.Request) {
 	response := models.EventResponse{
 		ID:      eventDB.ID.String(),
 		Date:    eventDB.Date.Format(time.RFC3339),
+		Type:    eventDB.Type,
 		Value:   eventDB.Value,
 		Notes:   notes,
 		PetID:   petID.String(),
@@ -427,6 +428,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, models.EventResponse{
 		ID:      createdEvent.ID.String(),
 		Date:    createdEvent.Date.Format(time.RFC3339),
+		Type:    createdEvent.Type,
 		Value:   createdEvent.Value,
 		Notes:   notes,
 		PetID:   petIDOfEvent.String(),

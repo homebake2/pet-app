@@ -1742,6 +1742,7 @@
         "required": [
           "id",
           "date",
+          "type",
           "value",
           "pet_id",
           "pet_name"
@@ -1760,6 +1761,12 @@
               "id": "pl2ag4bbhwyr3"
             },
             "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum",
+            "x-stoplight": {
+              "id": "b3v9m5jz7k2wq"
+            }
           },
           "value": {
             "type": "string",

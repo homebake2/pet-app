@@ -207,6 +207,9 @@ func TestCreateEventHandler_Success(t *testing.T) {
 	CreateEventHandler(w, r)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp models.EventResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "weight", resp.Type)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -266,6 +269,9 @@ func TestGetEventHandler_Success(t *testing.T) {
 	GetEventHandler(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.EventResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "weight", resp.Type)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
