@@ -1,10 +1,7 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
-	"fmt"
-	"log"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
@@ -36,11 +33,10 @@ func PetHandler(w http.ResponseWriter, r *http.Request) {
 // PetByIDHandler обрабатывает /pet/{id} (получение, изменение, удаление)
 // и /pet/{id}/events (получение событий питомца).
 func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
-	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/pet/"), "/")
-	parts := strings.Split(rest, "/")
+	segments := pathSegments(r, "/pet/")
 
-	if len(parts) == 2 && parts[1] == "events" {
-		petID, err := uuid.Parse(parts[0])
+	if len(segments) == 2 && segments[1] == "events" {
+		petID, err := uuid.Parse(segments[0])
 		if err != nil {
 			writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
 			return
@@ -63,11 +59,6 @@ func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 	}
-}
-
-func parsePetIDFromPath(r *http.Request) (uuid.UUID, error) {
-	petIDStr := strings.TrimPrefix(r.URL.Path, "/pet/")
-	return uuid.Parse(petIDStr)
 }
 
 // CreatePetHandler обрабатывает POST /pet
@@ -131,14 +122,8 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetAllPetHandler обрабатывает GET /pet
 func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
-		return
-	}
-
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить профиль")
 		return
 	}
 
@@ -179,24 +164,13 @@ func GetPetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
 		return
 	}
 
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
-		return
-	}
-
-	pet, err := database.GetPetByIDAndProfileID(petID, profileID)
-	if err == sql.ErrNoRows {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
-		return
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
+	pet, ok := resolveOwnedPet(w, petID, profileID)
+	if !ok {
 		return
 	}
 
@@ -210,23 +184,12 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
 		return
 	}
 
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
-		return
-	}
-
-	if _, err := database.GetPetByIDAndProfileID(petID, profileID); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
+	if _, ok := resolveOwnedPet(w, petID, profileID); !ok {
 		return
 	}
 
@@ -266,7 +229,6 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("REQ: %+v\n", req)
 	if err := database.UpdatePet(petID, profileID, req); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления питомца")
 		return
@@ -283,23 +245,12 @@ func DeletePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
 		return
 	}
 
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
-		return
-	}
-
-	if _, err := database.GetPetByIDAndProfileID(petID, profileID); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
+	if _, ok := resolveOwnedPet(w, petID, profileID); !ok {
 		return
 	}
 

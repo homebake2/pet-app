@@ -3,13 +3,10 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
-	"log"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,10 +17,8 @@ const (
 	maxEventFieldLen   = 500
 )
 
-// GetActivitiesHandler handles GET requests to /activities endpoint
+// GetActivitiesHandler обрабатывает GET /activities
 func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /activities GET вызван")
-
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return
@@ -70,14 +65,8 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
-		return
-	}
-
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля пользователя")
 		return
 	}
 
@@ -145,7 +134,7 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-// PetEventItem represents a single event as returned by GET /pet/{id}/events (GetEventResponse).
+// PetEventItem - одно событие в ответе GET /pet/{id}/events (GetEventResponse).
 type PetEventItem struct {
 	ID    string  `json:"id"`
 	Date  string  `json:"date"`
@@ -154,7 +143,7 @@ type PetEventItem struct {
 	Value string  `json:"value"`
 }
 
-// PetEventsResponse is the response body for GET /pet/{id}/events.
+// PetEventsResponse - тело ответа GET /pet/{id}/events.
 type PetEventsResponse struct {
 	Items []PetEventItem `json:"items"`
 }
@@ -164,16 +153,8 @@ type PetEventsResponse struct {
 // задел на будущий сценарий вида «вся история питомца». На момент написания
 // клиентом не используется.
 func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
-	log.Println("Обработчик /pet/{id}/events GET вызван")
-
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
-		return
-	}
-
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return
 	}
 
@@ -211,7 +192,9 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 	writeJSON(w, http.StatusOK, PetEventsResponse{Items: items})
 }
 
-func EventIDResonseHandler(w http.ResponseWriter, r *http.Request) {
+// EventIDResponseHandler обрабатывает /events/{id}: получение, частичное
+// обновление (PATCH) и удаление события.
+func EventIDResponseHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		GetEventHandler(w, r)
@@ -224,53 +207,20 @@ func EventIDResonseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func parseEventIDFromPath(r *http.Request) (uuid.UUID, error) {
-	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(pathParts) < 2 || pathParts[0] != "events" {
-		return uuid.Nil, errors.New("некорректный путь")
-	}
-	return uuid.Parse(pathParts[1])
-}
-
 // DELETE /events/{id}
 func DeleteEventHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /events/{id} DELETE вызван")
-
 	eventID, err := parseEventIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный ID события")
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
 		return
 	}
 
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
-		return
-	}
-
-	_, petID, _, err := database.GetEventByID(eventID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Событие не найдено")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения события")
-		return
-	}
-
-	belongs, err := database.CheckPetBelongsToProfile(petID, profileID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
-		return
-	}
-
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Событие не найдено")
+	if _, _, _, ok := resolveOwnedEvent(w, eventID, profileID); !ok {
 		return
 	}
 
@@ -288,43 +238,19 @@ func DeleteEventHandler(w http.ResponseWriter, r *http.Request) {
 
 // GET /events/{id}
 func GetEventHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /events/{id} GET вызван")
-
 	eventID, err := parseEventIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный ID события")
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
 		return
 	}
 
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
-		return
-	}
-
-	eventDB, petID, petName, err := database.GetEventByID(eventID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Событие не найдено")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения события")
-		return
-	}
-
-	belongs, err := database.CheckPetBelongsToProfile(petID, profileID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Событие не найдено")
+	eventDB, petID, petName, ok := resolveOwnedEvent(w, eventID, profileID)
+	if !ok {
 		return
 	}
 
@@ -348,20 +274,13 @@ func GetEventHandler(w http.ResponseWriter, r *http.Request) {
 
 // POST /events
 func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /events POST вызван")
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
-		return
-	}
-
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return
 	}
 
@@ -399,7 +318,11 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	petDB, err := database.GetPetIdDBByIDAndProfileID(petID, profileID)
 	if err != nil {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 		return
 	}
 
@@ -438,22 +361,14 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 // PATCH /events/{id}
 func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
-	log.Println("Обработчик /events/{id} PATCH вызван")
-
 	eventID, err := parseEventIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный ID события")
 		return
 	}
 
-	userID, ok := requireUserID(w, r)
+	profileID, ok := authProfile(w, r)
 	if !ok {
-		return
-	}
-
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return
 	}
 
@@ -512,6 +427,10 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	petDB, err := database.GetPetById(reqPetID)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 		return
 	}
