@@ -10,9 +10,16 @@ import (
 	"myauthservice/openapi"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
+
+// isValidBirthDate проверяет, что дата рождения питомца в формате "YYYY-MM-DD".
+func isValidBirthDate(birthDate string) bool {
+	_, err := time.Parse("2006-01-02", birthDate)
+	return err == nil
+}
 
 // PetHandler обрабатывает /pet (без id): список и создание.
 func PetHandler(w http.ResponseWriter, r *http.Request) {
@@ -63,17 +70,6 @@ func parsePetIDFromPath(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(petIDStr)
 }
 
-// requireLanguageCode проверяет обязательный заголовок LanguageCode (ru|en),
-// как того требует components.parameters.LanguageCode из open-api/spec.json.
-func requireLanguageCode(w http.ResponseWriter, r *http.Request) bool {
-	lang := r.Header.Get("LanguageCode")
-	if lang != "ru" && lang != "en" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Заголовок LanguageCode обязателен и должен быть ru или en")
-		return false
-	}
-	return true
-}
-
 // CreatePetHandler обрабатывает POST /pet
 func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 	userID, ok := requireUserID(w, r)
@@ -94,6 +90,21 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Icon != nil && !models.IsValidIcon(*req.Icon) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение icon")
+		return
+	}
+
+	if req.Gender != nil && !models.IsValidGender(*req.Gender) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение gender")
+		return
+	}
+
+	if req.Habitation != nil && !models.IsValidHabitation(*req.Habitation) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение habilitation")
+		return
+	}
+
+	if req.BirthDate != nil && !isValidBirthDate(*req.BirthDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат birth_date, ожидается YYYY-MM-DD")
 		return
 	}
 
@@ -120,10 +131,6 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetAllPetHandler обрабатывает GET /pet
 func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
-	if !requireLanguageCode(w, r) {
-		return
-	}
-
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -166,10 +173,6 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetPetHandler обрабатывает GET /pet/{id}
 func GetPetHandler(w http.ResponseWriter, r *http.Request) {
-	if !requireLanguageCode(w, r) {
-		return
-	}
-
 	petID, err := parsePetIDFromPath(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
@@ -233,13 +236,33 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == nil || strings.TrimSpace(*req.Name) == "" || req.Species == nil || strings.TrimSpace(*req.Species) == "" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля name и species обязательны")
+	if req.Name != nil && strings.TrimSpace(*req.Name) == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле name не может быть пустым")
+		return
+	}
+
+	if req.Species != nil && strings.TrimSpace(*req.Species) == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле species не может быть пустым")
 		return
 	}
 
 	if req.Icon != nil && !models.IsValidIcon(*req.Icon) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение icon")
+		return
+	}
+
+	if req.Gender != nil && !models.IsValidGender(*req.Gender) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение gender")
+		return
+	}
+
+	if req.Habitation != nil && !models.IsValidHabitation(*req.Habitation) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение habilitation")
+		return
+	}
+
+	if req.BirthDate != nil && !isValidBirthDate(*req.BirthDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат birth_date, ожидается YYYY-MM-DD")
 		return
 	}
 

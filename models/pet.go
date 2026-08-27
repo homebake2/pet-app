@@ -92,6 +92,26 @@ func IsValidIcon(icon string) bool {
 	return allowedIcons[icon]
 }
 
+var allowedGenders = map[string]bool{
+	"male":   true,
+	"female": true,
+	"other":  true,
+}
+
+func IsValidGender(gender string) bool {
+	return allowedGenders[gender]
+}
+
+var allowedHabitations = map[string]bool{
+	"indoor":  true,
+	"outside": true,
+	"both":    true,
+}
+
+func IsValidHabitation(habitation string) bool {
+	return allowedHabitations[habitation]
+}
+
 type CreatePetRequest struct {
 	Name       string  `json:"name"`                 // обязательное
 	Gender     *string `json:"gender,omitempty"`     // перечисление
@@ -101,7 +121,6 @@ type CreatePetRequest struct {
 	Sterilized *bool   `json:"sterilized,omitempty"`
 	Habitation *string `json:"habilitation,omitempty"` // enum: indoor, outside, both
 	Notes      *string `json:"notes,omitempty"`
-	IsDeleted  *bool   `json:"is_deleted,omitempty"` // необязательное, можно оставить без заполнения
 	Breed      *string `json:"breed,omitempty"`
 	Icon       *string `json:"icon,omitempty"` // enum: DOG, CAT, HAMSTER, GUINEA_PIG, RABBIT, PARROT, CANARY, FISH, TURTLE, RAT, MOUSE, FERRET, HEDGEHOG, CHINCHILLA, MINI_PIG, MINI_GOAT, CHICKEN, DUCK, PIGEON, IGUANA, GECKO, BEARDED_AGAMA, SNAKE, PYTHON, FROG, AXOLOTL, TARANTULA, HERMIT_CRAB, ANT_FARM, SNAIL, OTHER
 }

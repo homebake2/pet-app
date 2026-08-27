@@ -63,6 +63,39 @@ func TestCreatePetHandler_InvalidIcon(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestCreatePetHandler_InvalidGender(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+
+	badGender := "not-a-gender"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Gender: &badGender}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_InvalidHabitation(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+
+	badHabitation := "not-a-habitation"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Habitation: &badHabitation}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_InvalidBirthDate(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+
+	badDate := "not-a-date"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", BirthDate: &badDate}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestCreatePetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testProfileID)
@@ -84,11 +117,22 @@ func TestCreatePetHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestGetAllPetHandler_MissingLanguageCode(t *testing.T) {
+func TestGetAllPetHandler_WithoutLanguageCode(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
+		WithArgs(testProfileID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
+	mock.ExpectQuery(`SELECT id, name, breed, species, icon FROM pet`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "icon"}).
+			AddRow(testPetID, "Rex", "Labrador", "dog", "DOG"))
+
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet", nil, true)
 	GetAllPetHandler(w, r)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestGetAllPetHandler_Success(t *testing.T) {
@@ -139,6 +183,23 @@ func TestGetPetHandler_NotFound(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, w.Code)
 }
 
+func TestGetPetHandler_SoftDeletedHiddenViaQuery(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
+		WithArgs(testProfileID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon\s+FROM pet\s+WHERE id = \$1 AND profile_id = \$2 AND deleted_at IS NULL`).
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID, nil, true)
+	GetPetHandler(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestGetPetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testProfileID)
@@ -158,7 +219,7 @@ func TestGetPetHandler_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestUpdatePetHandler_MissingRequiredFields(t *testing.T) {
+func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testProfileID)
 	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
@@ -169,11 +230,33 @@ func TestUpdatePetHandler_MissingRequiredFields(t *testing.T) {
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
 
+	empty := ""
 	w := httptest.NewRecorder()
-	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{}, true)
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Name: &empty}, true)
 	UpdatePetHandler(w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdatePetHandler_PartialUpdate(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
+		WithArgs(testProfileID).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	notes := "Заметка без изменения имени и вида"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Notes: &notes}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestUpdatePetHandler_NotFound(t *testing.T) {

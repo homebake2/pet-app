@@ -571,12 +571,7 @@
         "x-stoplight": {
           "id": "wlwjq3qkm169v"
         },
-        "description": "Получение данных по определенному питомцу",
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/LanguageCode"
-          }
-        ]
+        "description": "Получение данных по определенному питомцу"
       },
       "put": {
         "summary": "/pet/{id}",
@@ -627,7 +622,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/GetPetProfileRequest"
+                "$ref": "#/components/schemas/UpdatePetProfileRequest"
               }
             }
           }
@@ -712,11 +707,6 @@
         "description": "Получение данных по всем питомцам",
         "tags": [
           "pets-controller"
-        ],
-        "parameters": [
-          {
-            "$ref": "#/components/parameters/LanguageCode"
-          }
         ]
       },
       "post": {
@@ -1605,6 +1595,70 @@
           "name",
           "species"
         ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "kdbnb7e8btuxa"
+            }
+          },
+          "gender": {
+            "$ref": "#/components/schemas/GetGenderEnum",
+            "x-stoplight": {
+              "id": "nzh83sxaanru7"
+            }
+          },
+          "species": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "2vgy2cvo53bnm"
+            }
+          },
+          "birth_date": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "94d3lf7rkiuwm"
+            },
+            "format": "date"
+          },
+          "color": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "7ohevwqkegead"
+            }
+          },
+          "sterilized": {
+            "type": "boolean",
+            "x-stoplight": {
+              "id": "sy44dczs900zh"
+            }
+          },
+          "habilitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "evi4rzr8r8uu6"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "y1073k67wpf05"
+            }
+          },
+          "breed": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "pecllq0en6sfm"
+            }
+          }
+        }
+      },
+      "UpdatePetProfileRequest": {
+        "title": "UpdatePetProfileRequest",
+        "x-stoplight": {
+          "id": "u9ttl1d2zc9es-req"
+        },
+        "type": "object",
         "properties": {
           "name": {
             "type": "string",

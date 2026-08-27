@@ -161,12 +161,7 @@ func InsertPet(profileID uuid.UUID, req models.CreatePetRequest) (uuid.UUID, err
 		icon = sql.NullString{Valid: false}
 	}
 
-	var deletedAt sql.NullTime
-	if req.IsDeleted != nil && *req.IsDeleted {
-		deletedAt = sql.NullTime{Time: time.Now().UTC(), Valid: true}
-	} else {
-		deletedAt = sql.NullTime{Valid: false}
-	}
+	deletedAt := sql.NullTime{Valid: false}
 
 	// Тут можно подготовить все параметры и выполнить запрос
 	// После вставки вернете id нового питомца.
@@ -214,12 +209,13 @@ func GetPetsByProfileID(profileID uuid.UUID) ([]models.PetDB, error) {
 }
 
 // GetPetByIDAndProfileID - получить питомца по id и profile_id
+// Мягко удалённые питомцы (deleted_at заполнен) скрыты — обрабатываются как несуществующие.
 func GetPetByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdResponse, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
 	       habitation, notes, deleted_at, breed, icon
 	FROM pet
-	WHERE id = $1 AND profile_id = $2
+	WHERE id = $1 AND profile_id = $2 AND deleted_at IS NULL
 	`
 
 	var petDB models.PetIdDB
