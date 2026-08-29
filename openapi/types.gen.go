@@ -20,6 +20,7 @@ const (
 	FORBIDDEN       ErrorCodeEnum = "FORBIDDEN"
 	INTERNALERROR   ErrorCodeEnum = "INTERNAL_ERROR"
 	NOTFOUND        ErrorCodeEnum = "NOT_FOUND"
+	RATELIMITED     ErrorCodeEnum = "RATE_LIMITED"
 	UNAUTHORIZED    ErrorCodeEnum = "UNAUTHORIZED"
 	VALIDATIONERROR ErrorCodeEnum = "VALIDATION_ERROR"
 )
@@ -144,6 +145,11 @@ type GetEventResponse struct {
 
 // GetGenderEnum defines model for GetGenderEnum.
 type GetGenderEnum string
+
+// GetGuestRequest defines model for GetGuestRequest.
+type GetGuestRequest struct {
+	DeviceId string `json:"device_id"`
+}
 
 // GetHabilitationEnum defines model for GetHabilitationEnum.
 type GetHabilitationEnum string
@@ -279,6 +285,9 @@ type GetActivitiesParams struct {
 	From  openapi_types.Date `form:"from" json:"from"`
 	To    openapi_types.Date `form:"to" json:"to"`
 }
+
+// PostGuestJSONRequestBody defines body for PostGuest for application/json ContentType.
+type PostGuestJSONRequestBody = GetGuestRequest
 
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = GetLoginRequest

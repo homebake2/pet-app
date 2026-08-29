@@ -6,6 +6,7 @@ import (
 	"myauthservice/database"
 	"myauthservice/openapi"
 	"myauthservice/utils"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -78,4 +79,22 @@ func requireUserID(w http.ResponseWriter, r *http.Request) (userID string, ok bo
 	}
 
 	return id, true
+}
+
+// clientIP определяет IP-адрес клиента для rate-limiting: сначала пробует
+// первый адрес из X-Forwarded-For (запрос мог пройти через прокси/балансировщик),
+// иначе берёт r.RemoteAddr.
+func clientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		first, _, _ := strings.Cut(xff, ",")
+		if ip := strings.TrimSpace(first); ip != "" {
+			return ip
+		}
+	}
+
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil && host != "" {
+		return host
+	}
+
+	return r.RemoteAddr
 }

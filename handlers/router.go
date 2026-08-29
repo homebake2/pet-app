@@ -11,6 +11,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/auth/login", LoginHandler)
 	mux.HandleFunc("/auth/refresh", RefreshTokenHandler)
 	mux.HandleFunc("/auth/logout", LogoutHandler)
+	mux.HandleFunc("/auth/guest", GuestHandler)
 	mux.HandleFunc("/profile", ProfileHandler)
 	mux.HandleFunc("/pet/", PetByIDHandler)
 	mux.HandleFunc("/pet", PetHandler)

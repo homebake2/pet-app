@@ -67,6 +67,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too Many Requests. Превышен лимит регистраций с этого IP за сутки.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "post-login",
@@ -967,6 +977,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Too Many Requests. Превышен лимит регистраций с этого IP за сутки.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "post-register",
@@ -978,6 +998,59 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/GetLoginRequest"
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/auth/guest": {
+      "post": {
+        "summary": "/auth/guest",
+        "description": "Создаёт или находит гостевого пользователя по идентификатору устройства/сессии, минуя обычный флоу login/password. Повторный вызов с тем же device_id возвращает токены существующего гостевого пользователя, не создавая новую запись.",
+        "tags": [
+          "public",
+          "auth-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetLoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method Not Allowed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-guest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetGuestRequest"
               }
             }
           }
@@ -1264,6 +1337,19 @@
           }
         }
       },
+      "GetGuestRequest": {
+        "title": "GetGuestRequest",
+        "type": "object",
+        "required": [
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
       "GetLoginResponse": {
         "title": "GetLoginResponse",
         "x-stoplight": {
@@ -1347,6 +1433,7 @@
           "FORBIDDEN",
           "NOT_FOUND",
           "CONFLICT",
+          "RATE_LIMITED",
           "INTERNAL_ERROR"
         ]
       },
