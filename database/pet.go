@@ -139,7 +139,7 @@ func GetPetByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdResponse, 
 		ID:         petDB.ID.String(),
 		Name:       petDB.Name,
 		Species:    petDB.Species,
-		Sterilized: petDB.Sterilized,
+		Sterilized: petDB.Sterilized.Bool,
 		IsDeleted:  petDB.DeletedAt.Valid,
 	}
 

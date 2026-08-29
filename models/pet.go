@@ -141,7 +141,7 @@ type PetResponse struct {
 type PetDB struct {
 	ID      uuid.UUID      `db:"id"`
 	Name    string         `db:"name"`
-	Breed   string         `db:"breed"`
+	Breed   sql.NullString `db:"breed"`
 	Species string         `db:"species"`
 	Icon    sql.NullString `db:"icon"`
 }
@@ -170,7 +170,7 @@ type PetIdDB struct {
 	Species    string
 	BirthDate  sql.NullTime
 	Color      sql.NullString
-	Sterilized bool
+	Sterilized sql.NullBool
 	Habitation sql.NullString
 	Notes      sql.NullString
 	DeletedAt  sql.NullTime

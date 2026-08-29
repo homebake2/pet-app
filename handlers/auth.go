@@ -142,7 +142,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var storedRefreshToken string
+	var storedRefreshToken sql.NullString
 	err = database.DB.QueryRow("SELECT refresh_token FROM users WHERE login=$1", login).Scan(&storedRefreshToken)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Пользователь не найден")
@@ -154,7 +154,7 @@ func LogoutHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if storedRefreshToken != input.RefreshToken {
+	if !storedRefreshToken.Valid || storedRefreshToken.String != input.RefreshToken {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Токен отозван или устарел")
 		return
 	}
@@ -216,7 +216,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var storedRefreshToken string
+	var storedRefreshToken sql.NullString
 	err = database.DB.QueryRow("SELECT refresh_token FROM users WHERE login=$1", login).Scan(&storedRefreshToken)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Пользователь не найден")
@@ -228,7 +228,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if storedRefreshToken != input.RefreshToken {
+	if !storedRefreshToken.Valid || storedRefreshToken.String != input.RefreshToken {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Токен отозван или устарел")
 		return
 	}

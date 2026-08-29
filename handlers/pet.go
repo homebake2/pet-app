@@ -147,7 +147,7 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 		response.Items = append(response.Items, models.PetItem{
 			ID:      pet.ID.String(),
 			Name:    pet.Name,
-			Breed:   pet.Breed,
+			Breed:   pet.Breed.String,
 			Species: pet.Species,
 			Icon:    icon,
 		})
