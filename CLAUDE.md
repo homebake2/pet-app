@@ -20,6 +20,11 @@ go run .                         # port 3000 by default, override with PORT
 go test ./...
 go test ./handlers/ -run TestName -v   # single test
 
+# Integration tests (real Postgres + OpenAPI contract validation, see integration/)
+docker compose up -d   # local Postgres must be running
+export DATABASE_URL="postgres://postgres@127.0.0.1:5555/pets?sslmode=disable"
+go test -tags integration ./integration/...
+
 # Build (matches Render's build command)
 go build -tags netgo -ldflags '-s -w' -o app
 
@@ -42,7 +47,7 @@ Migrations are embedded into the binary (`database/migrate.go`, `//go:embed migr
 - **Auth**: JWT-based (`utils/jwt.go`), secret from `JWT_SECRET` env var (insecure default for local dev only). `handlers/response.go:requireUserID` is the shared auth guard every protected handler calls first — it validates the Bearer token, then checks `tokens_invalidated_at` in the `users` table so that logout/token-revocation works even for already-issued access tokens (not just refresh tokens).
 - **Soft delete**: `pet` rows use `deleted_at` instead of hard deletes; all pet queries must filter `deleted_at IS NULL` (see `database.GetPetByIDAndProfileID` vs `GetPetIdDBByIDAndProfileID`, which intentionally omits the filter for update/ownership checks).
 - **Ownership checks**: resources are scoped by `profile_id` (derived from the authenticated user's `user_id` via `GetProfileIDByUserID`), not directly by `user_id`. Cross-user access must be checked at the handler level (e.g. `CheckPetBelongsToProfile`) before mutating/returning nested resources like events.
-- **Testing**: handlers are tested with `github.com/DATA-DOG/go-sqlmock` swapped in for `database.DB` — see `handlers/testutil_test.go` for the shared harness (`setupMockDB`, token helpers, `expectTokensValid`). No real DB needed for `go test`.
+- **Testing**: handlers are unit-tested with `github.com/DATA-DOG/go-sqlmock` swapped in for `database.DB` — see `handlers/testutil_test.go` for the shared harness (`setupMockDB`, token helpers, `expectTokensValid`). No real DB needed for `go test ./...`. Separately, `integration/` (build tag `integration`) drives the real HTTP mux (`handlers.NewMux()`, shared with `main.go`) against a real Postgres and validates every request/response against `open-api/spec.json` via `kin-openapi`/`openapi3filter`. It truncates all tables before each test — never point `DATABASE_URL` at anything but a disposable local DB when running it.
 - **Error responses**: always `{ code, message }` JSON via `writeError`/`writeJSON` in `handlers/response.go`, matching `components.schemas.GetErrorResponse` in the spec.
 
 ## Deployment
