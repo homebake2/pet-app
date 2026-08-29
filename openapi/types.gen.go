@@ -135,7 +135,7 @@ type GetEventRequest struct {
 
 // GetEventResponse defines model for GetEventResponse.
 type GetEventResponse struct {
-	Date  openapi_types.Date `json:"date"`
+	Date  time.Time          `json:"date"`
 	Id    openapi_types.UUID `json:"id"`
 	Notes *string            `json:"notes,omitempty"`
 	Type  GetEventEnum       `json:"type"`

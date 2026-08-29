@@ -182,7 +182,7 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		}
 		items = append(items, PetEventItem{
 			ID:    eventDB.ID.String(),
-			Date:  eventDB.Date.Format("2006-01-02"),
+			Date:  eventDB.Date.Format(time.RFC3339),
 			Type:  eventDB.Type,
 			Notes: notes,
 			Value: eventDB.Value,
