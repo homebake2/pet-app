@@ -13,24 +13,14 @@ func main() {
 	// Инициализация базы данных
 	database.InitDB()
 
-	// Список роутов ниже — единственное место, где виден весь HTTP-контракт
-	// сервиса. Он не проверяется автоматически против open-api/spec.json,
-	// поэтому при добавлении/изменении эндпоинта нужно вручную обновлять
-	// оба места (см. openapi/generate.go про регенерацию типов).
-	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/register", handlers.RegisterHandler)
+	// Список роутов живёт в handlers.NewMux() — единственном месте, где виден
+	// весь HTTP-контракт сервиса. Он не проверяется автоматически против
+	// open-api/spec.json, поэтому при добавлении/изменении эндпоинта нужно
+	// вручную обновлять оба места (см. openapi/generate.go про регенерацию типов).
+	mux := handlers.NewMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Сервер работает!"))
 	})
-	mux.HandleFunc("/auth/login", handlers.LoginHandler)
-	mux.HandleFunc("/auth/refresh", handlers.RefreshTokenHandler)
-	mux.HandleFunc("/auth/logout", handlers.LogoutHandler)
-	mux.HandleFunc("/profile", handlers.ProfileHandler)
-	mux.HandleFunc("/pet/", handlers.PetByIDHandler)
-	mux.HandleFunc("/pet", handlers.PetHandler)
-	mux.HandleFunc("/events", handlers.CreateEventHandler)
-	mux.HandleFunc("/events/", handlers.EventIDResponseHandler) // PATCH /events/{id} — частичное обновление
-	mux.HandleFunc("/activities", handlers.GetActivitiesHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
