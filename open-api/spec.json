@@ -490,6 +490,11 @@
     "/events": {
       "post": {
         "summary": "/events",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
         "responses": {
           "201": {
             "description": "Created",
@@ -2022,6 +2027,16 @@
             "ru",
             "en"
           ]
+        }
+      },
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": false,
+        "description": "UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
         }
       }
     }

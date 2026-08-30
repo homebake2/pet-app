@@ -12,13 +12,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// InsertEvent - функция создания нового ивента для питомца
-func InsertEvent(petID uuid.UUID, req models.CreateEventRequest) (uuid.UUID, error) {
+// InsertEvent - функция создания нового ивента для питомца. idempotencyKey
+// пустая строка означает "заголовок Idempotency-Key не передан" (NULL в БД).
+func InsertEvent(petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
 	query := `
         INSERT INTO event (
-            pet_id, date_time, type, notes, value
+            pet_id, date_time, type, notes, value, idempotency_key
         ) VALUES (
-            $1, $2, $3, $4, $5
+            $1, $2, $3, $4, $5, $6
         ) RETURNING id
     `
 
@@ -34,8 +35,13 @@ func InsertEvent(petID uuid.UUID, req models.CreateEventRequest) (uuid.UUID, err
 		notes = sql.NullString{Valid: false}
 	}
 
+	var key sql.NullString
+	if idempotencyKey != "" {
+		key = sql.NullString{String: idempotencyKey, Valid: true}
+	}
+
 	var eventID uuid.UUID
-	err = DB.QueryRow(query, petID, dateTime, req.Type, notes, req.Value).Scan(&eventID)
+	err = DB.QueryRow(query, petID, dateTime, req.Type, notes, req.Value, key).Scan(&eventID)
 	if err != nil {
 		log.Println("InsertEvent error:", err)
 		return uuid.Nil, err
@@ -44,13 +50,44 @@ func InsertEvent(petID uuid.UUID, req models.CreateEventRequest) (uuid.UUID, err
 	return eventID, nil
 }
 
+// GetEventByPetIDAndIdempotencyKey ищет неудалённое событие питомца по
+// ранее использованному Idempotency-Key (см. страницу "Добавление события —
+// Backend"). Возвращает sql.ErrNoRows, если такого события нет.
+func GetEventByPetIDAndIdempotencyKey(petID uuid.UUID, idempotencyKey string) (*models.EventDB, uuid.UUID, string, error) {
+	query := `
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	FROM event e
+	JOIN pet p ON e.pet_id = p.id
+	WHERE e.pet_id = $1 AND e.idempotency_key = $2
+	`
+
+	var eventDB models.EventDB
+	var petName string
+
+	err := DB.QueryRow(query, petID, idempotencyKey).Scan(
+		&eventDB.ID,
+		&eventDB.PetID,
+		&eventDB.Date,
+		&eventDB.Type,
+		&eventDB.Notes,
+		&eventDB.Value,
+		&petName,
+	)
+
+	if err != nil {
+		return nil, uuid.Nil, "", err
+	}
+
+	return &eventDB, eventDB.PetID, petName, nil
+}
+
 // GetEventByID - получить событие по ID и информацию о питомце
 func GetEventByID(eventID uuid.UUID) (*models.EventDB, uuid.UUID, string, error) {
 	query := `
 	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
-	WHERE e.id = $1
+	WHERE e.id = $1 AND e.deleted_at IS NULL
 	`
 
 	var eventDB models.EventDB
@@ -127,7 +164,7 @@ func GetEventByIDForUpdate(eventID uuid.UUID) (*models.EventDB, error) {
 	query := `
 	SELECT id, pet_id, date_time, type, notes, value
 	FROM event
-	WHERE id = $1
+	WHERE id = $1 AND deleted_at IS NULL
 	`
 
 	var eventDB models.EventDB
@@ -147,10 +184,12 @@ func GetEventByIDForUpdate(eventID uuid.UUID) (*models.EventDB, error) {
 	return &eventDB, nil
 }
 
-// DeleteEvent - функция удаления события
+// DeleteEvent - функция мягкого удаления события (устанавливает deleted_at,
+// строка физически не удаляется), аналогично database.DeletePet.
 func DeleteEvent(eventID uuid.UUID) error {
-	query := `DELETE FROM event WHERE id = $1`
-	result, err := DB.Exec(query, eventID)
+	query := `UPDATE event SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL`
+	now := time.Now().UTC()
+	result, err := DB.Exec(query, now, eventID)
 	if err != nil {
 		log.Println("DeleteEvent error:", err)
 		return err
@@ -168,17 +207,21 @@ func DeleteEvent(eventID uuid.UUID) error {
 	return nil
 }
 
-// GetEventsByPetIDAndDateRange - получить все события питомца в заданном диапазоне дат
+// GetEventsByPetIDAndDateRange - получить все неудалённые события питомца в
+// заданном диапазоне дат. fromDate/toDate — календарные UTC-даты (полночь
+// UTC); границы сравниваются полуоткрытым интервалом
+// [fromDate, toDate+1 день) в UTC, см. страницу "Просмотр календаря — Backend".
 func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) ([]models.EventDB, error) {
 	query := `
 	SELECT id, pet_id, date_time, type, notes, value
 	FROM event
 	WHERE pet_id = $1
+	AND deleted_at IS NULL
 	AND date_time >= $2
-	AND date_time <= $3
+	AND date_time < $3
 	ORDER BY date_time
 	`
-	rows, err := DB.Query(query, petID, fromDate, toDate.Add(24*time.Hour-1*time.Second)) // Include entire toDate
+	rows, err := DB.Query(query, petID, fromDate.UTC(), toDate.UTC().AddDate(0, 0, 1))
 	if err != nil {
 		log.Println("GetEventsByPetIDAndDateRange error:", err)
 		return nil, err
@@ -217,6 +260,7 @@ func GetEventsByPetID(petID uuid.UUID) ([]models.EventDB, error) {
 	SELECT id, pet_id, date_time, type, notes, value
 	FROM event
 	WHERE pet_id = $1
+	AND deleted_at IS NULL
 	ORDER BY date_time
 	`
 	rows, err := DB.Query(query, petID)

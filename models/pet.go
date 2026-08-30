@@ -47,12 +47,13 @@ type EventResponse struct {
 }
 
 type EventDB struct {
-	ID    uuid.UUID
-	PetID uuid.UUID
-	Date  time.Time
-	Type  string
-	Notes sql.NullString
-	Value string
+	ID        uuid.UUID
+	PetID     uuid.UUID
+	Date      time.Time
+	Type      string
+	Notes     sql.NullString
+	Value     string
+	DeletedAt sql.NullTime
 }
 
 var allowedIcons = map[string]bool{

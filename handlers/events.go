@@ -54,6 +54,11 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if toDate.Before(fromDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметр from не может быть позже to")
+		return
+	}
+
 	if toDate.Sub(fromDate) > maxActivitiesRange {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Диапазон дат не должен превышать 366 дней")
 		return
@@ -95,7 +100,11 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 	eventsByDay := make(map[string][]models.ActivityEvent)
 	for _, eventDB := range eventsDB {
-		dateStr := eventDB.Date.Format("2006-01-02")
+		// Календарный день события для группировки определяется по UTC-
+		// представлению date_time, а не по location, в которой драйвер
+		// вернул time.Time (см. "Просмотр календаря — Backend").
+		eventDate := eventDB.Date.UTC()
+		dateStr := eventDate.Format("2006-01-02")
 		var notes *string
 		if eventDB.Notes.Valid {
 			notes = new(string)
@@ -103,7 +112,7 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		activityEvent := models.ActivityEvent{
 			ID:    eventDB.ID.String(),
-			Date:  eventDB.Date.Format(time.RFC3339),
+			Date:  eventDate.Format(time.RFC3339),
 			Type:  eventDB.Type,
 			Notes: notes,
 			Value: eventDB.Value,
@@ -290,13 +299,14 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.PetID == "" || req.Date == "" || req.Type == "" || req.Value == "" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Обязательные поля не заполнены")
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey != "" && !isValidUUIDv4(idempotencyKey) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Заголовок Idempotency-Key должен быть валидным UUID v4")
 		return
 	}
 
-	if len(req.Value) > maxEventFieldLen || (req.Notes != nil && len(*req.Notes) > maxEventFieldLen) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes/value не должно превышать 500 символов")
+	if req.PetID == "" || req.Date == "" || req.Type == "" || req.Value == "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Обязательные поля не заполнены")
 		return
 	}
 
@@ -305,8 +315,18 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := time.Parse(time.RFC3339, req.Date); err != nil {
+	if _, err := parseEventDate(req.Date); err != nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат даты")
+		return
+	}
+
+	if msg := validateEventValue(req.Type, req.Value); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+		return
+	}
+
+	if !validateNotesLength(req.Notes) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes не должно превышать 500 символов")
 		return
 	}
 
@@ -331,8 +351,29 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventID, err := database.InsertEvent(petID, req)
+	if idempotencyKey != "" {
+		if existing, existingPetID, existingPetName, err := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey); err == nil {
+			writeJSON(w, http.StatusCreated, eventResponseFromDB(existing, existingPetID, existingPetName))
+			return
+		} else if err != sql.ErrNoRows {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
+			return
+		}
+	}
+
+	eventID, err := database.InsertEvent(petID, req, idempotencyKey)
 	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) {
+			// Гонка параллельных запросов с одним и тем же idempotency key —
+			// событие уже вставлено конкурентным запросом, возвращаем его.
+			existing, existingPetID, existingPetName, lookupErr := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey)
+			if lookupErr != nil {
+				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
+				return
+			}
+			writeJSON(w, http.StatusCreated, eventResponseFromDB(existing, existingPetID, existingPetName))
+			return
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
 		return
 	}
@@ -343,20 +384,23 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var notes *string
-	if createdEvent.Notes.Valid {
-		notes = &createdEvent.Notes.String
-	}
+	writeJSON(w, http.StatusCreated, eventResponseFromDB(createdEvent, petIDOfEvent, petName))
+}
 
-	writeJSON(w, http.StatusCreated, models.EventResponse{
-		ID:      createdEvent.ID.String(),
-		Date:    createdEvent.Date.Format(time.RFC3339),
-		Type:    createdEvent.Type,
-		Value:   createdEvent.Value,
+func eventResponseFromDB(eventDB *models.EventDB, petID uuid.UUID, petName string) models.EventResponse {
+	var notes *string
+	if eventDB.Notes.Valid {
+		notes = &eventDB.Notes.String
+	}
+	return models.EventResponse{
+		ID:      eventDB.ID.String(),
+		Date:    eventDB.Date.Format(time.RFC3339),
+		Type:    eventDB.Type,
+		Value:   eventDB.Value,
 		Notes:   notes,
-		PetID:   petIDOfEvent.String(),
+		PetID:   petID.String(),
 		PetName: petName,
-	})
+	}
 }
 
 // PATCH /events/{id}
@@ -398,8 +442,13 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if (req.Value != nil && len(*req.Value) > maxEventFieldLen) || (req.Notes != nil && len(*req.Notes) > maxEventFieldLen) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes/value не должно превышать 500 символов")
+	if req.Type != nil && req.Value == nil {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "При смене type поле value обязательно в этом же запросе")
+		return
+	}
+
+	if !validateNotesLength(req.Notes) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes не должно превышать 500 символов")
 		return
 	}
 
@@ -445,9 +494,20 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Value != nil {
+		effectiveType := eventDB.Type
+		if req.Type != nil {
+			effectiveType = *req.Type
+		}
+		if msg := validateEventValue(effectiveType, *req.Value); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+
 	var dateTime *time.Time
 	if req.Date != nil {
-		parsedDate, err := time.Parse(time.RFC3339, *req.Date)
+		parsedDate, err := parseEventDate(*req.Date)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат даты")
 			return

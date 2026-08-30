@@ -276,6 +276,9 @@ type UpdatePetProfileRequest struct {
 	Sterilized   *bool                `json:"sterilized,omitempty"`
 }
 
+// IdempotencyKey defines model for IdempotencyKey.
+type IdempotencyKey = openapi_types.UUID
+
 // LanguageCode defines model for LanguageCode.
 type LanguageCode string
 
@@ -284,6 +287,12 @@ type GetActivitiesParams struct {
 	PetId openapi_types.UUID `form:"pet_id" json:"pet_id"`
 	From  openapi_types.Date `form:"from" json:"from"`
 	To    openapi_types.Date `form:"to" json:"to"`
+}
+
+// PostEventParams defines parameters for PostEvent.
+type PostEventParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // PostGuestJSONRequestBody defines body for PostGuest for application/json ContentType.

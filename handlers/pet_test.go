@@ -304,7 +304,7 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+ORDER BY date_time`).
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
 
 	w := httptest.NewRecorder()
