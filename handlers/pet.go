@@ -63,11 +63,6 @@ func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreatePetHandler обрабатывает POST /pet
 func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requireUserID(w, r)
-	if !ok {
-		return
-	}
-
 	var req models.CreatePetRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
@@ -99,9 +94,8 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Профиль пользователя не найден")
+	profileID, ok := authProfile(w, r)
+	if !ok {
 		return
 	}
 

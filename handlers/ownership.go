@@ -49,6 +49,10 @@ func authProfile(w http.ResponseWriter, r *http.Request) (profileID uuid.UUID, o
 
 	profileID, err := database.GetProfileIDByUserID(userID)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Профиль не найден")
+			return uuid.Nil, false
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
 		return uuid.Nil, false
 	}

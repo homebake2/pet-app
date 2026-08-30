@@ -117,6 +117,21 @@ func TestCreatePetHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestCreatePetHandler_ProfileNotFound(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
+		WithArgs(testProfileID).
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog"}, true)
+	CreatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestGetAllPetHandler_WithoutLanguageCode(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testProfileID)
@@ -155,6 +170,21 @@ func TestGetAllPetHandler_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 1)
 	assert.Equal(t, "Rex", resp.Items[0].Name)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetAllPetHandler_ProfileNotFound(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testProfileID)
+	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
+		WithArgs(testProfileID).
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet", nil, true)
+	GetAllPetHandler(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
