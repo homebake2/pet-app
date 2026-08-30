@@ -18,7 +18,7 @@ func eventRequest(t *testing.T, method, path string, body any, authed bool) *htt
 	t.Helper()
 	r := doRequest(method, path, body)
 	if authed {
-		r.Header.Set("Authorization", "Bearer "+validAccessToken(t, testProfileID))
+		r.Header.Set("Authorization", "Bearer "+validAccessToken(t, testUserID))
 	}
 	return r
 }
@@ -58,11 +58,8 @@ func TestGetActivitiesHandler_InvalidPetID(t *testing.T) {
 
 func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
-		WithArgs(testProfileID).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND profile_id = \$2`).
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
@@ -74,11 +71,8 @@ func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 
 func TestGetActivitiesHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
-		WithArgs(testProfileID).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND profile_id = \$2`).
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT name FROM pet WHERE id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Rex"))
@@ -113,16 +107,9 @@ func TestCreateEventHandler_Unauthorized(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func expectProfileLookup(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
-		WithArgs(testProfileID).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
-}
-
 func TestCreateEventHandler_MissingFields(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodPost, "/events", models.CreateEventRequest{}, true)
@@ -132,8 +119,7 @@ func TestCreateEventHandler_MissingFields(t *testing.T) {
 
 func TestCreateEventHandler_InvalidType(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 
 	w := httptest.NewRecorder()
 	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "bogus", Value: "1"}
@@ -144,8 +130,7 @@ func TestCreateEventHandler_InvalidType(t *testing.T) {
 
 func TestCreateEventHandler_InvalidPetID(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 
 	w := httptest.NewRecorder()
 	body := models.CreateEventRequest{PetID: "not-a-uuid", Date: "2024-01-01T10:00:00Z", Type: "weight", Value: "1"}
@@ -156,8 +141,7 @@ func TestCreateEventHandler_InvalidPetID(t *testing.T) {
 
 func TestCreateEventHandler_PetNotFound(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnError(sql.ErrNoRows)
 
@@ -171,8 +155,7 @@ func TestCreateEventHandler_PetNotFound(t *testing.T) {
 
 func TestCreateEventHandler_PetDeleted(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, time.Now(), nil, "DOG",
@@ -188,8 +171,7 @@ func TestCreateEventHandler_PetDeleted(t *testing.T) {
 
 func TestCreateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
@@ -222,8 +204,7 @@ func TestGetEventHandler_InvalidID(t *testing.T) {
 
 func TestGetEventHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
-	expectProfileLookup(mock)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnError(sql.ErrNoRows)
 
@@ -237,13 +218,12 @@ func TestGetEventHandler_NotFound(t *testing.T) {
 
 func TestGetEventHandler_NotOwned(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg", "Rex"))
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND profile_id = \$2`).
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
@@ -255,13 +235,12 @@ func TestGetEventHandler_NotOwned(t *testing.T) {
 
 func TestGetEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg", "Rex"))
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND profile_id = \$2`).
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 
 	w := httptest.NewRecorder()
@@ -277,11 +256,8 @@ func TestGetEventHandler_Success(t *testing.T) {
 
 func TestDeleteEventHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
-		WithArgs(testProfileID).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnError(sql.ErrNoRows)
 
@@ -294,15 +270,12 @@ func TestDeleteEventHandler_NotFound(t *testing.T) {
 
 func TestDeleteEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`SELECT id FROM profile WHERE user_id = \$1`).
-		WithArgs(testProfileID).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testProfileID))
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg", "Rex"))
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND profile_id = \$2`).
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectExec(`DELETE FROM event WHERE id = \$1`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -317,9 +290,8 @@ func TestDeleteEventHandler_Success(t *testing.T) {
 
 func TestUpdateEventHandler_MissingPetID(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg"))
@@ -333,9 +305,8 @@ func TestUpdateEventHandler_MissingPetID(t *testing.T) {
 
 func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg"))
@@ -349,13 +320,12 @@ func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 
 func TestUpdateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	expectProfileLookup(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, "5kg"))
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND profile_id = \$2`).
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(

@@ -205,6 +205,47 @@ func TestPetOwnershipIsolation(t *testing.T) {
 	require.Equal(t, http.StatusNotFound, forbidden.status)
 }
 
+// TestPetAndEventLifecycle_WithoutProfile проверяет, что питомцы и события
+// доступны сразу после регистрации, без заполнения профиля (POST /profile) —
+// основной сценарий PET-183/PET-184.
+func TestPetAndEventLifecycle_WithoutProfile(t *testing.T) {
+	resetDB(t)
+
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+
+	petResp := doRequest(t, http.MethodPost, "/pet", map[string]any{
+		"name":    "Барсик",
+		"species": "cat",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, petResp.status, "%s", petResp.body)
+	var pet struct {
+		ID string `json:"id"`
+	}
+	petResp.decode(t, &pet)
+	require.NotEmpty(t, pet.ID)
+
+	list := doRequest(t, http.MethodGet, "/pet", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, list.status)
+	var listBody struct {
+		Items []struct{ ID string } `json:"items"`
+	}
+	list.decode(t, &listBody)
+	require.Len(t, listBody.Items, 1)
+
+	eventResp := doRequest(t, http.MethodPost, "/events", map[string]any{
+		"pet_id": pet.ID,
+		"date":   time.Now().UTC().Format(time.RFC3339),
+		"type":   "weight",
+		"value":  "4.2",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, eventResp.status, "%s", eventResp.body)
+
+	// GET /profile по-прежнему 404, пока профиль не заполнен явно — это
+	// поведение не меняется (PET-184, требование 4).
+	profileResp := doRequest(t, http.MethodGet, "/profile", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusNotFound, profileResp.status)
+}
+
 func TestUnauthorizedAccess(t *testing.T) {
 	resetDB(t)
 

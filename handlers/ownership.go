@@ -39,31 +39,10 @@ func parseEventIDFromPath(r *http.Request) (uuid.UUID, error) {
 	return uuid.Parse(segments[0])
 }
 
-// authProfile проверяет авторизацию и находит profile_id вызывающего
-// пользователя. При ошибке сама пишет ответ и возвращает ok=false.
-func authProfile(w http.ResponseWriter, r *http.Request) (profileID uuid.UUID, ok bool) {
-	userID, ok := requireUserID(w, r)
-	if !ok {
-		return uuid.Nil, false
-	}
-
-	profileID, err := database.GetProfileIDByUserID(userID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Профиль не найден")
-			return uuid.Nil, false
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения профиля")
-		return uuid.Nil, false
-	}
-
-	return profileID, true
-}
-
 // resolveOwnedPet проверяет, что питомец petID существует, не удалён и
-// принадлежит profileID. При ошибке/отсутствии сама пишет 404/500.
-func resolveOwnedPet(w http.ResponseWriter, petID, profileID uuid.UUID) (*models.PetIdResponse, bool) {
-	pet, err := database.GetPetByIDAndProfileID(petID, profileID)
+// принадлежит userID. При ошибке/отсутствии сама пишет 404/500.
+func resolveOwnedPet(w http.ResponseWriter, petID uuid.UUID, userID string) (*models.PetIdResponse, bool) {
+	pet, err := database.GetPetByIDAndUserID(petID, userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
@@ -76,8 +55,8 @@ func resolveOwnedPet(w http.ResponseWriter, petID, profileID uuid.UUID) (*models
 }
 
 // resolveOwnedEvent находит событие eventID и проверяет, что его питомец
-// принадлежит profileID. При ошибке/отсутствии сама пишет 404/500.
-func resolveOwnedEvent(w http.ResponseWriter, eventID, profileID uuid.UUID) (eventDB *models.EventDB, petID uuid.UUID, petName string, ok bool) {
+// принадлежит userID. При ошибке/отсутствии сама пишет 404/500.
+func resolveOwnedEvent(w http.ResponseWriter, eventID uuid.UUID, userID string) (eventDB *models.EventDB, petID uuid.UUID, petName string, ok bool) {
 	eventDB, petID, petName, err := database.GetEventByID(eventID)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -88,7 +67,7 @@ func resolveOwnedEvent(w http.ResponseWriter, eventID, profileID uuid.UUID) (eve
 		return nil, uuid.Nil, "", false
 	}
 
-	belongs, err := database.CheckPetBelongsToProfile(petID, profileID)
+	belongs, err := database.CheckPetBelongsToUser(petID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
 		return nil, uuid.Nil, "", false

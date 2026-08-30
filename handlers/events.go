@@ -65,12 +65,12 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	belongs, err := database.CheckPetBelongsToProfile(petID, profileID)
+	belongs, err := database.CheckPetBelongsToUser(petID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
 		return
@@ -153,12 +153,12 @@ type PetEventsResponse struct {
 // задел на будущий сценарий вида «вся история питомца». На момент написания
 // клиентом не используется.
 func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	belongs, err := database.CheckPetBelongsToProfile(petID, profileID)
+	belongs, err := database.CheckPetBelongsToUser(petID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
 		return
@@ -215,12 +215,12 @@ func DeleteEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	if _, _, _, ok := resolveOwnedEvent(w, eventID, profileID); !ok {
+	if _, _, _, ok := resolveOwnedEvent(w, eventID, userID); !ok {
 		return
 	}
 
@@ -244,12 +244,12 @@ func GetEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	eventDB, petID, petName, ok := resolveOwnedEvent(w, eventID, profileID)
+	eventDB, petID, petName, ok := resolveOwnedEvent(w, eventID, userID)
 	if !ok {
 		return
 	}
@@ -279,7 +279,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
@@ -316,7 +316,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	petDB, err := database.GetPetIdDBByIDAndProfileID(petID, profileID)
+	petDB, err := database.GetPetIdDBByIDAndUserID(petID, userID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
@@ -367,7 +367,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
@@ -414,7 +414,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	belongs, err := database.CheckPetBelongsToProfile(reqPetID, profileID)
+	belongs, err := database.CheckPetBelongsToUser(reqPetID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
 		return

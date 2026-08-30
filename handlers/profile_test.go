@@ -17,7 +17,7 @@ func profileRequest(t *testing.T, method string, body any, authed bool) *http.Re
 	t.Helper()
 	r := doRequest(method, "/profile", body)
 	if authed {
-		r.Header.Set("Authorization", "Bearer "+validAccessToken(t, testProfileID))
+		r.Header.Set("Authorization", "Bearer "+validAccessToken(t, testUserID))
 	}
 	return r
 }
@@ -36,9 +36,9 @@ func TestDeleteAccountHandler_Unauthorized(t *testing.T) {
 
 func TestDeleteAccountHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
@@ -50,9 +50,9 @@ func TestDeleteAccountHandler_Success(t *testing.T) {
 
 func TestDeleteAccountHandler_DBError(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnError(assertError)
 
 	w := httptest.NewRecorder()
@@ -69,7 +69,7 @@ func TestCreateProfileHandler_Unauthorized(t *testing.T) {
 
 func TestCreateProfileHandler_MissingFirstName(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 
 	w := httptest.NewRecorder()
 	r := profileRequest(t, http.MethodPost, models.Profile{FirstName: "  "}, true)
@@ -79,7 +79,7 @@ func TestCreateProfileHandler_MissingFirstName(t *testing.T) {
 
 func TestCreateProfileHandler_Upserts(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`INSERT INTO profile .* ON CONFLICT \(user_id\) DO UPDATE`).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -93,7 +93,7 @@ func TestCreateProfileHandler_Upserts(t *testing.T) {
 
 func TestCreateProfileHandler_DBErrorOnUpsert(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`INSERT INTO profile .* ON CONFLICT \(user_id\) DO UPDATE`).
 		WillReturnError(assertError)
 
@@ -112,7 +112,7 @@ func TestUpdateProfileHandler_Unauthorized(t *testing.T) {
 
 func TestUpdateProfileHandler_NoFields(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 
 	w := httptest.NewRecorder()
 	r := profileRequest(t, http.MethodPut, map[string]string{}, true)
@@ -122,9 +122,9 @@ func TestUpdateProfileHandler_NoFields(t *testing.T) {
 
 func TestUpdateProfileHandler_PartialUpdateWithoutFirstName(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`UPDATE profile SET last_name=\$1 WHERE user_id=\$2`).
-		WithArgs("Smith", testProfileID).
+		WithArgs("Smith", testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
@@ -137,9 +137,9 @@ func TestUpdateProfileHandler_PartialUpdateWithoutFirstName(t *testing.T) {
 
 func TestUpdateProfileHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`UPDATE profile SET first_name=\$1 WHERE user_id=\$2`).
-		WithArgs("Ann", testProfileID).
+		WithArgs("Ann", testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 
 	w := httptest.NewRecorder()
@@ -152,9 +152,9 @@ func TestUpdateProfileHandler_NotFound(t *testing.T) {
 
 func TestUpdateProfileHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`UPDATE profile SET first_name=\$1 WHERE user_id=\$2`).
-		WithArgs("Ann", testProfileID).
+		WithArgs("Ann", testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
@@ -167,9 +167,9 @@ func TestUpdateProfileHandler_Success(t *testing.T) {
 
 func TestUpdateProfileHandler_MultipleFields(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`UPDATE profile SET first_name=\$1, last_name=\$2 WHERE user_id=\$3`).
-		WithArgs("Ann", "Smith", testProfileID).
+		WithArgs("Ann", "Smith", testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
@@ -182,9 +182,9 @@ func TestUpdateProfileHandler_MultipleFields(t *testing.T) {
 
 func TestGetProfileHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -196,7 +196,7 @@ func TestGetProfileHandler_NotFound(t *testing.T) {
 
 func TestGetProfileHandler_DBError(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
 		WillReturnError(assertError)
 
@@ -209,13 +209,13 @@ func TestGetProfileHandler_DBError(t *testing.T) {
 
 func TestGetProfileHandler_EmptyLogin(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "first_name", "middle_name", "last_name", "email", "phone"}).
-			AddRow(testProfileID, "Ann", nil, nil, nil, nil))
+			AddRow(testUserID, "Ann", nil, nil, nil, nil))
 	mock.ExpectQuery(`SELECT login FROM users WHERE id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"login"}).AddRow(""))
 
 	w := httptest.NewRecorder()
@@ -228,13 +228,13 @@ func TestGetProfileHandler_EmptyLogin(t *testing.T) {
 
 func TestGetProfileHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testProfileID)
+	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "first_name", "middle_name", "last_name", "email", "phone"}).
-			AddRow(testProfileID, "Ann", nil, nil, nil, nil))
+			AddRow(testUserID, "Ann", nil, nil, nil, nil))
 	mock.ExpectQuery(`SELECT login FROM users WHERE id=\$1`).
-		WithArgs(testProfileID).
+		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"login"}).AddRow("ann-login"))
 
 	w := httptest.NewRecorder()

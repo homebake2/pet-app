@@ -14,10 +14,10 @@ import (
 
 // InsertPet создаёт нового питомца, подставляя NULL для отсутствующих
 // необязательных полей запроса.
-func InsertPet(profileID uuid.UUID, req models.CreatePetRequest) (uuid.UUID, error) {
+func InsertPet(userID string, req models.CreatePetRequest) (uuid.UUID, error) {
 	query := `
         INSERT INTO pet (
-            profile_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, icon, deleted_at
+            user_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, icon, deleted_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
         ) RETURNING id
@@ -66,7 +66,7 @@ func InsertPet(profileID uuid.UUID, req models.CreatePetRequest) (uuid.UUID, err
 
 	var newID uuid.UUID
 
-	err := DB.QueryRow(query, profileID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, icon, deletedAt).Scan(&newID)
+	err := DB.QueryRow(query, userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, icon, deletedAt).Scan(&newID)
 	if err != nil {
 		log.Println("InsertPet error:", err)
 		return uuid.Nil, err
@@ -74,16 +74,16 @@ func InsertPet(profileID uuid.UUID, req models.CreatePetRequest) (uuid.UUID, err
 	return newID, nil
 }
 
-// GetPetsByProfileID - функция получения питомцев по profile_id
-func GetPetsByProfileID(profileID uuid.UUID) ([]models.PetDB, error) {
+// GetPetsByUserID - функция получения питомцев по user_id
+func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 	var pets []models.PetDB
 
 	rows, err := DB.Query(`
 	SELECT id, name, breed, species, icon
 	FROM pet
-	WHERE profile_id = $1
+	WHERE user_id = $1
 	  AND deleted_at IS NULL
-`, profileID)
+`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -104,19 +104,19 @@ func GetPetsByProfileID(profileID uuid.UUID) ([]models.PetDB, error) {
 	return pets, nil
 }
 
-// GetPetByIDAndProfileID - получить питомца по id и profile_id
+// GetPetByIDAndUserID - получить питомца по id и user_id
 // Мягко удалённые питомцы (deleted_at заполнен) скрыты — обрабатываются как несуществующие.
-func GetPetByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdResponse, error) {
+func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
 	       habitation, notes, deleted_at, breed, icon
 	FROM pet
-	WHERE id = $1 AND profile_id = $2 AND deleted_at IS NULL
+	WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`
 
 	var petDB models.PetIdDB
 
-	err := DB.QueryRow(query, petID, profileID).Scan(
+	err := DB.QueryRow(query, petID, userID).Scan(
 		&petDB.ID,
 		&petDB.Name,
 		&petDB.Gender,
@@ -177,7 +177,7 @@ func GetPetByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdResponse, 
 }
 
 // UpdatePet обновляет только те поля питомца, что переданы в запросе.
-func UpdatePet(petID, profileID uuid.UUID, req models.UpdatePetRequest) error {
+func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -249,25 +249,25 @@ func UpdatePet(petID, profileID uuid.UUID, req models.UpdatePetRequest) error {
 	query := fmt.Sprintf(`
 		UPDATE pet
 		SET %s
-		WHERE id = $%d AND profile_id = $%d
+		WHERE id = $%d AND user_id = $%d
 	`, strings.Join(setParts, ", "), argID, argID+1)
 
-	args = append(args, petID, profileID)
+	args = append(args, petID, userID)
 
 	_, err := DB.Exec(query, args...)
 	return err
 }
 
-func DeletePet(petID, profileID uuid.UUID) error {
+func DeletePet(petID uuid.UUID, userID string) error {
 	query := `
 		UPDATE pet
 		SET deleted_at = $1
-		WHERE id = $2 AND profile_id = $3
+		WHERE id = $2 AND user_id = $3
 	`
 
 	now := time.Now().UTC()
 
-	result, err := DB.Exec(query, now, petID, profileID)
+	result, err := DB.Exec(query, now, petID, userID)
 	if err != nil {
 		log.Println("DeletePet error:", err)
 		return err
@@ -285,18 +285,18 @@ func DeletePet(petID, profileID uuid.UUID) error {
 	return nil
 }
 
-// GetPetIdDBByIDAndProfileID - получить питомца по id и profile_id (проверка принадлежности к пользователю)
-func GetPetIdDBByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdDB, error) {
+// GetPetIdDBByIDAndUserID - получить питомца по id и user_id (проверка принадлежности к пользователю)
+func GetPetIdDBByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdDB, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
 	       habitation, notes, deleted_at, breed, icon
 	FROM pet
-	WHERE id = $1 AND profile_id = $2
+	WHERE id = $1 AND user_id = $2
 	`
 
 	var petDB models.PetIdDB
 
-	err := DB.QueryRow(query, petID, profileID).Scan(
+	err := DB.QueryRow(query, petID, userID).Scan(
 		&petDB.ID,
 		&petDB.Name,
 		&petDB.Gender,
@@ -318,11 +318,11 @@ func GetPetIdDBByIDAndProfileID(petID, profileID uuid.UUID) (*models.PetIdDB, er
 	return &petDB, nil
 }
 
-// CheckPetBelongsToProfile - проверка принадлежности питомца профилю
-func CheckPetBelongsToProfile(petID, profileID uuid.UUID) (bool, error) {
-	query := `SELECT COUNT(1) FROM pet WHERE id = $1 AND profile_id = $2`
+// CheckPetBelongsToUser - проверка принадлежности питомца пользователю
+func CheckPetBelongsToUser(petID uuid.UUID, userID string) (bool, error) {
+	query := `SELECT COUNT(1) FROM pet WHERE id = $1 AND user_id = $2`
 	var count int
-	err := DB.QueryRow(query, petID, profileID).Scan(&count)
+	err := DB.QueryRow(query, petID, userID).Scan(&count)
 	if err != nil {
 		return false, err
 	}

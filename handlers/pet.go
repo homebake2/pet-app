@@ -94,18 +94,18 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	newPetID, err := database.InsertPet(profileID, req)
+	newPetID, err := database.InsertPet(userID, req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать питомца")
 		return
 	}
 
-	pet, err := database.GetPetByIDAndProfileID(newPetID, profileID)
+	pet, err := database.GetPetByIDAndUserID(newPetID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Питомец создан, но не удалось получить его данные")
 		return
@@ -116,12 +116,12 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetAllPetHandler обрабатывает GET /pet
 func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	pets, err := database.GetPetsByProfileID(profileID)
+	pets, err := database.GetPetsByUserID(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить питомцев")
 		return
@@ -158,12 +158,12 @@ func GetPetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	pet, ok := resolveOwnedPet(w, petID, profileID)
+	pet, ok := resolveOwnedPet(w, petID, userID)
 	if !ok {
 		return
 	}
@@ -178,12 +178,12 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	if _, ok := resolveOwnedPet(w, petID, profileID); !ok {
+	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
 		return
 	}
 
@@ -223,7 +223,7 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.UpdatePet(petID, profileID, req); err != nil {
+	if err := database.UpdatePet(petID, userID, req); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления питомца")
 		return
 	}
@@ -239,16 +239,16 @@ func DeletePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profileID, ok := authProfile(w, r)
+	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	if _, ok := resolveOwnedPet(w, petID, profileID); !ok {
+	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
 		return
 	}
 
-	if err := database.DeletePet(petID, profileID); err != nil {
+	if err := database.DeletePet(petID, userID); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления питомца")
 		return
 	}
