@@ -6,12 +6,17 @@ import (
 	"myauthservice/models"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func strPtr(s string) *string {
+	return &s
+}
 
 func profileRequest(t *testing.T, method string, body any, authed bool) *http.Request {
 	t.Helper()
@@ -77,6 +82,36 @@ func TestCreateProfileHandler_MissingFirstName(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestCreateProfileHandler_InvalidEmail(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPost, models.Profile{FirstName: "Ann", Email: strPtr("not-an-email")}, true)
+	CreateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateProfileHandler_InvalidPhone(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPost, models.Profile{FirstName: "Ann", Phone: strPtr("call-me-maybe")}, true)
+	CreateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreateProfileHandler_FirstNameTooLong(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPost, models.Profile{FirstName: strings.Repeat("a", 101)}, true)
+	CreateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestCreateProfileHandler_Upserts(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -133,6 +168,46 @@ func TestUpdateProfileHandler_PartialUpdateWithoutFirstName(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateProfileHandler_EmptyFirstName(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPut, map[string]string{"first_name": "   "}, true)
+	UpdateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateProfileHandler_InvalidEmail(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPut, map[string]string{"email": "not-an-email"}, true)
+	UpdateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateProfileHandler_InvalidPhone(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPut, map[string]string{"phone": "call-me-maybe"}, true)
+	UpdateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdateProfileHandler_LastNameTooLong(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodPut, map[string]string{"last_name": strings.Repeat("a", 101)}, true)
+	UpdateProfileHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestUpdateProfileHandler_NotFound(t *testing.T) {
@@ -223,6 +298,40 @@ func TestGetProfileHandler_EmptyLogin(t *testing.T) {
 	GetProfileHandler(w, r)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetProfileHandler_UnsetOptionalFieldsSerializeAsNull(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
+		WithArgs(testUserID).
+		WillReturnRows(sqlmock.NewRows([]string{"user_id", "first_name", "middle_name", "last_name", "email", "phone"}).
+			AddRow(testUserID, "Ann", nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT login FROM users WHERE id=\$1`).
+		WithArgs(testUserID).
+		WillReturnRows(sqlmock.NewRows([]string{"login"}).AddRow("ann-login"))
+
+	w := httptest.NewRecorder()
+	r := profileRequest(t, http.MethodGet, nil, true)
+	GetProfileHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &raw))
+	for _, field := range []string{"middle_name", "last_name", "email", "phone"} {
+		value, present := raw[field]
+		require.Truef(t, present, "field %q must be present in the response, not omitted", field)
+		assert.Equalf(t, "null", string(value), "field %q must serialize as JSON null", field)
+	}
+
+	var resp models.ProfileResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Nil(t, resp.MiddleName)
+	assert.Nil(t, resp.LastName)
+	assert.Nil(t, resp.Email)
+	assert.Nil(t, resp.Phone)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

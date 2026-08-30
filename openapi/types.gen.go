@@ -168,15 +168,15 @@ type GetLoginResponse struct {
 
 // GetMasterProfileResponse defines model for GetMasterProfileResponse.
 type GetMasterProfileResponse struct {
-	Email     *string `json:"email,omitempty"`
+	Email     *string `json:"email"`
 	FirstName string  `json:"first_name"`
 
 	// Id Идентификатор пользователя (users.id), а не первичный ключ строки profile
 	Id         openapi_types.UUID `json:"id"`
-	LastName   *string            `json:"last_name,omitempty"`
+	LastName   *string            `json:"last_name"`
 	Login      string             `json:"login"`
-	MiddleName *string            `json:"middle_name,omitempty"`
-	Phone      *string            `json:"phone,omitempty"`
+	MiddleName *string            `json:"middle_name"`
+	Phone      *string            `json:"phone"`
 }
 
 // GetPetProfileRequest defines model for GetPetProfileRequest.
@@ -210,20 +210,20 @@ type GetPetProfileResponse struct {
 
 // GetProfileRequest defines model for GetProfileRequest.
 type GetProfileRequest struct {
-	Email      *string `json:"email,omitempty"`
-	FirstName  string  `json:"first_name"`
-	LastName   *string `json:"last_name,omitempty"`
-	MiddleName *string `json:"middle_name,omitempty"`
-	Phone      *string `json:"phone,omitempty"`
+	Email      *openapi_types.Email `json:"email,omitempty"`
+	FirstName  string               `json:"first_name"`
+	LastName   *string              `json:"last_name,omitempty"`
+	MiddleName *string              `json:"middle_name,omitempty"`
+	Phone      *string              `json:"phone,omitempty"`
 }
 
-// GetProfileUpdateRequest Частичное обновление профиля через PUT /profile: все поля необязательны, но должно быть передано хотя бы одно.
+// GetProfileUpdateRequest Частичное обновление профиля через PUT /profile: все поля необязательны, но должно быть передано хотя бы одно. Если первое имя (first_name) передано явно, оно не может быть пустой строкой.
 type GetProfileUpdateRequest struct {
-	Email      *string `json:"email,omitempty"`
-	FirstName  *string `json:"first_name,omitempty"`
-	LastName   *string `json:"last_name,omitempty"`
-	MiddleName *string `json:"middle_name,omitempty"`
-	Phone      *string `json:"phone,omitempty"`
+	Email      *openapi_types.Email `json:"email,omitempty"`
+	FirstName  *string              `json:"first_name,omitempty"`
+	LastName   *string              `json:"last_name,omitempty"`
+	MiddleName *string              `json:"middle_name,omitempty"`
+	Phone      *string              `json:"phone,omitempty"`
 }
 
 // GetRefreshRequest defines model for GetRefreshRequest.

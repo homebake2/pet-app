@@ -2,14 +2,65 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
+	"net/mail"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// phoneRegex — тот же паттерн, что используется на фронте для валидации телефона.
+// Компилируется один раз при старте пакета, а не на каждый запрос.
+var phoneRegex = regexp.MustCompile(`^\+?[0-9\s\-().]{1,20}$`)
+
+const (
+	maxProfileNameLength  = 100
+	maxProfileEmailLength = 254
+	maxProfilePhoneLength = 20
+)
+
+// validateProfileNameLength проверяет длину first_name/middle_name/last_name.
+func validateProfileNameLength(fieldName, value string) string {
+	if len(value) > maxProfileNameLength {
+		return fmt.Sprintf("Поле %s не должно превышать %d символов", fieldName, maxProfileNameLength)
+	}
+	return ""
+}
+
+// validateProfileEmail проверяет формат (net/mail) и длину email.
+// Пустая строка трактуется как явная очистка поля и не проверяется на формат.
+func validateProfileEmail(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) > maxProfileEmailLength {
+		return fmt.Sprintf("Поле email не должно превышать %d символов", maxProfileEmailLength)
+	}
+	if _, err := mail.ParseAddress(value); err != nil {
+		return "Некорректный формат email"
+	}
+	return ""
+}
+
+// validateProfilePhone проверяет формат (regexp) и длину телефона.
+// Пустая строка трактуется как явная очистка поля и не проверяется на формат.
+func validateProfilePhone(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) > maxProfilePhoneLength {
+		return fmt.Sprintf("Поле phone не должно превышать %d символов", maxProfilePhoneLength)
+	}
+	if !phoneRegex.MatchString(value) {
+		return "Некорректный формат телефона"
+	}
+	return ""
+}
 
 func ProfileHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -62,6 +113,35 @@ func CreateProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := validateProfileNameLength("first_name", input.FirstName); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+		return
+	}
+	if input.MiddleName != nil {
+		if msg := validateProfileNameLength("middle_name", *input.MiddleName); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.LastName != nil {
+		if msg := validateProfileNameLength("last_name", *input.LastName); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.Email != nil {
+		if msg := validateProfileEmail(*input.Email); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.Phone != nil {
+		if msg := validateProfilePhone(*input.Phone); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+
 	const queryUpsert = `
 		INSERT INTO profile (user_id, first_name, middle_name, last_name, email, phone)
 		VALUES ($1, $2, $3, $4, $5, $6)
@@ -102,6 +182,37 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 	if input.FirstName != nil && strings.TrimSpace(*input.FirstName) == "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле first_name не может быть пустым")
 		return
+	}
+
+	if input.FirstName != nil {
+		if msg := validateProfileNameLength("first_name", *input.FirstName); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.MiddleName != nil {
+		if msg := validateProfileNameLength("middle_name", *input.MiddleName); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.LastName != nil {
+		if msg := validateProfileNameLength("last_name", *input.LastName); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.Email != nil {
+		if msg := validateProfileEmail(*input.Email); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+	if input.Phone != nil {
+		if msg := validateProfilePhone(*input.Phone); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
 	}
 
 	setClauses := []string{}
@@ -164,13 +275,6 @@ func UpdateProfileHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
-	ptrToString := func(s *string) string {
-		if s != nil {
-			return *s
-		}
-		return ""
-	}
-
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -203,10 +307,10 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 	resp := models.ProfileResponse{
 		ID:         profile.UserID,
 		FirstName:  profile.FirstName,
-		MiddleName: ptrToString(profile.MiddleName),
-		LastName:   ptrToString(profile.LastName),
-		Email:      ptrToString(profile.Email),
-		Phone:      ptrToString(profile.Phone),
+		MiddleName: profile.MiddleName,
+		LastName:   profile.LastName,
+		Email:      profile.Email,
+		Phone:      profile.Phone,
 		Login:      login,
 	}
 

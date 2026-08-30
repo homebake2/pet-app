@@ -277,7 +277,7 @@
       },
       "post": {
         "summary": "/profile",
-        "description": "Создаёт профиль пользователя, если он ещё не существует, либо полностью перезаписывает существующий (upsert). Поле first_name обязательно.",
+        "description": "Создаёт профиль пользователя, если он ещё не существует, либо полностью перезаписывает существующий (upsert). Поле first_name обязательно. first_name/middle_name/last_name — не более 100 символов, email — не более 254 символов и должен быть валидным адресом, phone — не более 20 символов и должен соответствовать формату `^\\+?[0-9\\s\\-().]{1,20}$`; нарушение — 400 VALIDATION_ERROR.",
         "tags": [
           "profile-controller"
         ],
@@ -323,7 +323,7 @@
       },
       "put": {
         "summary": "/profile",
-        "description": "Частично обновляет уже существующий профиль пользователя: обновляются только переданные поля, first_name необязателен. Если профиль ещё не создан — возвращает 404 (используйте POST для создания).",
+        "description": "Частично обновляет уже существующий профиль пользователя: обновляются только переданные поля, first_name необязателен, но если передан — не может быть пустой строкой. Если профиль ещё не создан — возвращает 404 (используйте POST для создания). first_name/middle_name/last_name — не более 100 символов, email — не более 254 символов и должен быть валидным адресом, phone — не более 20 символов и должен соответствовать формату `^\\+?[0-9\\s\\-().]{1,20}$`; нарушение — 400 VALIDATION_ERROR.",
         "tags": [
           "profile-controller"
         ],
@@ -1263,7 +1263,11 @@
         "required": [
           "id",
           "first_name",
-          "login"
+          "login",
+          "middle_name",
+          "last_name",
+          "email",
+          "phone"
         ],
         "properties": {
           "id": {
@@ -1284,25 +1288,29 @@
             "type": "string",
             "x-stoplight": {
               "id": "2xncn40762qbc"
-            }
+            },
+            "nullable": true
           },
           "last_name": {
             "type": "string",
             "x-stoplight": {
               "id": "abuprpoobvlp2"
-            }
+            },
+            "nullable": true
           },
           "email": {
             "type": "string",
             "x-stoplight": {
               "id": "nmh7hohhavxr4"
-            }
+            },
+            "nullable": true
           },
           "phone": {
             "type": "string",
             "x-stoplight": {
               "id": "wh9rj21q1mupe"
-            }
+            },
+            "nullable": true
           },
           "login": {
             "type": "string",
@@ -1449,30 +1457,37 @@
         "properties": {
           "first_name": {
             "type": "string",
+            "maxLength": 100,
             "x-stoplight": {
               "id": "xpw5s9tzwczoj"
             }
           },
           "middle_name": {
             "type": "string",
+            "maxLength": 100,
             "x-stoplight": {
               "id": "w3r90vlk3hkid"
             }
           },
           "last_name": {
             "type": "string",
+            "maxLength": 100,
             "x-stoplight": {
               "id": "isfegviahvbaz"
             }
           },
           "email": {
             "type": "string",
+            "format": "email",
+            "maxLength": 254,
             "x-stoplight": {
               "id": "y3otyrz6ae15r"
             }
           },
           "phone": {
             "type": "string",
+            "pattern": "^\\+?[0-9\\s\\-().]{1,20}$",
+            "maxLength": 20,
             "x-stoplight": {
               "id": "cpb9s6cjq0egk"
             }
@@ -1482,22 +1497,29 @@
       "GetProfileUpdateRequest": {
         "title": "GetProfileUpdateRequest",
         "type": "object",
-        "description": "Частичное обновление профиля через PUT /profile: все поля необязательны, но должно быть передано хотя бы одно.",
+        "description": "Частичное обновление профиля через PUT /profile: все поля необязательны, но должно быть передано хотя бы одно. Если первое имя (first_name) передано явно, оно не может быть пустой строкой.",
         "properties": {
           "first_name": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 100
           },
           "middle_name": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 100
           },
           "last_name": {
-            "type": "string"
+            "type": "string",
+            "maxLength": 100
           },
           "email": {
-            "type": "string"
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
           },
           "phone": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^\\+?[0-9\\s\\-().]{1,20}$",
+            "maxLength": 20
           }
         }
       },
