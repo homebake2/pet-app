@@ -74,6 +74,57 @@ func InsertPet(userID string, req models.CreatePetRequest) (uuid.UUID, error) {
 	return newID, nil
 }
 
+// ReservePetIdempotencyKey резервирует пару (user_id, idempotency_key) перед
+// созданием питомца. reserved=true — ключ использован этим пользователем
+// впервые, можно продолжать создание питомца как обычно. reserved=false —
+// ключ уже зарегистрирован (конфликт по PRIMARY KEY), см.
+// GetPetIDByIdempotencyKey для определения дальнейшего шага.
+func ReservePetIdempotencyKey(userID string, idempotencyKey string) (reserved bool, err error) {
+	result, err := DB.Exec(`
+		INSERT INTO pet_idempotency_key (user_id, idempotency_key, pet_id)
+		VALUES ($1, $2, NULL)
+		ON CONFLICT (user_id, idempotency_key) DO NOTHING
+	`, userID, idempotencyKey)
+	if err != nil {
+		return false, err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return rows == 1, nil
+}
+
+// GetPetIDByIdempotencyKey возвращает pet_id, ранее зарезервированный под
+// (user_id, idempotency_key). hasPetID=false означает редкую гонку
+// параллельных запросов с одним ключом (резервирование ещё не завершено).
+func GetPetIDByIdempotencyKey(userID string, idempotencyKey string) (petID uuid.UUID, hasPetID bool, err error) {
+	var petIDNull sql.NullString
+	err = DB.QueryRow(`
+		SELECT pet_id FROM pet_idempotency_key WHERE user_id = $1 AND idempotency_key = $2
+	`, userID, idempotencyKey).Scan(&petIDNull)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	if !petIDNull.Valid {
+		return uuid.Nil, false, nil
+	}
+	petID, err = uuid.Parse(petIDNull.String)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	return petID, true, nil
+}
+
+// FinalizePetIdempotencyKey связывает ранее зарезервированный ключ с id
+// только что созданного питомца.
+func FinalizePetIdempotencyKey(userID string, idempotencyKey string, petID uuid.UUID) error {
+	_, err := DB.Exec(`
+		UPDATE pet_idempotency_key SET pet_id = $1 WHERE user_id = $2 AND idempotency_key = $3
+	`, petID, userID, idempotencyKey)
+	return err
+}
+
 // GetPetsByUserID - функция получения питомцев по user_id
 func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 	var pets []models.PetDB
@@ -83,6 +134,7 @@ func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 	FROM pet
 	WHERE user_id = $1
 	  AND deleted_at IS NULL
+	ORDER BY created_at
 `, userID)
 	if err != nil {
 		return nil, err

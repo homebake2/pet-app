@@ -7,6 +7,7 @@ import (
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -157,27 +158,64 @@ type PetEventsResponse struct {
 	Items []PetEventItem `json:"items"`
 }
 
-// GET /pet/{id}/events возвращает плоский список всех событий питомца без
-// фильтра по датам и без группировки по дням (в отличие от /activities) —
-// задел на будущий сценарий вида «вся история питомца». На момент написания
-// клиентом не используется.
+const (
+	defaultPetEventsLimit = 50
+	maxPetEventsLimit     = 200
+)
+
+// parsePetEventsPaging разбирает query-параметры limit/offset для
+// GET /pet/{id}/events. limit по умолчанию 50, молча ограничивается 200;
+// offset по умолчанию 0. Если значение передано, но не парсится как целое
+// число или отрицательно — возвращает ok=false (сервер должен ответить 400).
+func parsePetEventsPaging(r *http.Request) (limit, offset int, ok bool) {
+	limit = defaultPetEventsLimit
+	offset = 0
+
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 0 {
+			return 0, 0, false
+		}
+		limit = v
+	}
+	if limit > maxPetEventsLimit {
+		limit = maxPetEventsLimit
+	}
+
+	if raw := r.URL.Query().Get("offset"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 0 {
+			return 0, 0, false
+		}
+		offset = v
+	}
+
+	return limit, offset, true
+}
+
+// GET /pet/{id}/events возвращает плоский список событий питомца (сортировка
+// date_time DESC, пагинация limit/offset) — задел на будущий сценарий вида
+// «вся история питомца». На момент написания клиентом не используется.
 func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	belongs, err := database.CheckPetBelongsToUser(petID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец не найден")
+	limit, offset, ok := parsePetEventsPaging(r)
+	if !ok {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметры limit/offset должны быть неотрицательными целыми числами")
 		return
 	}
 
-	eventsDB, err := database.GetEventsByPetID(petID)
+	// Питомец должен существовать, не быть удалён (deleted_at IS NULL) и
+	// принадлежать userID — то же условие, что и в GET /pet/{id}. Иначе
+	// события мягко удалённого/чужого/несуществующего питомца "утекают".
+	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+		return
+	}
+
+	eventsDB, err := database.GetEventsByPetID(petID, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
 		return

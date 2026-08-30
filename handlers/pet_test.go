@@ -6,6 +6,7 @@ import (
 	"myauthservice/models"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DATA-DOG/go-sqlmock"
@@ -94,6 +95,94 @@ func TestCreatePetHandler_InvalidBirthDate(t *testing.T) {
 	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", BirthDate: &badDate}, true)
 	CreatePetHandler(w, r)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_BirthDateTooOldRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	tooOld := "1400-01-01"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", BirthDate: &tooOld}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_NameTooLongRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	longName := strings.Repeat("a", 101)
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: longName, Species: "dog"}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_NotesTooLongRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	longNotes := strings.Repeat("a", 1001)
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Notes: &longNotes}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_BreedTooLongRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	longBreed := strings.Repeat("a", 101)
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Breed: &longBreed}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_ColorTooLongRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	longColor := strings.Repeat("a", 101)
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Color: &longColor}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_InvalidIdempotencyKeyRejected(t *testing.T) {
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog"}, false)
+	r.Header.Set("Idempotency-Key", "not-a-uuid")
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestCreatePetHandler_IdempotencyKeyReplaysExistingPet(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	idempotencyKey := "44444444-4444-4444-4444-444444444444"
+
+	mock.ExpectExec(`INSERT INTO pet_idempotency_key`).
+		WithArgs(testUserID, idempotencyKey).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT pet_id FROM pet_idempotency_key`).
+		WithArgs(testUserID, idempotencyKey).
+		WillReturnRows(sqlmock.NewRows([]string{"pet_id"}).AddRow(testPetID))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog"}, true)
+	r.Header.Set("Idempotency-Key", idempotencyKey)
+	CreatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestCreatePetHandler_Success(t *testing.T) {
@@ -217,6 +306,54 @@ func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+func TestUpdatePetHandler_NameTooLongRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+
+	longName := strings.Repeat("a", 101)
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Name: &longName}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdatePetHandler_NotesTooLongRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+
+	longNotes := strings.Repeat("a", 1001)
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Notes: &longNotes}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestUpdatePetHandler_BirthDateTooOldRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+
+	tooOld := "1400-01-01"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{BirthDate: &tooOld}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestUpdatePetHandler_PartialUpdate(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -302,9 +439,11 @@ func TestDeletePetHandler_Success(t *testing.T) {
 func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
-	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time`).
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
 
 	w := httptest.NewRecorder()
@@ -334,12 +473,87 @@ func TestPetByIDHandler_EventsInvalidID(t *testing.T) {
 func TestGetPetEventsHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
 	PetByIDHandler(w, r)
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestGetPetEventsHandler_SoftDeletedPetReturns404(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	// resolveOwnedPet скрывает мягко удалённых питомцев тем же условием
+	// deleted_at IS NULL, что и GET /pet/{id} — запрос к таблице событий не
+	// выполняется вовсе.
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnError(sql.ErrNoRows)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+		WithArgs(sqlmock.AnyArg(), 50, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetPetEventsHandler_LimitClampedTo200(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+		WithArgs(sqlmock.AnyArg(), 200, 5).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?limit=1000&offset=5", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetPetEventsHandler_InvalidLimitRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?limit=-1", nil, true)
+	PetByIDHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestGetPetEventsHandler_NonIntegerOffsetRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?offset=abc", nil, true)
+	PetByIDHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }

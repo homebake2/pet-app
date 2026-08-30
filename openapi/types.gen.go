@@ -181,31 +181,31 @@ type GetMasterProfileResponse struct {
 
 // GetPetProfileRequest defines model for GetPetProfileRequest.
 type GetPetProfileRequest struct {
-	BirthDate    *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed        *string              `json:"breed,omitempty"`
-	Color        *string              `json:"color,omitempty"`
-	Gender       *GetGenderEnum       `json:"gender,omitempty"`
-	Habilitation *GetHabilitationEnum `json:"habilitation,omitempty"`
-	Name         string               `json:"name"`
-	Notes        *string              `json:"notes,omitempty"`
-	Species      string               `json:"species"`
-	Sterilized   *bool                `json:"sterilized,omitempty"`
+	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
+	Breed      *string              `json:"breed,omitempty"`
+	Color      *string              `json:"color,omitempty"`
+	Gender     *GetGenderEnum       `json:"gender,omitempty"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+	Name       string               `json:"name"`
+	Notes      *string              `json:"notes,omitempty"`
+	Species    string               `json:"species"`
+	Sterilized *bool                `json:"sterilized,omitempty"`
 }
 
 // GetPetProfileResponse defines model for GetPetProfileResponse.
 type GetPetProfileResponse struct {
-	BirthDate    *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed        *string              `json:"breed,omitempty"`
-	Color        *string              `json:"color,omitempty"`
-	Gender       *GetGenderEnum       `json:"gender,omitempty"`
-	Habilitation *GetHabilitationEnum `json:"habilitation,omitempty"`
-	Icon         PetIconEnum          `json:"icon"`
-	Id           openapi_types.UUID   `json:"id"`
-	IsDeleted    *bool                `json:"is_deleted,omitempty"`
-	Name         string               `json:"name"`
-	Notes        *string              `json:"notes,omitempty"`
-	Species      string               `json:"species"`
-	Sterilized   *bool                `json:"sterilized,omitempty"`
+	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
+	Breed      *string              `json:"breed,omitempty"`
+	Color      *string              `json:"color"`
+	Gender     *GetGenderEnum       `json:"gender,omitempty"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+	Icon       PetIconEnum          `json:"icon"`
+	Id         openapi_types.UUID   `json:"id"`
+	IsDeleted  *bool                `json:"is_deleted,omitempty"`
+	Name       string               `json:"name"`
+	Notes      *string              `json:"notes"`
+	Species    string               `json:"species"`
+	Sterilized *bool                `json:"sterilized,omitempty"`
 }
 
 // GetProfileRequest defines model for GetProfileRequest.
@@ -265,15 +265,15 @@ type UpdateEventRequest struct {
 
 // UpdatePetProfileRequest defines model for UpdatePetProfileRequest.
 type UpdatePetProfileRequest struct {
-	BirthDate    *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed        *string              `json:"breed,omitempty"`
-	Color        *string              `json:"color,omitempty"`
-	Gender       *GetGenderEnum       `json:"gender,omitempty"`
-	Habilitation *GetHabilitationEnum `json:"habilitation,omitempty"`
-	Name         *string              `json:"name,omitempty"`
-	Notes        *string              `json:"notes,omitempty"`
-	Species      *string              `json:"species,omitempty"`
-	Sterilized   *bool                `json:"sterilized,omitempty"`
+	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
+	Breed      *string              `json:"breed,omitempty"`
+	Color      *string              `json:"color,omitempty"`
+	Gender     *GetGenderEnum       `json:"gender,omitempty"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+	Name       *string              `json:"name,omitempty"`
+	Notes      *string              `json:"notes,omitempty"`
+	Species    *string              `json:"species,omitempty"`
+	Sterilized *bool                `json:"sterilized,omitempty"`
 }
 
 // IdempotencyKey defines model for IdempotencyKey.
@@ -293,6 +293,21 @@ type GetActivitiesParams struct {
 type PostEventParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// PostPetParams defines parameters for PostPet.
+type PostPetParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetPetEventsParams defines parameters for GetPetEvents.
+type GetPetEventsParams struct {
+	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Смещение для пагинации. По умолчанию 0.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // PostGuestJSONRequestBody defines body for PostGuest for application/json ContentType.

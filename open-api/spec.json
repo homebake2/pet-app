@@ -784,7 +784,12 @@
               }
             }
           }
-        }
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ]
       }
     },
     "/events/{id}": {
@@ -1077,7 +1082,7 @@
       ],
       "get": {
         "summary": "/pet/{id}/events",
-        "description": "Плоский список всех событий питомца без фильтра по датам и без группировки по дням (в отличие от /activities). Задел на будущий сценарий «вся история питомца»; на момент написания клиентом не используется.",
+        "description": "Список событий питомца, отсортированный по date_time по убыванию (сначала последние), с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0). На момент написания клиентом не используется.",
         "tags": [
           "event-controller"
         ],
@@ -1112,12 +1117,57 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
           }
         },
         "operationId": "get-pet-events",
         "x-stoplight": {
           "id": "1t44318vbjcoj"
-        }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "maximum": 200
+            },
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Смещение для пагинации. По умолчанию 0."
+          }
+        ]
       }
     }
   },
@@ -1153,7 +1203,8 @@
             "$ref": "#/components/schemas/GetGenderEnum",
             "x-stoplight": {
               "id": "4uz8t1qz57du7"
-            }
+            },
+            "nullable": true
           },
           "species": {
             "type": "string",
@@ -1172,7 +1223,8 @@
             "type": "string",
             "x-stoplight": {
               "id": "c6b4238nqzy8e"
-            }
+            },
+            "nullable": true
           },
           "sterilized": {
             "type": "boolean",
@@ -1180,17 +1232,12 @@
               "id": "lrl7h3qscd1sv"
             }
           },
-          "habilitation": {
-            "$ref": "#/components/schemas/GetHabilitationEnum",
-            "x-stoplight": {
-              "id": "wt8mc9frmkluw"
-            }
-          },
           "notes": {
             "type": "string",
             "x-stoplight": {
               "id": "aa33ifdwkpom3"
-            }
+            },
+            "nullable": true
           },
           "is_deleted": {
             "type": "boolean",
@@ -1208,7 +1255,15 @@
             "$ref": "#/components/schemas/PetIconEnum",
             "x-stoplight": {
               "id": "haojphtomr3j9"
-            }
+            },
+            "nullable": true
+          },
+          "habitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "wt8mc9frmkluw"
+            },
+            "nullable": true
           }
         }
       },
@@ -1763,12 +1818,6 @@
               "id": "sy44dczs900zh"
             }
           },
-          "habilitation": {
-            "$ref": "#/components/schemas/GetHabilitationEnum",
-            "x-stoplight": {
-              "id": "evi4rzr8r8uu6"
-            }
-          },
           "notes": {
             "type": "string",
             "x-stoplight": {
@@ -1779,6 +1828,12 @@
             "type": "string",
             "x-stoplight": {
               "id": "pecllq0en6sfm"
+            }
+          },
+          "habitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "evi4rzr8r8uu6"
             }
           }
         }
@@ -1827,12 +1882,6 @@
               "id": "sy44dczs900zh"
             }
           },
-          "habilitation": {
-            "$ref": "#/components/schemas/GetHabilitationEnum",
-            "x-stoplight": {
-              "id": "evi4rzr8r8uu6"
-            }
-          },
           "notes": {
             "type": "string",
             "x-stoplight": {
@@ -1843,6 +1892,12 @@
             "type": "string",
             "x-stoplight": {
               "id": "pecllq0en6sfm"
+            }
+          },
+          "habitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "evi4rzr8r8uu6"
             }
           }
         }

@@ -7,6 +7,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// Лимиты длины текстовых полей питомца при создании (POST /pet) и
+// обновлении (PUT /pet/{id}) — общие для обоих эндпоинтов.
+const (
+	PetNameMaxLen  = 100
+	PetNotesMaxLen = 1000
+	PetBreedMaxLen = 100
+	PetColorMaxLen = 100
+)
+
 var allowedEventTypes = map[string]bool{
 	"weight":     true,
 	"urine":      true,
@@ -114,6 +123,7 @@ func IsValidHabitation(habitation string) bool {
 	return allowedHabitations[habitation]
 }
 
+// CreatePetRequest — тело запроса POST /pet.
 type CreatePetRequest struct {
 	Name       string  `json:"name"`                 // обязательное
 	Gender     *string `json:"gender,omitempty"`     // перечисление
@@ -121,7 +131,7 @@ type CreatePetRequest struct {
 	BirthDate  *string `json:"birth_date,omitempty"` // дата в формате "YYYY-MM-DD"
 	Color      *string `json:"color,omitempty"`
 	Sterilized *bool   `json:"sterilized,omitempty"`
-	Habitation *string `json:"habilitation,omitempty"` // enum: indoor, outside, both
+	Habitation *string `json:"habitation,omitempty"` // enum: indoor, outside, both
 	Notes      *string `json:"notes,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
 	Icon       *string `json:"icon,omitempty"` // enum: DOG, CAT, HAMSTER, GUINEA_PIG, RABBIT, PARROT, CANARY, FISH, TURTLE, RAT, MOUSE, FERRET, HEDGEHOG, CHINCHILLA, MINI_PIG, MINI_GOAT, CHICKEN, DUCK, PIGEON, IGUANA, GECKO, BEARDED_AGAMA, SNAKE, PYTHON, FROG, AXOLOTL, TARANTULA, HERMIT_CRAB, ANT_FARM, SNAIL, OTHER
@@ -155,7 +165,7 @@ type PetIdResponse struct {
 	BirthDate  *string `json:"birth_date,omitempty"`
 	Color      *string `json:"color,omitempty"`
 	Sterilized bool    `json:"sterilized"`
-	Habitation *string `json:"habilitation,omitempty"`
+	Habitation *string `json:"habitation,omitempty"`
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  bool    `json:"is_deleted"`
 	Breed      *string `json:"breed,omitempty"`
@@ -179,6 +189,7 @@ type PetIdDB struct {
 	Icon       sql.NullString
 }
 
+// UpdatePetRequest — тело запроса PUT /pet/{id}.
 type UpdatePetRequest struct {
 	Name       *string `json:"name,omitempty"`
 	Gender     *string `json:"gender,omitempty"`
@@ -186,7 +197,7 @@ type UpdatePetRequest struct {
 	BirthDate  *string `json:"birth_date,omitempty"`
 	Color      *string `json:"color,omitempty"`
 	Sterilized *bool   `json:"sterilized,omitempty"`
-	Habitation *string `json:"habilitation,omitempty"`
+	Habitation *string `json:"habitation,omitempty"`
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  *bool   `json:"is_deleted,omitempty"`
 	Breed      *string `json:"breed,omitempty"`

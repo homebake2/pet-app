@@ -18,6 +18,17 @@ func isValidBirthDate(birthDate string) bool {
 	return err == nil
 }
 
+// isBirthDateNotTooOld проверяет, что дата рождения питомца не раньше, чем
+// 500 лет назад от текущей даты сервера. Вызывается только для уже
+// прошедшего проверку формата значения birthDate.
+func isBirthDateNotTooOld(birthDate string) bool {
+	t, err := time.Parse("2006-01-02", birthDate)
+	if err != nil {
+		return false
+	}
+	return !t.Before(time.Now().AddDate(-500, 0, 0))
+}
+
 // PetHandler обрабатывает /pet (без id): список и создание.
 func PetHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -69,8 +80,34 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	idempotencyKey := r.Header.Get("Idempotency-Key")
+	if idempotencyKey != "" && !isValidUUIDv4(idempotencyKey) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Заголовок Idempotency-Key должен быть валидным UUID v4")
+		return
+	}
+
 	if strings.TrimSpace(req.Name) == "" || strings.TrimSpace(req.Species) == "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля name и species обязательны")
+		return
+	}
+
+	if len(req.Name) > models.PetNameMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле name превышает допустимую длину")
+		return
+	}
+
+	if req.Notes != nil && len(*req.Notes) > models.PetNotesMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes превышает допустимую длину")
+		return
+	}
+
+	if req.Breed != nil && len(*req.Breed) > models.PetBreedMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле breed превышает допустимую длину")
+		return
+	}
+
+	if req.Color != nil && len(*req.Color) > models.PetColorMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле color превышает допустимую длину")
 		return
 	}
 
@@ -85,7 +122,7 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Habitation != nil && !models.IsValidHabitation(*req.Habitation) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение habilitation")
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение habitation")
 		return
 	}
 
@@ -94,15 +131,54 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.BirthDate != nil && !isBirthDateNotTooOld(*req.BirthDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле birth_date не может быть раньше, чем 500 лет назад")
+		return
+	}
+
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
+	}
+
+	if idempotencyKey != "" {
+		reserved, err := database.ReservePetIdempotencyKey(userID, idempotencyKey)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
+			return
+		}
+		if !reserved {
+			existingPetID, hasPetID, err := database.GetPetIDByIdempotencyKey(userID, idempotencyKey)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
+				return
+			}
+			if hasPetID {
+				pet, err := database.GetPetByIDAndUserID(existingPetID, userID)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
+					return
+				}
+				writeJSON(w, http.StatusCreated, pet)
+				return
+			}
+			// pet_id IS NULL: редкая гонка параллельных запросов с одним
+			// ключом — fail open, продолжаем как обычное создание (см.
+			// «Добавление питомца — Backend»).
+		}
 	}
 
 	newPetID, err := database.InsertPet(userID, req)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать питомца")
 		return
+	}
+
+	if idempotencyKey != "" {
+		if err := database.FinalizePetIdempotencyKey(userID, idempotencyKey, newPetID); err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Питомец создан, но не удалось завершить idempotency key")
+			return
+		}
 	}
 
 	pet, err := database.GetPetByIDAndUserID(newPetID, userID)
@@ -198,6 +274,26 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Name != nil && len(*req.Name) > models.PetNameMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле name превышает допустимую длину")
+		return
+	}
+
+	if req.Notes != nil && len(*req.Notes) > models.PetNotesMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes превышает допустимую длину")
+		return
+	}
+
+	if req.Breed != nil && len(*req.Breed) > models.PetBreedMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле breed превышает допустимую длину")
+		return
+	}
+
+	if req.Color != nil && len(*req.Color) > models.PetColorMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле color превышает допустимую длину")
+		return
+	}
+
 	if req.Species != nil && strings.TrimSpace(*req.Species) == "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле species не может быть пустым")
 		return
@@ -214,12 +310,17 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Habitation != nil && !models.IsValidHabitation(*req.Habitation) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение habilitation")
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение habitation")
 		return
 	}
 
 	if req.BirthDate != nil && !isValidBirthDate(*req.BirthDate) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат birth_date, ожидается YYYY-MM-DD")
+		return
+	}
+
+	if req.BirthDate != nil && !isBirthDateNotTooOld(*req.BirthDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле birth_date не может быть раньше, чем 500 лет назад")
 		return
 	}
 

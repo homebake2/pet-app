@@ -254,16 +254,18 @@ func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) (
 	return events, nil
 }
 
-// GetEventsByPetID - получить все события питомца, отсортированные по дате
-func GetEventsByPetID(petID uuid.UUID) ([]models.EventDB, error) {
+// GetEventsByPetID - получить события питомца, отсортированные по date_time
+// по убыванию (сначала последние), с пагинацией limit/offset.
+func GetEventsByPetID(petID uuid.UUID, limit, offset int) ([]models.EventDB, error) {
 	query := `
 	SELECT id, pet_id, date_time, type, notes, value
 	FROM event
 	WHERE pet_id = $1
 	AND deleted_at IS NULL
-	ORDER BY date_time
+	ORDER BY date_time DESC
+	LIMIT $2 OFFSET $3
 	`
-	rows, err := DB.Query(query, petID)
+	rows, err := DB.Query(query, petID, limit, offset)
 	if err != nil {
 		log.Println("GetEventsByPetID error:", err)
 		return nil, err
