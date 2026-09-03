@@ -39,3 +39,22 @@ func GetProfileIDByUserID(userID string) (uuid.UUID, error) {
 	}
 	return profileID, nil
 }
+
+// UpsertProfileWith создаёт либо полностью перезаписывает профиль
+// пользователя (та же семантика, что у POST /profile) через произвольный
+// dbExecutor — используется как обычным CreateProfileHandler (DB), так и
+// внутри транзакции переноса локальных данных (см. ImportLocalData).
+func UpsertProfileWith(exec dbExecutor, userID string, input models.Profile) error {
+	const queryUpsert = `
+		INSERT INTO profile (user_id, first_name, middle_name, last_name, email, phone)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (user_id) DO UPDATE
+		SET first_name=EXCLUDED.first_name,
+			middle_name=EXCLUDED.middle_name,
+			last_name=EXCLUDED.last_name,
+			email=EXCLUDED.email,
+			phone=EXCLUDED.phone
+	`
+	_, err := exec.Exec(queryUpsert, userID, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone)
+	return err
+}

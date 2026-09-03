@@ -18,5 +18,6 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/events", CreateEventHandler)
 	mux.HandleFunc("/events/", EventIDResponseHandler) // PATCH /events/{id} — частичное обновление
 	mux.HandleFunc("/activities", GetActivitiesHandler)
+	mux.HandleFunc("/import/local-data", ImportLocalDataHandler)
 	return mux
 }

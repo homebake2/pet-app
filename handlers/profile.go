@@ -142,17 +142,8 @@ func CreateProfileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	const queryUpsert = `
-		INSERT INTO profile (user_id, first_name, middle_name, last_name, email, phone)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		ON CONFLICT (user_id) DO UPDATE
-		SET first_name=EXCLUDED.first_name,
-			middle_name=EXCLUDED.middle_name,
-			last_name=EXCLUDED.last_name,
-			email=EXCLUDED.email,
-			phone=EXCLUDED.phone
-	`
-	if _, err := database.DB.Exec(queryUpsert, userID, input.FirstName, input.MiddleName, input.LastName, input.Email, input.Phone); err != nil {
+	input.UserID = userID
+	if err := database.UpsertProfileWith(database.DB, userID, input); err != nil {
 		log.Printf("DB upsert error: %v", err)
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить профиль")
 		return

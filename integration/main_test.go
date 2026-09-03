@@ -59,7 +59,7 @@ func TestMain(m *testing.M) {
 // resetDB очищает все таблицы перед тестом, обеспечивая изоляцию между тестами.
 func resetDB(t *testing.T) {
 	t.Helper()
-	if _, err := database.DB.Exec(`TRUNCATE TABLE event, pet, profile, users, registration_rate_limit RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := database.DB.Exec(`TRUNCATE TABLE event, pet, profile, users, registration_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("не удалось очистить БД перед тестом: %v", err)
 	}
 }

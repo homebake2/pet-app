@@ -10,6 +10,15 @@ import (
 
 var DB *sql.DB
 
+// dbExecutor описывает общий поднабор методов *sql.DB и *sql.Tx. Функции,
+// которым нужно работать как вне транзакции (обычные запросы), так и внутри
+// неё (см. ImportLocalData), принимают dbExecutor вместо конкретного типа.
+type dbExecutor interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 func InitDB() {
 	var err error
 	connStr := os.Getenv("DATABASE_URL")

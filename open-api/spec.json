@@ -1169,6 +1169,75 @@
           }
         ]
       }
+    },
+    "/import/local-data": {
+      "post": {
+        "summary": "/import/local-data",
+        "description": "Единый эндпоинт единовременного (one-shot) переноса локальных данных (профиль, питомцы, события) одного локального аккаунта в аккаунт текущего авторизованного пользователя. Используется сценариями «Перенос локального аккаунта в сеть» и «Импорт из локального аккаунта». Атомарно: либо создаются все переданные сущности, либо (при любой ошибке) ни одна. Idempotency-Key обязателен; повторный запрос с тем же ключом в пределах окна дедупликации возвращает ранее сохранённый результат и не создаёт новых строк.",
+        "tags": [
+          "import-controller"
+        ],
+        "operationId": "post-import-local-data",
+        "x-stoplight": {
+          "id": "23gblgccbsgiu"
+        },
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKeyRequired"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportLocalDataRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportLocalDataResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2063,6 +2132,202 @@
             "maxLength": 500
           }
         }
+      },
+      "ImportLocalDataPet": {
+        "title": "ImportLocalDataPet",
+        "x-stoplight": {
+          "id": "cw3yk08ra511z"
+        },
+        "type": "object",
+        "required": [
+          "local_id",
+          "name",
+          "species"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID питомца в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса (для сопоставления с events[].pet_local_id), не сохраняется на сервере.",
+            "x-stoplight": {
+              "id": "v4y2o43ssqd04"
+            }
+          },
+          "name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "hvbhfe4qx61vf"
+            }
+          },
+          "gender": {
+            "$ref": "#/components/schemas/GetGenderEnum",
+            "x-stoplight": {
+              "id": "9hed7vx0zaau3"
+            }
+          },
+          "species": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "k3p0tfvric3vj"
+            }
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "x-stoplight": {
+              "id": "053cdy9tvvwa6"
+            }
+          },
+          "color": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "7rf6ue7aipjwt"
+            }
+          },
+          "sterilized": {
+            "type": "boolean",
+            "x-stoplight": {
+              "id": "o8vgsmz1aad6b"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "nbyuoaie6s3fe"
+            }
+          },
+          "breed": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "moph76u7cpbl1"
+            }
+          },
+          "habitation": {
+            "$ref": "#/components/schemas/GetHabilitationEnum",
+            "x-stoplight": {
+              "id": "74np2q5rd7dra"
+            }
+          }
+        }
+      },
+      "ImportLocalDataEvent": {
+        "title": "ImportLocalDataEvent",
+        "x-stoplight": {
+          "id": "jcekr0ru92prw"
+        },
+        "type": "object",
+        "required": [
+          "pet_local_id",
+          "date",
+          "type",
+          "value"
+        ],
+        "properties": {
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса.",
+            "x-stoplight": {
+              "id": "p2mruhk0bjvar"
+            }
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "x-stoplight": {
+              "id": "g548951mfjy0i"
+            }
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum",
+            "x-stoplight": {
+              "id": "65cfljwqbqb16"
+            }
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 500,
+            "x-stoplight": {
+              "id": "ywy9glaikr2hj"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500,
+            "x-stoplight": {
+              "id": "5z8g4fgn6axfr"
+            }
+          }
+        }
+      },
+      "ImportLocalDataRequest": {
+        "title": "ImportLocalDataRequest",
+        "x-stoplight": {
+          "id": "4bh6ohpncwoc6"
+        },
+        "type": "object",
+        "required": [
+          "pets",
+          "events"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/GetProfileRequest",
+            "x-stoplight": {
+              "id": "ztcpl5capq8vn"
+            },
+            "nullable": true,
+            "description": "Поля переносимого профиля — тот же набор и семантика, что у POST /profile (полная перезапись). null/отсутствие поля — профиль не переносится."
+          },
+          "pets": {
+            "type": "array",
+            "x-stoplight": {
+              "id": "5s103yovfbjta"
+            },
+            "items": {
+              "$ref": "#/components/schemas/ImportLocalDataPet"
+            }
+          },
+          "events": {
+            "type": "array",
+            "x-stoplight": {
+              "id": "pmzfdrjgsnthb"
+            },
+            "items": {
+              "$ref": "#/components/schemas/ImportLocalDataEvent"
+            }
+          }
+        }
+      },
+      "ImportLocalDataResponse": {
+        "title": "ImportLocalDataResponse",
+        "x-stoplight": {
+          "id": "ty6t2xazxbs8w"
+        },
+        "type": "object",
+        "required": [
+          "pets_imported",
+          "events_imported",
+          "profile_imported"
+        ],
+        "properties": {
+          "pets_imported": {
+            "type": "integer",
+            "x-stoplight": {
+              "id": "xxgadwo2y8kc9"
+            }
+          },
+          "events_imported": {
+            "type": "integer",
+            "x-stoplight": {
+              "id": "9397m5czlw8d5"
+            }
+          },
+          "profile_imported": {
+            "type": "boolean",
+            "x-stoplight": {
+              "id": "p8816r9eiqiex"
+            }
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -2089,6 +2354,16 @@
         "in": "header",
         "required": false,
         "description": "UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "IdempotencyKeyRequired": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "UUID v4, генерируется клиентом один раз на попытку переноса локальных данных; повторная отправка с тем же ключом в течение окна дедупликации возвращает ранее сохранённый результат переноса вместо повторного создания сущностей.",
         "schema": {
           "type": "string",
           "format": "uuid"

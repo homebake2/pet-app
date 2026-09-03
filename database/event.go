@@ -15,6 +15,13 @@ import (
 // InsertEvent - функция создания нового ивента для питомца. idempotencyKey
 // пустая строка означает "заголовок Idempotency-Key не передан" (NULL в БД).
 func InsertEvent(petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
+	return insertEventWith(DB, petID, req, idempotencyKey)
+}
+
+// insertEventWith — то же самое, что InsertEvent, но принимает произвольный
+// dbExecutor: используется как для обычных запросов (DB), так и внутри
+// транзакции переноса локальных данных (см. ImportLocalData).
+func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
 	query := `
         INSERT INTO event (
             pet_id, date_time, type, notes, value, idempotency_key
@@ -41,7 +48,7 @@ func InsertEvent(petID uuid.UUID, req models.CreateEventRequest, idempotencyKey 
 	}
 
 	var eventID uuid.UUID
-	err = DB.QueryRow(query, petID, dateTime, req.Type, notes, req.Value, key).Scan(&eventID)
+	err = exec.QueryRow(query, petID, dateTime, req.Type, notes, req.Value, key).Scan(&eventID)
 	if err != nil {
 		log.Println("InsertEvent error:", err)
 		return uuid.Nil, err

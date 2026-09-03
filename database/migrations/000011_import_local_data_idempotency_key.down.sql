@@ -1,0 +1,1 @@
+DROP TABLE import_local_data_idempotency_key;

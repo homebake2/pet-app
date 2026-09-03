@@ -69,8 +69,11 @@ func matchTemplate(template, path string) (map[string]string, bool) {
 }
 
 // doRequest выполняет HTTP-запрос к тестовому серверу и сверяет и запрос,
-// и ответ с контрактом из open-api/spec.json. path может содержать query-строку.
-func doRequest(t *testing.T, method, path string, body any, token string) apiResponse {
+// и ответ с контрактом из open-api/spec.json. path может содержать
+// query-строку. extraHeaders — необязательный набор дополнительных
+// заголовков запроса (например, Idempotency-Key); передаётся не более
+// одной карты.
+func doRequest(t *testing.T, method, path string, body any, token string, extraHeaders ...map[string]string) apiResponse {
 	t.Helper()
 
 	var bodyBytes []byte
@@ -88,6 +91,11 @@ func doRequest(t *testing.T, method, path string, body any, token string) apiRes
 		}
 		if token != "" {
 			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		for _, headers := range extraHeaders {
+			for k, v := range headers {
+				req.Header.Set(k, v)
+			}
 		}
 		return req
 	}

@@ -245,6 +245,47 @@ type GetShortInfoPetResponse struct {
 	Species string             `json:"species"`
 }
 
+// ImportLocalDataEvent defines model for ImportLocalDataEvent.
+type ImportLocalDataEvent struct {
+	Date  time.Time `json:"date"`
+	Notes *string   `json:"notes,omitempty"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId string       `json:"pet_local_id"`
+	Type       GetEventEnum `json:"type"`
+	Value      string       `json:"value"`
+}
+
+// ImportLocalDataPet defines model for ImportLocalDataPet.
+type ImportLocalDataPet struct {
+	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
+	Breed      *string              `json:"breed,omitempty"`
+	Color      *string              `json:"color,omitempty"`
+	Gender     *GetGenderEnum       `json:"gender,omitempty"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+
+	// LocalId Клиентский UUID питомца в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса (для сопоставления с events[].pet_local_id), не сохраняется на сервере.
+	LocalId    string  `json:"local_id"`
+	Name       string  `json:"name"`
+	Notes      *string `json:"notes,omitempty"`
+	Species    string  `json:"species"`
+	Sterilized *bool   `json:"sterilized,omitempty"`
+}
+
+// ImportLocalDataRequest defines model for ImportLocalDataRequest.
+type ImportLocalDataRequest struct {
+	Events  []ImportLocalDataEvent `json:"events"`
+	Pets    []ImportLocalDataPet   `json:"pets"`
+	Profile *GetProfileRequest     `json:"profile,omitempty"`
+}
+
+// ImportLocalDataResponse defines model for ImportLocalDataResponse.
+type ImportLocalDataResponse struct {
+	EventsImported  int  `json:"events_imported"`
+	PetsImported    int  `json:"pets_imported"`
+	ProfileImported bool `json:"profile_imported"`
+}
+
 // ItemsArrayActivitiesModel defines model for ItemsArrayActivitiesModel.
 type ItemsArrayActivitiesModel struct {
 	Date   openapi_types.Date `json:"date"`
@@ -279,6 +320,9 @@ type UpdatePetProfileRequest struct {
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = openapi_types.UUID
 
+// IdempotencyKeyRequired defines model for IdempotencyKeyRequired.
+type IdempotencyKeyRequired = openapi_types.UUID
+
 // LanguageCode defines model for LanguageCode.
 type LanguageCode string
 
@@ -293,6 +337,12 @@ type GetActivitiesParams struct {
 type PostEventParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// PostImportLocalDataParams defines parameters for PostImportLocalData.
+type PostImportLocalDataParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз на попытку переноса локальных данных; повторная отправка с тем же ключом в течение окна дедупликации возвращает ранее сохранённый результат переноса вместо повторного создания сущностей.
+	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
 }
 
 // PostPetParams defines parameters for PostPet.
@@ -330,6 +380,9 @@ type PostEventJSONRequestBody = GetEventRequest
 
 // PatchEventJSONRequestBody defines body for PatchEvent for application/json ContentType.
 type PatchEventJSONRequestBody = UpdateEventRequest
+
+// PostImportLocalDataJSONRequestBody defines body for PostImportLocalData for application/json ContentType.
+type PostImportLocalDataJSONRequestBody = ImportLocalDataRequest
 
 // PostPetJSONRequestBody defines body for PostPet for application/json ContentType.
 type PostPetJSONRequestBody = GetPetProfileRequest

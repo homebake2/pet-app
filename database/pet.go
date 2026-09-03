@@ -15,6 +15,13 @@ import (
 // InsertPet создаёт нового питомца, подставляя NULL для отсутствующих
 // необязательных полей запроса.
 func InsertPet(userID string, req models.CreatePetRequest) (uuid.UUID, error) {
+	return insertPetWith(DB, userID, req)
+}
+
+// insertPetWith — то же самое, что InsertPet, но принимает произвольный
+// dbExecutor: используется как для обычных запросов (DB), так и внутри
+// транзакции переноса локальных данных (см. ImportLocalData).
+func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) (uuid.UUID, error) {
 	query := `
         INSERT INTO pet (
             user_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, icon, deleted_at
@@ -66,7 +73,7 @@ func InsertPet(userID string, req models.CreatePetRequest) (uuid.UUID, error) {
 
 	var newID uuid.UUID
 
-	err := DB.QueryRow(query, userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, icon, deletedAt).Scan(&newID)
+	err := exec.QueryRow(query, userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, icon, deletedAt).Scan(&newID)
 	if err != nil {
 		log.Println("InsertPet error:", err)
 		return uuid.Nil, err
