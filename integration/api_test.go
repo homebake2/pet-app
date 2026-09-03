@@ -126,7 +126,7 @@ func TestPetAndEventLifecycle(t *testing.T) {
 		"pet_id": pet.ID,
 		"date":   eventDate,
 		"type":   "weight",
-		"value":  "4.2",
+		"value":  map[string]any{"amount": 4.2},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, eventResp.status, "%s", eventResp.body)
 	var event struct {
@@ -144,18 +144,22 @@ func TestPetAndEventLifecycle(t *testing.T) {
 
 	patched := doRequest(t, http.MethodPatch, "/events/"+event.ID, map[string]any{
 		"pet_id": pet.ID,
-		"value":  "4.3",
+		"value":  map[string]any{"amount": 4.3},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusNoContent, patched.status, "%s", patched.body)
 
 	petEvents := doRequest(t, http.MethodGet, "/pet/"+pet.ID+"/events", nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, petEvents.status)
 	var petEventsBody struct {
-		Items []struct{ Value string } `json:"items"`
+		Items []struct {
+			Value struct {
+				Amount float64 `json:"amount"`
+			} `json:"value"`
+		} `json:"items"`
 	}
 	petEvents.decode(t, &petEventsBody)
 	require.Len(t, petEventsBody.Items, 1)
-	require.Equal(t, "4.3", petEventsBody.Items[0].Value)
+	require.Equal(t, 4.3, petEventsBody.Items[0].Value.Amount)
 
 	today := time.Now().UTC().Format("2006-01-02")
 	activities := doRequest(t, http.MethodGet,
@@ -236,7 +240,7 @@ func TestPetAndEventLifecycle_WithoutProfile(t *testing.T) {
 		"pet_id": pet.ID,
 		"date":   time.Now().UTC().Format(time.RFC3339),
 		"type":   "weight",
-		"value":  "4.2",
+		"value":  map[string]any{"amount": 4.2},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, eventResp.status, "%s", eventResp.body)
 

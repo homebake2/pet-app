@@ -16,6 +16,9 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/pet/", PetByIDHandler)
 	mux.HandleFunc("/pet", PetHandler)
 	mux.HandleFunc("/events", CreateEventHandler)
+	// Точный путь /events/stats выигрывает у поддерева /events/ в ServeMux,
+	// поэтому агрегация не попадает в обработчик /events/{id}.
+	mux.HandleFunc("/events/stats", GetEventStatsHandler)
 	mux.HandleFunc("/events/", EventIDResponseHandler) // PATCH /events/{id} — частичное обновление
 	mux.HandleFunc("/activities", GetActivitiesHandler)
 	mux.HandleFunc("/import/local-data", ImportLocalDataHandler)

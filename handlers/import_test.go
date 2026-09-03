@@ -40,7 +40,7 @@ func validImportEvent(petLocalID string) models.ImportLocalDataEvent {
 		PetLocalID: petLocalID,
 		Date:       "2024-01-01T12:00:00Z",
 		Type:       "weight",
-		Value:      "4.2",
+		Value:      eventValue(`{"amount":4.2}`),
 	}
 }
 
@@ -145,7 +145,7 @@ func TestImportLocalDataHandler_InvalidEventRejected(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
-	badEvent := models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "not-a-type", Value: "x"}
+	badEvent := models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "not-a-type", Value: eventValue(`{"amount":4.2}`)}
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
 		Pets:   []models.ImportLocalDataPet{pet},
@@ -155,6 +155,40 @@ func TestImportLocalDataHandler_InvalidEventRejected(t *testing.T) {
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Импорт обязан использовать тот же валидатор значения, что и POST /events:
+// ослабленного правила для переноса локальных данных быть не должно.
+func TestImportLocalDataHandler_InvalidEventValueRejected(t *testing.T) {
+	cases := []struct {
+		name  string
+		event models.ImportLocalDataEvent
+	}{
+		{"вес вне диапазона", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`{"amount":500}`)}},
+		{"лишнее поле", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`{"amount":5,"unit":"g"}`)}},
+		{"нет обязательного поля", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "temperature", Value: eventValue(`{"amount":38}`)}},
+		{"строка вместо объекта", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`"4.2"`)}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := setupMockDB(t)
+			expectTokensValid(mock, testUserID)
+			mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+				WithArgs(testUserID, testImportIdempotencyKey).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			w := httptest.NewRecorder()
+			r := importRequest(t, models.ImportLocalDataRequest{
+				Pets:   []models.ImportLocalDataPet{validImportPet("local-1")},
+				Events: []models.ImportLocalDataEvent{c.event},
+			}, true, testImportIdempotencyKey)
+			ImportLocalDataHandler(w, r)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }
 
 func TestImportLocalDataHandler_EventPetLocalIDMismatchRejected(t *testing.T) {

@@ -1,61 +1,23 @@
 package handlers
 
 import (
-	"fmt"
-	"strconv"
+	"encoding/json"
+	"myauthservice/eventreg"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-const (
-	minEventWeight = 0.01
-	maxEventWeight = 400
-	minOtherLen    = 1
-	maxOtherLen    = 50
-)
-
-var allowedStatusValues = map[string]bool{
-	"normal":   true,
-	"abnormal": true,
-}
-
-func isStatusEventType(eventType string) bool {
-	switch eventType {
-	case "urine", "defecation", "vomit", "diarrhea":
-		return true
-	default:
-		return false
-	}
-}
-
-// validateEventValue проверяет value по per-type схеме (см. страницу
-// "Добавление события — Backend", таблица форматов value). Возвращает
-// пустую строку, если value валиден для eventType, иначе — сообщение об
-// ошибке для ответа 400.
-func validateEventValue(eventType, value string) string {
-	switch {
-	case eventType == "weight":
-		f, err := strconv.ParseFloat(value, 64)
-		if err != nil || f < minEventWeight || f > maxEventWeight {
-			return fmt.Sprintf("Поле value для type=weight должно быть числом в диапазоне %.2f–%.0f", minEventWeight, float64(maxEventWeight))
-		}
-		return ""
-	case isStatusEventType(eventType):
-		if !allowedStatusValues[value] {
-			return `Поле value для type=` + eventType + ` должно быть "normal" или "abnormal"`
-		}
-		return ""
-	case eventType == "other":
-		if len(value) < minOtherLen || len(value) > maxOtherLen {
-			return "Поле value для type=other должно быть от 1 до 50 символов"
-		}
-		return ""
-	default:
-		// Недопустимый type отклоняется отдельной проверкой (IsValidEventType)
-		// до вызова validateEventValue.
-		return "Некорректное значение type"
-	}
+// validateEventValue проверяет типизированное значение события по единому
+// реестру метрик (пакет eventreg). Ветвления по типу события здесь нет и
+// быть не должно: форма value, диапазоны и словари описаны в одном месте, к
+// которому обращаются создание (POST /events), редактирование
+// (PATCH /events/{id}) и импорт (POST /import/local-data).
+//
+// Возвращает пустую строку, если value валиден для eventType, иначе —
+// сообщение об ошибке для ответа 400.
+func validateEventValue(eventType string, value json.RawMessage) string {
+	return eventreg.ValidateValue(eventType, value)
 }
 
 func validateNotesLength(notes *string) bool {

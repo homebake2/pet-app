@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"myauthservice/models"
@@ -48,7 +49,9 @@ func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventReq
 	}
 
 	var eventID uuid.UUID
-	err = exec.QueryRow(query, petID, dateTime, req.Type, notes, req.Value, key).Scan(&eventID)
+	// value передаётся строкой: столбец event.value имеет тип jsonb, а
+	// []byte драйвер закодировал бы как bytea.
+	err = exec.QueryRow(query, petID, dateTime, req.Type, notes, string(req.Value), key).Scan(&eventID)
 	if err != nil {
 		log.Println("InsertEvent error:", err)
 		return uuid.Nil, err
@@ -118,7 +121,7 @@ func GetEventByID(eventID uuid.UUID) (*models.EventDB, uuid.UUID, string, error)
 }
 
 // UpdateEvent - функция обновления события
-func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *time.Time, eventType *string, notes *string, value *string) error {
+func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *time.Time, eventType *string, notes *string, value *json.RawMessage) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -143,7 +146,8 @@ func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *tim
 		}
 	}
 	if value != nil {
-		add("value", *value)
+		// value заменяется целиком (слияние вложенных полей не поддерживается).
+		add("value", string(*value))
 	}
 
 	if len(setParts) == 0 {

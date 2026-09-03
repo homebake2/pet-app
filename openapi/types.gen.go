@@ -25,21 +25,133 @@ const (
 	VALIDATIONERROR ErrorCodeEnum = "VALIDATION_ERROR"
 )
 
+// Defines values for EventActivityKindEnum.
+const (
+	EventActivityKindEnumFreeRange EventActivityKindEnum = "free_range"
+	EventActivityKindEnumOther     EventActivityKindEnum = "other"
+	EventActivityKindEnumPlay      EventActivityKindEnum = "play"
+	EventActivityKindEnumSwim      EventActivityKindEnum = "swim"
+	EventActivityKindEnumTraining  EventActivityKindEnum = "training"
+	EventActivityKindEnumWalk      EventActivityKindEnum = "walk"
+)
+
+// Defines values for EventExcretionStatusEnum.
+const (
+	Abnormal EventExcretionStatusEnum = "abnormal"
+	Normal   EventExcretionStatusEnum = "normal"
+)
+
+// Defines values for EventFeedingFoodEnum.
+const (
+	EventFeedingFoodEnumDry        EventFeedingFoodEnum = "dry"
+	EventFeedingFoodEnumFrozenPrey EventFeedingFoodEnum = "frozen_prey"
+	EventFeedingFoodEnumGrain      EventFeedingFoodEnum = "grain"
+	EventFeedingFoodEnumGreens     EventFeedingFoodEnum = "greens"
+	EventFeedingFoodEnumHay        EventFeedingFoodEnum = "hay"
+	EventFeedingFoodEnumHomemade   EventFeedingFoodEnum = "homemade"
+	EventFeedingFoodEnumInsects    EventFeedingFoodEnum = "insects"
+	EventFeedingFoodEnumLivePrey   EventFeedingFoodEnum = "live_prey"
+	EventFeedingFoodEnumOther      EventFeedingFoodEnum = "other"
+	EventFeedingFoodEnumRaw        EventFeedingFoodEnum = "raw"
+	EventFeedingFoodEnumTreat      EventFeedingFoodEnum = "treat"
+	EventFeedingFoodEnumWet        EventFeedingFoodEnum = "wet"
+)
+
+// Defines values for EventFeedingUnitEnum.
+const (
+	EventFeedingUnitEnumG       EventFeedingUnitEnum = "g"
+	EventFeedingUnitEnumMl      EventFeedingUnitEnum = "ml"
+	EventFeedingUnitEnumPiece   EventFeedingUnitEnum = "piece"
+	EventFeedingUnitEnumPortion EventFeedingUnitEnum = "portion"
+)
+
+// Defines values for EventHygieneProcedureEnum.
+const (
+	EventHygieneProcedureEnumAntiparasitic EventHygieneProcedureEnum = "antiparasitic"
+	EventHygieneProcedureEnumBath          EventHygieneProcedureEnum = "bath"
+	EventHygieneProcedureEnumBeak          EventHygieneProcedureEnum = "beak"
+	EventHygieneProcedureEnumBrushing      EventHygieneProcedureEnum = "brushing"
+	EventHygieneProcedureEnumEars          EventHygieneProcedureEnum = "ears"
+	EventHygieneProcedureEnumEnclosure     EventHygieneProcedureEnum = "enclosure"
+	EventHygieneProcedureEnumNails         EventHygieneProcedureEnum = "nails"
+	EventHygieneProcedureEnumOther         EventHygieneProcedureEnum = "other"
+	EventHygieneProcedureEnumShedding      EventHygieneProcedureEnum = "shedding"
+	EventHygieneProcedureEnumTeeth         EventHygieneProcedureEnum = "teeth"
+	EventHygieneProcedureEnumWaterChange   EventHygieneProcedureEnum = "water_change"
+)
+
+// Defines values for EventMedicationDoseUnitEnum.
+const (
+	EventMedicationDoseUnitEnumCapsule EventMedicationDoseUnitEnum = "capsule"
+	EventMedicationDoseUnitEnumDrop    EventMedicationDoseUnitEnum = "drop"
+	EventMedicationDoseUnitEnumG       EventMedicationDoseUnitEnum = "g"
+	EventMedicationDoseUnitEnumMcg     EventMedicationDoseUnitEnum = "mcg"
+	EventMedicationDoseUnitEnumMg      EventMedicationDoseUnitEnum = "mg"
+	EventMedicationDoseUnitEnumMl      EventMedicationDoseUnitEnum = "ml"
+	EventMedicationDoseUnitEnumTablet  EventMedicationDoseUnitEnum = "tablet"
+)
+
+// Defines values for EventMoodStateEnum.
+const (
+	Aggressive EventMoodStateEnum = "aggressive"
+	Anxious    EventMoodStateEnum = "anxious"
+	Calm       EventMoodStateEnum = "calm"
+	Hiding     EventMoodStateEnum = "hiding"
+	Lethargic  EventMoodStateEnum = "lethargic"
+	Playful    EventMoodStateEnum = "playful"
+)
+
+// Defines values for EventStatsAggregationEnum.
+const (
+	Avg   EventStatsAggregationEnum = "avg"
+	Count EventStatsAggregationEnum = "count"
+	Last  EventStatsAggregationEnum = "last"
+	Sum   EventStatsAggregationEnum = "sum"
+)
+
+// Defines values for EventStatsBucketEnum.
+const (
+	Day   EventStatsBucketEnum = "day"
+	Month EventStatsBucketEnum = "month"
+	Week  EventStatsBucketEnum = "week"
+)
+
+// Defines values for EventStatsValueKindEnum.
+const (
+	Category EventStatsValueKindEnum = "category"
+	Measure  EventStatsValueKindEnum = "measure"
+	Quantity EventStatsValueKindEnum = "quantity"
+)
+
+// Defines values for EventTemperatureKindEnum.
+const (
+	Body        EventTemperatureKindEnum = "body"
+	Environment EventTemperatureKindEnum = "environment"
+)
+
 // Defines values for GetEventEnum.
 const (
-	GetEventEnumDefecation GetEventEnum = "defecation"
-	GetEventEnumDiarrhea   GetEventEnum = "diarrhea"
-	GetEventEnumOther      GetEventEnum = "other"
-	GetEventEnumUrine      GetEventEnum = "urine"
-	GetEventEnumVomit      GetEventEnum = "vomit"
-	GetEventEnumWeight     GetEventEnum = "weight"
+	GetEventEnumActivity    GetEventEnum = "activity"
+	GetEventEnumDefecation  GetEventEnum = "defecation"
+	GetEventEnumDiarrhea    GetEventEnum = "diarrhea"
+	GetEventEnumFeeding     GetEventEnum = "feeding"
+	GetEventEnumHygiene     GetEventEnum = "hygiene"
+	GetEventEnumMedication  GetEventEnum = "medication"
+	GetEventEnumMood        GetEventEnum = "mood"
+	GetEventEnumOther       GetEventEnum = "other"
+	GetEventEnumSleep       GetEventEnum = "sleep"
+	GetEventEnumTemperature GetEventEnum = "temperature"
+	GetEventEnumUrine       GetEventEnum = "urine"
+	GetEventEnumVomit       GetEventEnum = "vomit"
+	GetEventEnumWater       GetEventEnum = "water"
+	GetEventEnumWeight      GetEventEnum = "weight"
 )
 
 // Defines values for GetGenderEnum.
 const (
-	GetGenderEnumFemale GetGenderEnum = "female"
-	GetGenderEnumMale   GetGenderEnum = "male"
-	GetGenderEnumOther  GetGenderEnum = "other"
+	Female GetGenderEnum = "female"
+	Male   GetGenderEnum = "male"
+	Other  GetGenderEnum = "other"
 )
 
 // Defines values for GetHabilitationEnum.
@@ -93,6 +205,128 @@ const (
 // ErrorCodeEnum Код ошибки для маппинга на фронте
 type ErrorCodeEnum string
 
+// EventActivityKindEnum Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума.
+type EventActivityKindEnum string
+
+// EventExcretionStatusEnum Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).
+type EventExcretionStatusEnum string
+
+// EventFeedingFoodEnum Вид корма (value.food при type=feeding).
+type EventFeedingFoodEnum string
+
+// EventFeedingUnitEnum Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).
+type EventFeedingUnitEnum string
+
+// EventHygieneProcedureEnum Процедура гигиены (value.procedure при type=hygiene).
+type EventHygieneProcedureEnum string
+
+// EventMedicationDoseUnitEnum Единица дозы лекарства (value.dose_unit при type=medication).
+type EventMedicationDoseUnitEnum string
+
+// EventMoodStateEnum Состояние питомца (value.state при type=mood).
+type EventMoodStateEnum string
+
+// EventStatsAggregationEnum Способ свёртки значений метрики внутри интервала, применённый к этой серии.
+type EventStatsAggregationEnum string
+
+// EventStatsBucket defines model for EventStatsBucket.
+type EventStatsBucket struct {
+	// BucketStart Дата начала интервала (UTC).
+	BucketStart openapi_types.Date `json:"bucket_start"`
+
+	// Count Количество событий, попавших в интервал.
+	Count int `json:"count"`
+
+	// Value Агрегированное значение интервала; null — событий в интервале не было.
+	Value *float32 `json:"value"`
+}
+
+// EventStatsBucketEnum Интервал агрегации графика. week — календарная неделя по UTC с понедельника, month — календарный месяц по UTC.
+type EventStatsBucketEnum string
+
+// EventStatsSeries defines model for EventStatsSeries.
+type EventStatsSeries struct {
+	// Aggregation Способ свёртки значений метрики внутри интервала, применённый к этой серии.
+	Aggregation EventStatsAggregationEnum `json:"aggregation"`
+
+	// Buckets Точки серии по интервалам, по возрастанию bucket_start. Интервалы без событий присутствуют с value=null и count=0.
+	Buckets []EventStatsBucket `json:"buckets"`
+
+	// Category Значение, разделяющее серии одного типа: при value_kind=category — конкретное значение категории (procedure, state, status); при type=temperature — вид замера (EventTemperatureKindEnum). Отсутствует, если тип даёт одну серию.
+	Category *string `json:"category,omitempty"`
+
+	// Metric Ключ метрики из реестра метрик (например amount_avg, amount_last, amount_sum, duration_min_sum, distance_m_sum, count).
+	Metric string       `json:"metric"`
+	Type   GetEventEnum `json:"type"`
+
+	// Unit Единица измерения значений серии; отсутствует, если у метрики нет единицы (категориальные серии, количество приёмов).
+	Unit *string `json:"unit,omitempty"`
+
+	// ValueKind Характер значения серии; определяет форму графика на клиенте. Тип с value_kind=label (other) не агрегируется и в ответе не встречается.
+	ValueKind EventStatsValueKindEnum `json:"value_kind"`
+}
+
+// EventStatsValueKindEnum Характер значения серии; определяет форму графика на клиенте. Тип с value_kind=label (other) не агрегируется и в ответе не встречается.
+type EventStatsValueKindEnum string
+
+// EventTemperatureKindEnum Вид замера температуры (value.kind при type=temperature): body — температура тела, environment — температура среды обитания (террариум, точка прогрева, вода аквариума).
+type EventTemperatureKindEnum string
+
+// EventValue Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+//
+// Состав по типам:
+// * weight — amount (кг, 0.001–400)
+// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+// * feeding — amount (0.01–5000), unit, food
+// * water — amount (мл, 0.1–5000)
+// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+// * sleep — duration_min (1–1440)
+// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+// * hygiene — procedure
+// * mood — state
+// * urine, defecation, vomit, diarrhea — status
+// * other — label (1–50)
+type EventValue struct {
+	// Amount Числовая величина: weight (кг), temperature (°C), feeding (в единице unit), water (мл).
+	Amount *float32 `json:"amount,omitempty"`
+
+	// DistanceM Дистанция в метрах (type=activity, опционально).
+	DistanceM *float32 `json:"distance_m,omitempty"`
+
+	// DoseAmount Доза препарата в единице dose_unit (type=medication, только вместе с dose_unit).
+	DoseAmount *float32 `json:"dose_amount,omitempty"`
+
+	// DoseUnit Единица дозы лекарства (value.dose_unit при type=medication).
+	DoseUnit *EventMedicationDoseUnitEnum `json:"dose_unit,omitempty"`
+
+	// DurationMin Длительность в минутах: activity, sleep.
+	DurationMin *float32 `json:"duration_min,omitempty"`
+
+	// Food Вид корма (value.food при type=feeding).
+	Food *EventFeedingFoodEnum `json:"food,omitempty"`
+
+	// Kind Вид наблюдения: при type=temperature — значение EventTemperatureKindEnum, при type=activity — значение EventActivityKindEnum.
+	Kind *string `json:"kind,omitempty"`
+
+	// Label Краткое обозначение события (type=other); подробности — в notes.
+	Label *string `json:"label,omitempty"`
+
+	// Name Название препарата (type=medication).
+	Name *string `json:"name,omitempty"`
+
+	// Procedure Процедура гигиены (value.procedure при type=hygiene).
+	Procedure *EventHygieneProcedureEnum `json:"procedure,omitempty"`
+
+	// State Состояние питомца (value.state при type=mood).
+	State *EventMoodStateEnum `json:"state,omitempty"`
+
+	// Status Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).
+	Status *EventExcretionStatusEnum `json:"status,omitempty"`
+
+	// Unit Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).
+	Unit *EventFeedingUnitEnum `json:"unit,omitempty"`
+}
+
 // GetActivitiesResponse defines model for GetActivitiesResponse.
 type GetActivitiesResponse struct {
 	Items   []ItemsArrayActivitiesModel `json:"items"`
@@ -122,7 +356,22 @@ type GetEventIdResponseRequest struct {
 	PetId   openapi_types.UUID `json:"pet_id"`
 	PetName string             `json:"pet_name"`
 	Type    GetEventEnum       `json:"type"`
-	Value   string             `json:"value"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status
+	// * other — label (1–50)
+	Value EventValue `json:"value"`
 }
 
 // GetEventRequest defines model for GetEventRequest.
@@ -131,7 +380,22 @@ type GetEventRequest struct {
 	Notes *string            `json:"notes,omitempty"`
 	PetId openapi_types.UUID `json:"pet_id"`
 	Type  GetEventEnum       `json:"type"`
-	Value string             `json:"value"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status
+	// * other — label (1–50)
+	Value EventValue `json:"value"`
 }
 
 // GetEventResponse defines model for GetEventResponse.
@@ -140,7 +404,28 @@ type GetEventResponse struct {
 	Id    openapi_types.UUID `json:"id"`
 	Notes *string            `json:"notes,omitempty"`
 	Type  GetEventEnum       `json:"type"`
-	Value string             `json:"value"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status
+	// * other — label (1–50)
+	Value EventValue `json:"value"`
+}
+
+// GetEventStatsResponse defines model for GetEventStatsResponse.
+type GetEventStatsResponse struct {
+	PetName string             `json:"pet_name"`
+	Series  []EventStatsSeries `json:"series"`
 }
 
 // GetGenderEnum defines model for GetGenderEnum.
@@ -253,7 +538,22 @@ type ImportLocalDataEvent struct {
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
 	PetLocalId string       `json:"pet_local_id"`
 	Type       GetEventEnum `json:"type"`
-	Value      string       `json:"value"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status
+	// * other — label (1–50)
+	Value EventValue `json:"value"`
 }
 
 // ImportLocalDataPet defines model for ImportLocalDataPet.
@@ -301,7 +601,22 @@ type UpdateEventRequest struct {
 	Notes *string            `json:"notes,omitempty"`
 	PetId openapi_types.UUID `json:"pet_id"`
 	Type  *GetEventEnum      `json:"type,omitempty"`
-	Value *string            `json:"value,omitempty"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status
+	// * other — label (1–50)
+	Value *EventValue `json:"value,omitempty"`
 }
 
 // UpdatePetProfileRequest defines model for UpdatePetProfileRequest.
@@ -337,6 +652,17 @@ type GetActivitiesParams struct {
 type PostEventParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetEventsStatsParams defines parameters for GetEventsStats.
+type GetEventsStatsParams struct {
+	PetId openapi_types.UUID `form:"pet_id" json:"pet_id"`
+
+	// Types Список значений type через запятую. По умолчанию — все типы, у которых value_kind ≠ label.
+	Types  *string              `form:"types,omitempty" json:"types,omitempty"`
+	From   openapi_types.Date   `form:"from" json:"from"`
+	To     openapi_types.Date   `form:"to" json:"to"`
+	Bucket EventStatsBucketEnum `form:"bucket" json:"bucket"`
 }
 
 // PostImportLocalDataParams defines parameters for PostImportLocalData.

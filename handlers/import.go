@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"myauthservice/database"
+	"myauthservice/eventreg"
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
@@ -68,11 +69,11 @@ func validateImportEvent(event models.ImportLocalDataEvent) string {
 		return "Поле pet_local_id обязательно для каждого события"
 	}
 
-	if event.Date == "" || event.Type == "" || event.Value == "" {
+	if event.Date == "" || event.Type == "" || len(event.Value) == 0 {
 		return "Обязательные поля события не заполнены"
 	}
 
-	if !models.IsValidEventType(event.Type) {
+	if !eventreg.IsValidType(event.Type) {
 		return "Некорректное значение type у события"
 	}
 

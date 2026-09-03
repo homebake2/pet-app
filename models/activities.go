@@ -1,12 +1,14 @@
 package models
 
+import "encoding/json"
+
 // ActivityEvent represents a single event in the activities response
 type ActivityEvent struct {
-	ID    string  `json:"id"`
-	Date  string  `json:"date"`
-	Type  string  `json:"type"`
-	Notes *string `json:"notes,omitempty"`
-	Value string  `json:"value"`
+	ID    string          `json:"id"`
+	Date  string          `json:"date"`
+	Type  string          `json:"type"`
+	Notes *string         `json:"notes,omitempty"`
+	Value json.RawMessage `json:"value"`
 }
 
 // ActivityDay represents events for a single day

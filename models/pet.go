@@ -2,6 +2,7 @@ package models
 
 import (
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,43 +17,36 @@ const (
 	PetColorMaxLen = 100
 )
 
-var allowedEventTypes = map[string]bool{
-	"weight":     true,
-	"urine":      true,
-	"defecation": true,
-	"vomit":      true,
-	"diarrhea":   true,
-	"other":      true,
-}
-
-func IsValidEventType(eventType string) bool {
-	return allowedEventTypes[eventType]
-}
-
+// CreateEventRequest — тело запроса POST /events. Value — типизированный
+// объект, форма которого определяется Type (см. пакет eventreg); хранится и
+// передаётся как сырой JSON, чтобы одна и та же структура обслуживала все 14
+// типов события без ветвления по типу в моделях.
 type CreateEventRequest struct {
-	PetID string  `json:"pet_id"`          // обязательный
-	Date  string  `json:"date"`            // обязательный
-	Type  string  `json:"type"`            // обязательный
-	Notes *string `json:"notes,omitempty"` // необязательный
-	Value string  `json:"value"`           // обязательный
+	PetID string          `json:"pet_id"`          // обязательный
+	Date  string          `json:"date"`            // обязательный
+	Type  string          `json:"type"`            // обязательный
+	Notes *string         `json:"notes,omitempty"` // необязательный
+	Value json.RawMessage `json:"value"`           // обязательный
 }
 
+// UpdateEventRequest — тело запроса PATCH /events/{id}. Value заменяется
+// целиком; слияние вложенных полей объекта не поддерживается.
 type UpdateEventRequest struct {
-	PetID string  `json:"pet_id"`          // обязательный
-	Date  *string `json:"date,omitempty"`  // необязательный
-	Type  *string `json:"type,omitempty"`  // необязательный
-	Notes *string `json:"notes,omitempty"` // необязательный
-	Value *string `json:"value,omitempty"` // необязательный
+	PetID string           `json:"pet_id"`          // обязательный
+	Date  *string          `json:"date,omitempty"`  // необязательный
+	Type  *string          `json:"type,omitempty"`  // необязательный
+	Notes *string          `json:"notes,omitempty"` // необязательный
+	Value *json.RawMessage `json:"value,omitempty"` // необязательный
 }
 
 type EventResponse struct {
-	ID      string  `json:"id"`
-	Date    string  `json:"date"`
-	Type    string  `json:"type"`
-	Value   string  `json:"value"`
-	Notes   *string `json:"notes,omitempty"`
-	PetID   string  `json:"pet_id"`
-	PetName string  `json:"pet_name"`
+	ID      string          `json:"id"`
+	Date    string          `json:"date"`
+	Type    string          `json:"type"`
+	Value   json.RawMessage `json:"value"`
+	Notes   *string         `json:"notes,omitempty"`
+	PetID   string          `json:"pet_id"`
+	PetName string          `json:"pet_name"`
 }
 
 type EventDB struct {
@@ -61,7 +55,7 @@ type EventDB struct {
 	Date      time.Time
 	Type      string
 	Notes     sql.NullString
-	Value     string
+	Value     json.RawMessage
 	DeletedAt sql.NullTime
 }
 

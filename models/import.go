@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // ImportLocalDataPet — элемент pets[] в теле запроса POST /import/local-data.
 // Набор полей питомца совпадает с CreatePetRequest, дополнен local_id —
 // клиентским временным ключом ссылки, используемым только внутри этого
@@ -39,11 +41,11 @@ func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 // Набор полей события совпадает с CreateEventRequest; вместо pet_id
 // используется ссылка pet_local_id на pets[].local_id этого же запроса.
 type ImportLocalDataEvent struct {
-	PetLocalID string  `json:"pet_local_id"`
-	Date       string  `json:"date"`
-	Type       string  `json:"type"`
-	Notes      *string `json:"notes,omitempty"`
-	Value      string  `json:"value"`
+	PetLocalID string          `json:"pet_local_id"`
+	Date       string          `json:"date"`
+	Type       string          `json:"type"`
+	Notes      *string         `json:"notes,omitempty"`
+	Value      json.RawMessage `json:"value"`
 }
 
 // ToCreateEventRequest конвертирует элемент events[] в тот же тип запроса,

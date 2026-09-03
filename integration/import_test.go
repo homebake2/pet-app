@@ -31,7 +31,7 @@ func TestImportLocalData_HappyPath(t *testing.T) {
 				"pet_local_id": "local-cat",
 				"date":         time.Now().UTC().Format(time.RFC3339),
 				"type":         "weight",
-				"value":        "4.2",
+				"value":        map[string]any{"amount": 4.2},
 			},
 		},
 	}
@@ -189,7 +189,7 @@ func TestImportLocalData_EventPetLocalIDMismatchRejected(t *testing.T) {
 				"pet_local_id": "does-not-exist",
 				"date":         time.Now().UTC().Format(time.RFC3339),
 				"type":         "weight",
-				"value":        "4.2",
+				"value":        map[string]any{"amount": 4.2},
 			},
 		},
 	}

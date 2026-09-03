@@ -1238,6 +1238,115 @@
           }
         }
       }
+    },
+    "/events/stats": {
+      "get": {
+        "summary": "/events/stats",
+        "description": "Агрегированные ряды событий питомца для графиков динамики. Свёртка выполняется на сервере по реестру метрик. Границы from..to трактуются так же, как у GET /activities (полуоткрытый интервал по UTC), диапазон не должен превышать 366 дней. Интервалы без событий обязательно присутствуют в ответе (value=null, count=0). Запрос типа с value_kind=label (other) даёт 400.",
+        "tags": [
+          "event-controller"
+        ],
+        "operationId": "get-events-stats",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "pet_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "description": "Список значений type через запятую. По умолчанию — все типы, у которых value_kind ≠ label.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/EventStatsBucketEnum"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEventStatsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
     }
   },
   "components": {
@@ -1376,10 +1485,7 @@
             }
           },
           "value": {
-            "type": "string",
-            "x-stoplight": {
-              "id": "2yt0h1jjq2k0r"
-            }
+            "$ref": "#/components/schemas/EventValue"
           }
         }
       },
@@ -1690,6 +1796,14 @@
         },
         "enum": [
           "weight",
+          "temperature",
+          "feeding",
+          "water",
+          "activity",
+          "sleep",
+          "medication",
+          "hygiene",
+          "mood",
           "urine",
           "defecation",
           "vomit",
@@ -1763,11 +1877,7 @@
             }
           },
           "value": {
-            "type": "string",
-            "maxLength": 500,
-            "x-stoplight": {
-              "id": "yajgqq4i16atj"
-            }
+            "$ref": "#/components/schemas/EventValue"
           }
         }
       },
@@ -2007,10 +2117,7 @@
             }
           },
           "value": {
-            "type": "string",
-            "x-stoplight": {
-              "id": "yw3lmzfj2u4yq"
-            }
+            "$ref": "#/components/schemas/EventValue"
           },
           "notes": {
             "type": "string",
@@ -2128,8 +2235,8 @@
             "maxLength": 500
           },
           "value": {
-            "type": "string",
-            "maxLength": 500
+            "$ref": "#/components/schemas/EventValue",
+            "description": "При PATCH объект value заменяется целиком; слияние вложенных полей не поддерживается."
           }
         }
       },
@@ -2243,11 +2350,7 @@
             }
           },
           "value": {
-            "type": "string",
-            "maxLength": 500,
-            "x-stoplight": {
-              "id": "ywy9glaikr2hj"
-            }
+            "$ref": "#/components/schemas/EventValue"
           },
           "notes": {
             "type": "string",
@@ -2325,6 +2428,286 @@
             "type": "boolean",
             "x-stoplight": {
               "id": "p8816r9eiqiex"
+            }
+          }
+        }
+      },
+      "EventTemperatureKindEnum": {
+        "title": "EventTemperatureKindEnum",
+        "type": "string",
+        "description": "Вид замера температуры (value.kind при type=temperature): body — температура тела, environment — температура среды обитания (террариум, точка прогрева, вода аквариума).",
+        "enum": [
+          "body",
+          "environment"
+        ]
+      },
+      "EventFeedingUnitEnum": {
+        "title": "EventFeedingUnitEnum",
+        "type": "string",
+        "description": "Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).",
+        "enum": [
+          "g",
+          "ml",
+          "portion",
+          "piece"
+        ]
+      },
+      "EventFeedingFoodEnum": {
+        "title": "EventFeedingFoodEnum",
+        "type": "string",
+        "description": "Вид корма (value.food при type=feeding).",
+        "enum": [
+          "dry",
+          "wet",
+          "raw",
+          "homemade",
+          "live_prey",
+          "frozen_prey",
+          "insects",
+          "hay",
+          "grain",
+          "greens",
+          "treat",
+          "other"
+        ]
+      },
+      "EventActivityKindEnum": {
+        "title": "EventActivityKindEnum",
+        "type": "string",
+        "description": "Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума.",
+        "enum": [
+          "walk",
+          "free_range",
+          "play",
+          "training",
+          "swim",
+          "other"
+        ]
+      },
+      "EventMedicationDoseUnitEnum": {
+        "title": "EventMedicationDoseUnitEnum",
+        "type": "string",
+        "description": "Единица дозы лекарства (value.dose_unit при type=medication).",
+        "enum": [
+          "mcg",
+          "mg",
+          "g",
+          "ml",
+          "drop",
+          "tablet",
+          "capsule"
+        ]
+      },
+      "EventHygieneProcedureEnum": {
+        "title": "EventHygieneProcedureEnum",
+        "type": "string",
+        "description": "Процедура гигиены (value.procedure при type=hygiene).",
+        "enum": [
+          "bath",
+          "brushing",
+          "teeth",
+          "nails",
+          "beak",
+          "ears",
+          "shedding",
+          "antiparasitic",
+          "enclosure",
+          "water_change",
+          "other"
+        ]
+      },
+      "EventMoodStateEnum": {
+        "title": "EventMoodStateEnum",
+        "type": "string",
+        "description": "Состояние питомца (value.state при type=mood).",
+        "enum": [
+          "calm",
+          "playful",
+          "lethargic",
+          "anxious",
+          "aggressive",
+          "hiding"
+        ]
+      },
+      "EventExcretionStatusEnum": {
+        "title": "EventExcretionStatusEnum",
+        "type": "string",
+        "description": "Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).",
+        "enum": [
+          "normal",
+          "abnormal"
+        ]
+      },
+      "EventValue": {
+        "title": "EventValue",
+        "type": "object",
+        "description": "Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.\n\nСостав по типам:\n* weight — amount (кг, 0.001–400)\n* temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)\n* feeding — amount (0.01–5000), unit, food\n* water — amount (мл, 0.1–5000)\n* activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)\n* sleep — duration_min (1–1440)\n* medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально\n* hygiene — procedure\n* mood — state\n* urine, defecation, vomit, diarrhea — status\n* other — label (1–50)",
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "type": "number",
+            "description": "Числовая величина: weight (кг), temperature (°C), feeding (в единице unit), water (мл)."
+          },
+          "kind": {
+            "type": "string",
+            "description": "Вид наблюдения: при type=temperature — значение EventTemperatureKindEnum, при type=activity — значение EventActivityKindEnum."
+          },
+          "unit": {
+            "$ref": "#/components/schemas/EventFeedingUnitEnum"
+          },
+          "food": {
+            "$ref": "#/components/schemas/EventFeedingFoodEnum"
+          },
+          "duration_min": {
+            "type": "number",
+            "description": "Длительность в минутах: activity, sleep."
+          },
+          "distance_m": {
+            "type": "number",
+            "description": "Дистанция в метрах (type=activity, опционально)."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Название препарата (type=medication)."
+          },
+          "dose_amount": {
+            "type": "number",
+            "description": "Доза препарата в единице dose_unit (type=medication, только вместе с dose_unit)."
+          },
+          "dose_unit": {
+            "$ref": "#/components/schemas/EventMedicationDoseUnitEnum"
+          },
+          "procedure": {
+            "$ref": "#/components/schemas/EventHygieneProcedureEnum"
+          },
+          "state": {
+            "$ref": "#/components/schemas/EventMoodStateEnum"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EventExcretionStatusEnum"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "description": "Краткое обозначение события (type=other); подробности — в notes."
+          }
+        }
+      },
+      "EventStatsBucketEnum": {
+        "title": "EventStatsBucketEnum",
+        "type": "string",
+        "description": "Интервал агрегации графика. week — календарная неделя по UTC с понедельника, month — календарный месяц по UTC.",
+        "enum": [
+          "day",
+          "week",
+          "month"
+        ]
+      },
+      "EventStatsValueKindEnum": {
+        "title": "EventStatsValueKindEnum",
+        "type": "string",
+        "description": "Характер значения серии; определяет форму графика на клиенте. Тип с value_kind=label (other) не агрегируется и в ответе не встречается.",
+        "enum": [
+          "measure",
+          "quantity",
+          "category"
+        ]
+      },
+      "EventStatsAggregationEnum": {
+        "title": "EventStatsAggregationEnum",
+        "type": "string",
+        "description": "Способ свёртки значений метрики внутри интервала, применённый к этой серии.",
+        "enum": [
+          "avg",
+          "last",
+          "sum",
+          "count"
+        ]
+      },
+      "EventStatsBucket": {
+        "title": "EventStatsBucket",
+        "type": "object",
+        "required": [
+          "bucket_start",
+          "value",
+          "count"
+        ],
+        "properties": {
+          "bucket_start": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата начала интервала (UTC)."
+          },
+          "value": {
+            "type": "number",
+            "nullable": true,
+            "description": "Агрегированное значение интервала; null — событий в интервале не было."
+          },
+          "count": {
+            "type": "integer",
+            "description": "Количество событий, попавших в интервал."
+          }
+        }
+      },
+      "EventStatsSeries": {
+        "title": "EventStatsSeries",
+        "type": "object",
+        "required": [
+          "type",
+          "metric",
+          "value_kind",
+          "aggregation",
+          "buckets"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "metric": {
+            "type": "string",
+            "description": "Ключ метрики из реестра метрик (например amount_avg, amount_last, amount_sum, duration_min_sum, distance_m_sum, count)."
+          },
+          "category": {
+            "type": "string",
+            "description": "Значение, разделяющее серии одного типа: при value_kind=category — конкретное значение категории (procedure, state, status); при type=temperature — вид замера (EventTemperatureKindEnum). Отсутствует, если тип даёт одну серию."
+          },
+          "unit": {
+            "type": "string",
+            "description": "Единица измерения значений серии; отсутствует, если у метрики нет единицы (категориальные серии, количество приёмов)."
+          },
+          "value_kind": {
+            "$ref": "#/components/schemas/EventStatsValueKindEnum"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/EventStatsAggregationEnum"
+          },
+          "buckets": {
+            "type": "array",
+            "description": "Точки серии по интервалам, по возрастанию bucket_start. Интервалы без событий присутствуют с value=null и count=0.",
+            "items": {
+              "$ref": "#/components/schemas/EventStatsBucket"
+            }
+          }
+        }
+      },
+      "GetEventStatsResponse": {
+        "title": "GetEventStatsResponse",
+        "type": "object",
+        "required": [
+          "pet_name",
+          "series"
+        ],
+        "properties": {
+          "pet_name": {
+            "type": "string"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventStatsSeries"
             }
           }
         }

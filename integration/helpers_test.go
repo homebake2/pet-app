@@ -41,11 +41,22 @@ func findRoute(method, pathOnly string) (item *openapi3.PathItem, op *openapi3.O
 		if !ok {
 			continue
 		}
-		if operation := candidate.GetOperation(method); operation != nil {
+		operation := candidate.GetOperation(method)
+		if operation == nil {
+			continue
+		}
+		// Шаблон без параметров (/events/stats) выигрывает у шаблона с
+		// параметром (/events/{id}) — так же, как точный путь выигрывает у
+		// поддерева в http.ServeMux. Иначе порядок обхода карты решал бы, по
+		// какой схеме валидировать ответ.
+		if len(params) == 0 {
 			return candidate, operation, params, tmpl
 		}
+		if op == nil || len(params) < len(pathParams) {
+			item, op, pathParams, template = candidate, operation, params, tmpl
+		}
 	}
-	return nil, nil, nil, ""
+	return item, op, pathParams, template
 }
 
 func matchTemplate(template, path string) (map[string]string, bool) {

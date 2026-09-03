@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"myauthservice/database"
+	"myauthservice/eventreg"
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
@@ -18,6 +19,70 @@ const (
 	maxEventFieldLen   = 500
 )
 
+// parseEventDateRange разбирает границы периода from/to (YYYY-MM-DD, UTC) —
+// общий код для GET /activities и GET /events/stats: трактовка границ и
+// ограничение в 366 дней у них одни и те же (см. "Просмотр календаря —
+// Backend" и "Графики динамики — Backend"). При ошибке сама пишет 400 и
+// возвращает ok=false.
+//
+// Возвращаются календарные даты (полночь UTC); полуоткрытый интервал
+// [from, to+1 день) строится потребителем.
+func parseEventDateRange(w http.ResponseWriter, r *http.Request) (fromDate, toDate time.Time, ok bool) {
+	fromStr := r.URL.Query().Get("from")
+	if fromStr == "" {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Отсутствует обязательный параметр from")
+		return time.Time{}, time.Time{}, false
+	}
+
+	toStr := r.URL.Query().Get("to")
+	if toStr == "" {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Отсутствует обязательный параметр to")
+		return time.Time{}, time.Time{}, false
+	}
+
+	fromDate, err := time.Parse("2006-01-02", fromStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат даты from (ожидается YYYY-MM-DD)")
+		return time.Time{}, time.Time{}, false
+	}
+
+	toDate, err = time.Parse("2006-01-02", toStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат даты to (ожидается YYYY-MM-DD)")
+		return time.Time{}, time.Time{}, false
+	}
+
+	if toDate.Before(fromDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметр from не может быть позже to")
+		return time.Time{}, time.Time{}, false
+	}
+
+	if toDate.Sub(fromDate) > maxActivitiesRange {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Диапазон дат не должен превышать 366 дней")
+		return time.Time{}, time.Time{}, false
+	}
+
+	return fromDate, toDate, true
+}
+
+// parseRequiredPetIDParam разбирает обязательный query-параметр pet_id —
+// общий код для GET /activities и GET /events/stats.
+func parseRequiredPetIDParam(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
+	petIDStr := r.URL.Query().Get("pet_id")
+	if petIDStr == "" {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Отсутствует обязательный параметр pet_id")
+		return uuid.Nil, false
+	}
+
+	petID, err := uuid.Parse(petIDStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат pet_id")
+		return uuid.Nil, false
+	}
+
+	return petID, true
+}
+
 // GetActivitiesHandler обрабатывает GET /activities
 func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -25,49 +90,13 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fromStr := r.URL.Query().Get("from")
-	if fromStr == "" {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Отсутствует обязательный параметр from")
+	fromDate, toDate, ok := parseEventDateRange(w, r)
+	if !ok {
 		return
 	}
 
-	toStr := r.URL.Query().Get("to")
-	if toStr == "" {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Отсутствует обязательный параметр to")
-		return
-	}
-
-	petIDStr := r.URL.Query().Get("pet_id")
-	if petIDStr == "" {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Отсутствует обязательный параметр pet_id")
-		return
-	}
-
-	fromDate, err := time.Parse("2006-01-02", fromStr)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат даты from (ожидается YYYY-MM-DD)")
-		return
-	}
-
-	toDate, err := time.Parse("2006-01-02", toStr)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат даты to (ожидается YYYY-MM-DD)")
-		return
-	}
-
-	if toDate.Before(fromDate) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметр from не может быть позже to")
-		return
-	}
-
-	if toDate.Sub(fromDate) > maxActivitiesRange {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Диапазон дат не должен превышать 366 дней")
-		return
-	}
-
-	petID, err := uuid.Parse(petIDStr)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный формат pet_id")
+	petID, ok := parseRequiredPetIDParam(w, r)
+	if !ok {
 		return
 	}
 
@@ -146,11 +175,11 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 // PetEventItem - одно событие в ответе GET /pet/{id}/events (GetEventResponse).
 type PetEventItem struct {
-	ID    string  `json:"id"`
-	Date  string  `json:"date"`
-	Type  string  `json:"type"`
-	Notes *string `json:"notes,omitempty"`
-	Value string  `json:"value"`
+	ID    string          `json:"id"`
+	Date  string          `json:"date"`
+	Type  string          `json:"type"`
+	Notes *string         `json:"notes,omitempty"`
+	Value json.RawMessage `json:"value"`
 }
 
 // PetEventsResponse - тело ответа GET /pet/{id}/events.
@@ -343,12 +372,12 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.PetID == "" || req.Date == "" || req.Type == "" || req.Value == "" {
+	if req.PetID == "" || req.Date == "" || req.Type == "" || len(req.Value) == 0 {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Обязательные поля не заполнены")
 		return
 	}
 
-	if !models.IsValidEventType(req.Type) {
+	if !eventreg.IsValidType(req.Type) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение type")
 		return
 	}
@@ -527,7 +556,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Type != nil && !models.IsValidEventType(*req.Type) {
+	if req.Type != nil && !eventreg.IsValidType(*req.Type) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение type")
 		return
 	}
