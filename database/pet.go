@@ -388,6 +388,21 @@ func CheckPetBelongsToUser(petID uuid.UUID, userID string) (bool, error) {
 	return count == 1, nil
 }
 
+// CheckPetOwnership проверяет владение питомцем по правилу, зарегистрированному
+// для owner_type = "pet_photo" в реестре типов владельцев generic-механизма
+// файлов сущностей (см. handlers/files.go): pet.id = petID AND
+// pet.user_id = userID AND pet.deleted_at IS NULL — дословно то же правило,
+// что и на остальных эндпоинтах питомца (GET/PUT/DELETE /pet/{id}).
+func CheckPetOwnership(petID uuid.UUID, userID string) (bool, error) {
+	query := `SELECT COUNT(1) FROM pet WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`
+	var count int
+	err := DB.QueryRow(query, petID, userID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 1, nil
+}
+
 // GetPetById - получить питомца по ID
 func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 	query := `

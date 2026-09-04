@@ -33,6 +33,11 @@
 | `DATABASE_URL` | connection string от Neon (см. ниже) | обязателен, без него `database.InitDB()` вызывает `log.Fatal` |
 | `PORT` | не задаётся вручную | Render подставляет сам; код читает `os.Getenv("PORT")`, локально фолбэк на `3000` (`main.go:29-32`) |
 | `JWT_SECRET` | секрет для подписи JWT | обязателен в проде; код читает его в `utils/jwt.go`, при отсутствии переменной локально используется дефолтное значение — на проде это небезопасно, задать реальный секрет |
+| `S3_ENDPOINT` | endpoint S3-совместимого API Backblaze B2 | обязателен, без него `s3client.ConfigFromEnv()` возвращает ошибку и `main()` вызывает `log.Fatal` |
+| `S3_KEY_ID` | Backblaze B2 access key (`keyID`) | обязателен; значение хранится только в Render, никогда не в репозитории и не передаётся клиенту |
+| `S3_APPLICATION_KEY` | Backblaze B2 secret key (`applicationKey`) | обязателен; та же политика хранения, что и `S3_KEY_ID` |
+| `S3_BUCKET` | имя bucket в Backblaze B2 | обязателен |
+| `S3_REGION` | регион для AWS SDK | необязателен, по умолчанию `us-east-1` — Backblaze B2 не проверяет регион, но SDK требует непустое значение |
 
 ### Особенности free tier
 
@@ -54,6 +59,7 @@
 - `profile` — профиль пользователя (1:1 с `users` через `user_id`)
 - `pet` — питомцы (many:1 с `profile` через `profile_id`), soft delete через `deleted_at`
 - `event` — события по питомцу (many:1 с `pet` через `pet_id`)
+- `file` — generic-таблица файлов сущностей (presigned S3 upload/read), параметризована `owner_type`/`owner_id`; первое подключение — `owner_type = "pet_photo"` (см. `handlers/files.go`)
 
 Все первичные ключи — `uuid`, генерируются через `gen_random_uuid()` (встроено в Postgres с версии 13, дополнительных расширений не требует).
 

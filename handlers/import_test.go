@@ -238,8 +238,8 @@ func TestImportLocalDataHandler_IdempotencyKeyReplaysStoredResult(t *testing.T) 
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT pets_imported, events_imported, profile_imported`).
 		WithArgs(testUserID, testImportIdempotencyKey).
-		WillReturnRows(sqlmock.NewRows([]string{"pets_imported", "events_imported", "profile_imported"}).
-			AddRow(2, 1, true))
+		WillReturnRows(sqlmock.NewRows([]string{"pets_imported", "events_imported", "profile_imported", "pets_mapping"}).
+			AddRow(2, 1, true, `[{"local_id":"whatever","id":"`+testPetID+`"}]`))
 
 	w := httptest.NewRecorder()
 	// Тело повторного запроса умышленно отличается от первого раза — должен
@@ -253,7 +253,10 @@ func TestImportLocalDataHandler_IdempotencyKeyReplaysStoredResult(t *testing.T) 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp models.ImportLocalDataResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, models.ImportLocalDataResponse{PetsImported: 2, EventsImported: 1, ProfileImported: true}, resp)
+	assert.Equal(t, models.ImportLocalDataResponse{
+		PetsImported: 2, EventsImported: 1, ProfileImported: true,
+		Pets: []models.ImportedPet{{LocalID: "whatever", ID: testPetID}},
+	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -272,7 +275,7 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 	mock.ExpectCommit()
 
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
-		WithArgs(1, 1, false, testUserID, testImportIdempotencyKey).
+		WithArgs(1, 1, false, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
@@ -287,7 +290,10 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp models.ImportLocalDataResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, models.ImportLocalDataResponse{PetsImported: 1, EventsImported: 1, ProfileImported: false}, resp)
+	assert.Equal(t, models.ImportLocalDataResponse{
+		PetsImported: 1, EventsImported: 1, ProfileImported: false,
+		Pets: []models.ImportedPet{{LocalID: "local-1", ID: testPetID}},
+	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -308,7 +314,7 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 	mock.ExpectCommit()
 
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
-		WithArgs(1, 1, true, testUserID, testImportIdempotencyKey).
+		WithArgs(1, 1, true, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
@@ -324,7 +330,10 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp models.ImportLocalDataResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Equal(t, models.ImportLocalDataResponse{PetsImported: 1, EventsImported: 1, ProfileImported: true}, resp)
+	assert.Equal(t, models.ImportLocalDataResponse{
+		PetsImported: 1, EventsImported: 1, ProfileImported: true,
+		Pets: []models.ImportedPet{{LocalID: "local-1", ID: testPetID}},
+	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

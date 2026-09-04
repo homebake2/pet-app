@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -29,6 +30,24 @@ func petRequest(t *testing.T, method, path string, body any, authed bool) *http.
 var petColumns = []string{
 	"id", "name", "gender", "species", "birth_date", "color",
 	"sterilized", "habitation", "notes", "deleted_at", "breed", "icon",
+}
+
+var fileColumns = []string{
+	"id", "owner_type", "owner_id", "user_id", "object_key", "content_type", "position", "confirmed_at", "created_at",
+}
+
+// expectNoPetPhoto mocks the file-table lookup that GetPetHandler/GetAllPetHandler
+// perform to fill photo_url/photo_file_id, reporting no confirmed photo.
+func expectNoPetPhoto(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+		WillReturnError(sql.ErrNoRows)
+}
+
+// expectNoPetPhotos mocks the batched file-table lookup GetAllPetHandler
+// performs for the pet list, reporting no confirmed photos for any pet.
+func expectNoPetPhotos(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows(fileColumns))
 }
 
 func TestPetHandler_MethodNotAllowed(t *testing.T) {
@@ -209,6 +228,7 @@ func TestGetAllPetHandler_WithoutLanguageCode(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, breed, species, icon FROM pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "icon"}).
 			AddRow(testPetID, "Rex", "Labrador", "dog", "DOG"))
+	expectNoPetPhotos(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet", nil, true)
@@ -224,6 +244,7 @@ func TestGetAllPetHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, breed, species, icon FROM pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "icon"}).
 			AddRow(testPetID, "Rex", "Labrador", "dog", "DOG"))
+	expectNoPetPhotos(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet", nil, true)
@@ -235,6 +256,36 @@ func TestGetAllPetHandler_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 1)
 	assert.Equal(t, "Rex", resp.Items[0].Name)
+	assert.Nil(t, resp.Items[0].PhotoURL)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGetAllPetHandler_WithPhoto verifies photo_url is populated for a pet
+// with a confirmed pet_photo file (batched lookup, see «Фотография питомца
+// — Backend», раздел «Чтение»).
+func TestGetAllPetHandler_WithPhoto(t *testing.T) {
+	mock := setupMockDB(t)
+	setupFakeStorage(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, breed, species, icon FROM pet`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "icon"}).
+			AddRow(testPetID, "Rex", "Labrador", "dog", "DOG"))
+	fileID := "55555555-5555-5555-5555-555555555555"
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
+			fileID, "pet_photo", testPetID, testUserID, "pet_photo/"+testPetID+"/"+fileID, "image/jpeg", nil, time.Now(), time.Now(),
+		))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet", nil, true)
+	GetAllPetHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.PetResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 1)
+	require.NotNil(t, resp.Items[0].PhotoURL)
+	assert.Equal(t, fakePresignedGetURL, *resp.Items[0].PhotoURL)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -281,6 +332,7 @@ func TestGetPetHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, "DOG",
 		))
+	expectNoPetPhoto(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID, nil, true)
@@ -288,6 +340,41 @@ func TestGetPetHandler_Success(t *testing.T) {
 	GetPetHandler(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.PetIdResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Nil(t, resp.PhotoURL)
+	assert.Nil(t, resp.PhotoFileID)
+}
+
+// TestGetPetHandler_WithPhoto verifies photo_url/photo_file_id are populated
+// for a pet with a confirmed pet_photo file (see «Фотография питомца —
+// Backend», раздел «Чтение»).
+func TestGetPetHandler_WithPhoto(t *testing.T) {
+	mock := setupMockDB(t)
+	setupFakeStorage(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, "DOG",
+		))
+	fileID := "55555555-5555-5555-5555-555555555555"
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
+			fileID, "pet_photo", testPetID, testUserID, "pet_photo/"+testPetID+"/"+fileID, "image/jpeg", nil, time.Now(), time.Now(),
+		))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID, nil, true)
+	GetPetHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.PetIdResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.PhotoURL)
+	assert.Equal(t, fakePresignedGetURL, *resp.PhotoURL)
+	require.NotNil(t, resp.PhotoFileID)
+	assert.Equal(t, fileID, *resp.PhotoFileID)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {

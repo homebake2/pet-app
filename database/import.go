@@ -2,6 +2,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"myauthservice/models"
 
@@ -37,12 +38,13 @@ func ReserveImportIdempotencyKey(userID string, idempotencyKey string) (reserved
 func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (result models.ImportLocalDataResponse, hasResult bool, err error) {
 	var petsImported, eventsImported sql.NullInt64
 	var profileImported sql.NullBool
+	var petsMapping sql.NullString
 
 	err = DB.QueryRow(`
-		SELECT pets_imported, events_imported, profile_imported
+		SELECT pets_imported, events_imported, profile_imported, pets_mapping
 		FROM import_local_data_idempotency_key
 		WHERE user_id = $1 AND idempotency_key = $2
-	`, userID, idempotencyKey).Scan(&petsImported, &eventsImported, &profileImported)
+	`, userID, idempotencyKey).Scan(&petsImported, &eventsImported, &profileImported, &petsMapping)
 	if err != nil {
 		return models.ImportLocalDataResponse{}, false, err
 	}
@@ -51,21 +53,33 @@ func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (resu
 		return models.ImportLocalDataResponse{}, false, nil
 	}
 
+	pets := []models.ImportedPet{}
+	if petsMapping.Valid {
+		if err = json.Unmarshal([]byte(petsMapping.String), &pets); err != nil {
+			return models.ImportLocalDataResponse{}, false, err
+		}
+	}
+
 	return models.ImportLocalDataResponse{
 		PetsImported:    int(petsImported.Int64),
 		EventsImported:  int(eventsImported.Int64),
 		ProfileImported: profileImported.Bool,
+		Pets:            pets,
 	}, true, nil
 }
 
 // FinalizeImportIdempotencyKey связывает ранее зарезервированный ключ с
 // результатом успешно завершённого переноса.
 func FinalizeImportIdempotencyKey(userID string, idempotencyKey string, result models.ImportLocalDataResponse) error {
-	_, err := DB.Exec(`
+	petsMapping, err := json.Marshal(result.Pets)
+	if err != nil {
+		return err
+	}
+	_, err = DB.Exec(`
 		UPDATE import_local_data_idempotency_key
-		SET pets_imported = $1, events_imported = $2, profile_imported = $3
-		WHERE user_id = $4 AND idempotency_key = $5
-	`, result.PetsImported, result.EventsImported, result.ProfileImported, userID, idempotencyKey)
+		SET pets_imported = $1, events_imported = $2, profile_imported = $3, pets_mapping = $4
+		WHERE user_id = $5 AND idempotency_key = $6
+	`, result.PetsImported, result.EventsImported, result.ProfileImported, string(petsMapping), userID, idempotencyKey)
 	return err
 }
 
@@ -123,10 +137,19 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		return result, err
 	}
 
+	importedPets := make([]models.ImportedPet, 0, len(req.Pets))
+	for _, pet := range req.Pets {
+		importedPets = append(importedPets, models.ImportedPet{
+			LocalID: pet.LocalID,
+			ID:      localIDToServerID[pet.LocalID].String(),
+		})
+	}
+
 	result = models.ImportLocalDataResponse{
 		PetsImported:    len(req.Pets),
 		EventsImported:  len(req.Events),
 		ProfileImported: profileImported,
+		Pets:            importedPets,
 	}
 	return result, nil
 }

@@ -92,9 +92,20 @@ type ImportLocalDataRequest struct {
 	Events  []ImportLocalDataEvent  `json:"events"`
 }
 
+// ImportedPet — элемент поля pets ответа ImportLocalDataResponse: сопоставление
+// клиентского local_id перенесённого питомца с его новым серверным id (см.
+// "Импорт локальных данных — Backend", раздел 3). Используется клиентом для
+// последующего фонового переноса фотографий (см. "Фотография питомца —
+// Frontend (dataSource=local)").
+type ImportedPet struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
 // ImportLocalDataResponse — тело ответа 200 OK POST /import/local-data.
 type ImportLocalDataResponse struct {
-	PetsImported    int  `json:"pets_imported"`
-	EventsImported  int  `json:"events_imported"`
-	ProfileImported bool `json:"profile_imported"`
+	PetsImported    int           `json:"pets_imported"`
+	EventsImported  int           `json:"events_imported"`
+	ProfileImported bool          `json:"profile_imported"`
+	Pets            []ImportedPet `json:"pets"`
 }

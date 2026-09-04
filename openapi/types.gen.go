@@ -489,8 +489,14 @@ type GetPetProfileResponse struct {
 	IsDeleted  *bool                `json:"is_deleted,omitempty"`
 	Name       string               `json:"name"`
 	Notes      *string              `json:"notes"`
-	Species    string               `json:"species"`
-	Sterilized *bool                `json:"sterilized,omitempty"`
+
+	// PhotoFileId id файла фотографии для DELETE /files/{file_id}; null если фотографии нет
+	PhotoFileId *openapi_types.UUID `json:"photo_file_id"`
+
+	// PhotoUrl Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет
+	PhotoUrl   *string `json:"photo_url"`
+	Species    string  `json:"species"`
+	Sterilized *bool   `json:"sterilized,omitempty"`
 }
 
 // GetProfileRequest defines model for GetProfileRequest.
@@ -523,11 +529,14 @@ type GetShortInfoAllPetResponse struct {
 
 // GetShortInfoPetResponse defines model for GetShortInfoPetResponse.
 type GetShortInfoPetResponse struct {
-	Breed   string             `json:"breed"`
-	Icon    PetIconEnum        `json:"icon"`
-	Id      openapi_types.UUID `json:"id"`
-	Name    string             `json:"name"`
-	Species string             `json:"species"`
+	Breed string             `json:"breed"`
+	Icon  PetIconEnum        `json:"icon"`
+	Id    openapi_types.UUID `json:"id"`
+	Name  string             `json:"name"`
+
+	// PhotoUrl Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет
+	PhotoUrl *string `json:"photo_url"`
+	Species  string  `json:"species"`
 }
 
 // ImportLocalDataEvent defines model for ImportLocalDataEvent.
@@ -581,9 +590,18 @@ type ImportLocalDataRequest struct {
 
 // ImportLocalDataResponse defines model for ImportLocalDataResponse.
 type ImportLocalDataResponse struct {
-	EventsImported  int  `json:"events_imported"`
-	PetsImported    int  `json:"pets_imported"`
-	ProfileImported bool `json:"profile_imported"`
+	EventsImported int `json:"events_imported"`
+
+	// Pets Сопоставление local_id -> серверный id для каждого перенесённого питомца, в порядке pets запроса. Используется клиентом для фонового переноса фотографий (см. «Фотография питомца — Frontend (dataSource=local)»).
+	Pets            []ImportedPet `json:"pets"`
+	PetsImported    int           `json:"pets_imported"`
+	ProfileImported bool          `json:"profile_imported"`
+}
+
+// ImportedPet defines model for ImportedPet.
+type ImportedPet struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
 }
 
 // ItemsArrayActivitiesModel defines model for ItemsArrayActivitiesModel.
@@ -594,6 +612,28 @@ type ItemsArrayActivitiesModel struct {
 
 // PetIconEnum defines model for PetIconEnum.
 type PetIconEnum string
+
+// PostFilesUploadUrlRequest defines model for PostFilesUploadUrlRequest.
+type PostFilesUploadUrlRequest struct {
+	// ContentType MIME-тип файла, должен входить в список допустимых для данного owner_type
+	ContentType string             `json:"content_type"`
+	OwnerId     openapi_types.UUID `json:"owner_id"`
+
+	// OwnerType Тип владельца файла из реестра типов владельцев, например pet_photo
+	OwnerType string `json:"owner_type"`
+}
+
+// PostFilesUploadUrlResponse defines model for PostFilesUploadUrlResponse.
+type PostFilesUploadUrlResponse struct {
+	ContentType string `json:"content_type"`
+
+	// ExpiresIn Время жизни presigned URL в секундах
+	ExpiresIn int                `json:"expires_in"`
+	FileId    openapi_types.UUID `json:"file_id"`
+
+	// UploadUrl Presigned PUT URL для прямой загрузки в S3-совместимое хранилище
+	UploadUrl string `json:"upload_url"`
+}
 
 // UpdateEventRequest defines model for UpdateEventRequest.
 type UpdateEventRequest struct {
@@ -706,6 +746,9 @@ type PostEventJSONRequestBody = GetEventRequest
 
 // PatchEventJSONRequestBody defines body for PatchEvent for application/json ContentType.
 type PatchEventJSONRequestBody = UpdateEventRequest
+
+// PostFilesUploadUrlJSONRequestBody defines body for PostFilesUploadUrl for application/json ContentType.
+type PostFilesUploadUrlJSONRequestBody = PostFilesUploadUrlRequest
 
 // PostImportLocalDataJSONRequestBody defines body for PostImportLocalData for application/json ContentType.
 type PostImportLocalDataJSONRequestBody = ImportLocalDataRequest

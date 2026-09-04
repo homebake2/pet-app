@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"myauthservice/database"
 	"myauthservice/models"
@@ -11,6 +12,80 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// petPhotoOwnerType — owner_type, под которым фотография питомца
+// зарегистрирована в реестре типов владельцев generic-механизма файлов
+// сущностей (см. handlers/files.go, «Фотография питомца — Backend»).
+const petPhotoOwnerType = "pet_photo"
+
+// attachPetPhoto заполняет photo_url/photo_file_id детального ответа
+// питомца по подтверждённой строке file (кардинальность «ровно 1», см.
+// «Фотография питомца — Backend», раздел «Чтение»). Если фотографии нет —
+// оба поля остаются nil. Отдельная проверка владения не нужна: она уже
+// выполнена при выборке самого питомца (resolveOwnedPet).
+func attachPetPhoto(w http.ResponseWriter, r *http.Request, petID uuid.UUID, pet *models.PetIdResponse) bool {
+	file, err := database.GetConfirmedFileForOwner(petPhotoOwnerType, petID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return true
+		}
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения фотографии питомца")
+		return false
+	}
+
+	if storage == nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Хранилище файлов не сконфигурировано")
+		return false
+	}
+
+	url, err := storage.PresignGetURL(r.Context(), file.ObjectKey)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подписать ссылку на фотографию")
+		return false
+	}
+
+	fileIDStr := file.ID.String()
+	pet.PhotoURL = &url
+	pet.PhotoFileID = &fileIDStr
+	return true
+}
+
+// attachPetPhotos — батч-версия attachPetPhoto для GET /pet: один запрос к
+// file под все id питомцев списка вместо N+1 (presign-запросы к S3 не
+// требуют сети, поэтому цикл по каждому найденному файлу не создаёт лишних
+// обращений к БД).
+func attachPetPhotos(w http.ResponseWriter, r *http.Request, petIDs []uuid.UUID, items []models.PetItem) bool {
+	files, err := database.GetConfirmedFilesForOwners(petPhotoOwnerType, petIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения фотографий питомцев")
+		return false
+	}
+	if len(files) == 0 {
+		return true
+	}
+	if storage == nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Хранилище файлов не сконфигурировано")
+		return false
+	}
+
+	for i := range items {
+		id, err := uuid.Parse(items[i].ID)
+		if err != nil {
+			continue
+		}
+		file, found := files[id]
+		if !found {
+			continue
+		}
+		url, err := storage.PresignGetURL(r.Context(), file.ObjectKey)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подписать ссылку на фотографию")
+			return false
+		}
+		items[i].PhotoURL = &url
+	}
+	return true
+}
 
 // isValidBirthDate проверяет, что дата рождения питомца в формате "YYYY-MM-DD".
 func isValidBirthDate(birthDate string) bool {
@@ -206,6 +281,7 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 	response := models.PetResponse{
 		Items: make([]models.PetItem, 0, len(pets)),
 	}
+	petIDs := make([]uuid.UUID, 0, len(pets))
 
 	for _, pet := range pets {
 		icon := "OTHER"
@@ -221,6 +297,11 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 			Species: pet.Species,
 			Icon:    icon,
 		})
+		petIDs = append(petIDs, pet.ID)
+	}
+
+	if !attachPetPhotos(w, r, petIDs, response.Items) {
+		return
 	}
 
 	writeJSON(w, http.StatusOK, response)
@@ -241,6 +322,10 @@ func GetPetHandler(w http.ResponseWriter, r *http.Request) {
 
 	pet, ok := resolveOwnedPet(w, petID, userID)
 	if !ok {
+		return
+	}
+
+	if !attachPetPhoto(w, r, petID, pet) {
 		return
 	}
 

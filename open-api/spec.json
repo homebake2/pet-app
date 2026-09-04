@@ -1347,6 +1347,208 @@
         }
       },
       "parameters": []
+    },
+    "/files/upload-url": {
+      "post": {
+        "summary": "/files/upload-url",
+        "tags": [
+          "files-controller"
+        ],
+        "operationId": "post-files-upload-url",
+        "x-stoplight": {
+          "id": "47118de5fb0a4"
+        },
+        "description": "Generic-эндпоинт: запрашивает presigned PUT URL на загрузку файла для произвольного owner_type/owner_id из реестра типов владельцев (см. «Общие требования: Файлы сущностей»). Создаёт неподтверждённую строку file (confirmed_at = NULL).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostFilesUploadUrlRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostFilesUploadUrlResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{file_id}/complete": {
+      "post": {
+        "summary": "/files/{file_id}/complete",
+        "tags": [
+          "files-controller"
+        ],
+        "operationId": "post-files-complete",
+        "x-stoplight": {
+          "id": "7b51d7cf424f4"
+        },
+        "description": "Подтверждает, что файл, ранее зарезервированный через POST /files/upload-url, успешно загружен в S3. Для кардинальности «ровно 1» удаляет предыдущую подтверждённую строку той же пары owner_type/owner_id (замена).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": "file_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/files/{file_id}": {
+      "delete": {
+        "summary": "/files/{file_id}",
+        "tags": [
+          "files-controller"
+        ],
+        "operationId": "delete-files",
+        "x-stoplight": {
+          "id": "e30d208ddb974"
+        },
+        "description": "Удаляет файл (строку file и best-effort объект в S3) после повторной проверки владения. Повторный вызов для уже удалённого file_id — 404, трактуется клиентом как «уже удалено».",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "name": "file_id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1442,6 +1644,24 @@
               "id": "wt8mc9frmkluw"
             },
             "nullable": true
+          },
+          "photo_url": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "dc37d50660944"
+            },
+            "format": "uri",
+            "nullable": true,
+            "description": "Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет"
+          },
+          "photo_file_id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "6266170ea0344"
+            },
+            "format": "uuid",
+            "nullable": true,
+            "description": "id файла фотографии для DELETE /files/{file_id}; null если фотографии нет"
           }
         }
       },
@@ -1925,6 +2145,15 @@
             "x-stoplight": {
               "id": "5qkx712hq6syj"
             }
+          },
+          "photo_url": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "e79c034633234"
+            },
+            "format": "uri",
+            "nullable": true,
+            "description": "Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет"
           }
         }
       },
@@ -2409,7 +2638,8 @@
         "required": [
           "pets_imported",
           "events_imported",
-          "profile_imported"
+          "profile_imported",
+          "pets"
         ],
         "properties": {
           "pets_imported": {
@@ -2428,6 +2658,16 @@
             "type": "boolean",
             "x-stoplight": {
               "id": "p8816r9eiqiex"
+            }
+          },
+          "pets": {
+            "type": "array",
+            "x-stoplight": {
+              "id": "1508f330ffc54"
+            },
+            "description": "Сопоставление local_id -> серверный id для каждого перенесённого питомца, в порядке pets запроса. Используется клиентом для фонового переноса фотографий (см. «Фотография питомца — Frontend (dataSource=local)»).",
+            "items": {
+              "$ref": "#/components/schemas/ImportedPet"
             }
           }
         }
@@ -2709,6 +2949,110 @@
             "items": {
               "$ref": "#/components/schemas/EventStatsSeries"
             }
+          }
+        }
+      },
+      "PostFilesUploadUrlRequest": {
+        "title": "PostFilesUploadUrlRequest",
+        "x-stoplight": {
+          "id": "197d7907bcd14"
+        },
+        "type": "object",
+        "required": [
+          "owner_type",
+          "owner_id",
+          "content_type"
+        ],
+        "properties": {
+          "owner_type": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "57b6c19c6ebf4"
+            },
+            "description": "Тип владельца файла из реестра типов владельцев, например pet_photo"
+          },
+          "owner_id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "aa22f949dee74"
+            },
+            "format": "uuid"
+          },
+          "content_type": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "9ab76b2b7b104"
+            },
+            "description": "MIME-тип файла, должен входить в список допустимых для данного owner_type"
+          }
+        }
+      },
+      "PostFilesUploadUrlResponse": {
+        "title": "PostFilesUploadUrlResponse",
+        "x-stoplight": {
+          "id": "bf44c090bffa4"
+        },
+        "type": "object",
+        "required": [
+          "file_id",
+          "upload_url",
+          "content_type",
+          "expires_in"
+        ],
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "14e511ee4e4a4"
+            },
+            "format": "uuid"
+          },
+          "upload_url": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "766c156caded4"
+            },
+            "format": "uri",
+            "description": "Presigned PUT URL для прямой загрузки в S3-совместимое хранилище"
+          },
+          "content_type": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "029757b55bea4"
+            }
+          },
+          "expires_in": {
+            "type": "integer",
+            "x-stoplight": {
+              "id": "d69337f1998a4"
+            },
+            "description": "Время жизни presigned URL в секундах"
+          }
+        }
+      },
+      "ImportedPet": {
+        "title": "ImportedPet",
+        "x-stoplight": {
+          "id": "62136920e8cb4"
+        },
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "a15ddfabf6b64"
+            }
+          },
+          "id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "e680ee479ae04"
+            },
+            "format": "uuid"
           }
         }
       }

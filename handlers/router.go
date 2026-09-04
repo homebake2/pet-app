@@ -22,5 +22,10 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/events/", EventIDResponseHandler) // PATCH /events/{id} — частичное обновление
 	mux.HandleFunc("/activities", GetActivitiesHandler)
 	mux.HandleFunc("/import/local-data", ImportLocalDataHandler)
+	// Точный путь /files/upload-url выигрывает у поддерева /files/ в
+	// ServeMux, поэтому не попадает в FilesByIDHandler — та же идиома, что и
+	// у /events/stats против /events/.
+	mux.HandleFunc("/files/upload-url", FilesUploadUrlHandler)
+	mux.HandleFunc("/files/", FilesByIDHandler)
 	return mux
 }

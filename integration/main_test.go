@@ -16,6 +16,7 @@ package integration
 import (
 	"myauthservice/database"
 	"myauthservice/handlers"
+	"myauthservice/s3client"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -38,6 +39,30 @@ func TestMain(m *testing.M) {
 
 	database.InitDB()
 
+	// S3-хранилище для generic-механизма файлов сущностей: presign — чисто
+	// локальная операция (не требует сети), поэтому дефолты годятся и без
+	// реального Backblaze B2 endpoint'а. S3_ENDPOINT намеренно указывает на
+	// заведомо недоступный локальный порт — best-effort DeleteObject (см.
+	// «Удаление файла») быстро завершится с ошибкой соединения вместо
+	// зависания, не влияя на проверяемый контракт.
+	if os.Getenv("S3_ENDPOINT") == "" {
+		os.Setenv("S3_ENDPOINT", "http://127.0.0.1:1")
+	}
+	if os.Getenv("S3_KEY_ID") == "" {
+		os.Setenv("S3_KEY_ID", "test-key-id")
+	}
+	if os.Getenv("S3_APPLICATION_KEY") == "" {
+		os.Setenv("S3_APPLICATION_KEY", "test-application-key")
+	}
+	if os.Getenv("S3_BUCKET") == "" {
+		os.Setenv("S3_BUCKET", "test-bucket")
+	}
+	s3Config, err := s3client.ConfigFromEnv()
+	if err != nil {
+		panic("не удалось сконфигурировать S3-хранилище для тестов: " + err.Error())
+	}
+	handlers.SetStorage(s3client.New(s3Config))
+
 	loader := openapi3.NewLoader()
 	doc, err := loader.LoadFromFile("../open-api/spec.json")
 	if err != nil {
@@ -59,7 +84,7 @@ func TestMain(m *testing.M) {
 // resetDB очищает все таблицы перед тестом, обеспечивая изоляцию между тестами.
 func resetDB(t *testing.T) {
 	t.Helper()
-	if _, err := database.DB.Exec(`TRUNCATE TABLE event, pet, profile, users, registration_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := database.DB.Exec(`TRUNCATE TABLE file, event, pet, profile, users, registration_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("не удалось очистить БД перед тестом: %v", err)
 	}
 }

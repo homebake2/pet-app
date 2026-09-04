@@ -137,6 +137,10 @@ type PetItem struct {
 	Breed   string `json:"breed"`
 	Species string `json:"species"`
 	Icon    string `json:"icon"`
+	// PhotoURL — presigned GET URL на текущую фотографию питомца (owner_type
+	// = "pet_photo" в generic-механизме файлов сущностей); null, если
+	// фотографии нет. См. «Фотография питомца — Backend».
+	PhotoURL *string `json:"photo_url"`
 }
 
 type PetResponse struct {
@@ -166,6 +170,13 @@ type PetIdResponse struct {
 	// Icon обязателен по спеке (GetPetProfileResponse.icon) — всегда заполняется,
 	// при отсутствии значения в БД используется дефолт "OTHER" (см. database.GetPetByIDAndProfileID).
 	Icon string `json:"icon"`
+	// PhotoURL — presigned GET URL на текущую фотографию питомца; null, если
+	// фотографии нет. PhotoFileID — id соответствующей строки file, нужен
+	// клиенту для DELETE /files/{file_id}. Оба вычисляются на чтении join'ом
+	// к таблице file, сама таблица pet полем для фотографии не дополняется
+	// (см. «Фотография питомца — Backend»).
+	PhotoURL    *string `json:"photo_url"`
+	PhotoFileID *string `json:"photo_file_id"`
 }
 
 type PetIdDB struct {
