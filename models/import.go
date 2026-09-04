@@ -40,7 +40,11 @@ func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 // ImportLocalDataEvent — элемент events[] в теле запроса POST /import/local-data.
 // Набор полей события совпадает с CreateEventRequest; вместо pet_id
 // используется ссылка pet_local_id на pets[].local_id этого же запроса.
+// LocalID — клиентский временный ключ (уникальный в пределах events[]),
+// используется только для сопоставления в ответе (поле events), не
+// сохраняется на сервере.
 type ImportLocalDataEvent struct {
+	LocalID    string          `json:"local_id"`
 	PetLocalID string          `json:"pet_local_id"`
 	Date       string          `json:"date"`
 	Type       string          `json:"type"`
@@ -102,10 +106,21 @@ type ImportedPet struct {
 	ID      string `json:"id"`
 }
 
+// ImportedEvent — элемент поля events ответа ImportLocalDataResponse:
+// сопоставление клиентского local_id перенесённого события с его новым
+// серверным id (см. "Импорт локальных данных — Backend", раздел 3),
+// симметрично ImportedPet. Используется клиентом для последующего фонового
+// переноса файлов события (см. "Файлы события — Frontend (dataSource=local)").
+type ImportedEvent struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
 // ImportLocalDataResponse — тело ответа 200 OK POST /import/local-data.
 type ImportLocalDataResponse struct {
-	PetsImported    int           `json:"pets_imported"`
-	EventsImported  int           `json:"events_imported"`
-	ProfileImported bool          `json:"profile_imported"`
-	Pets            []ImportedPet `json:"pets"`
+	PetsImported    int             `json:"pets_imported"`
+	EventsImported  int             `json:"events_imported"`
+	ProfileImported bool            `json:"profile_imported"`
+	Pets            []ImportedPet   `json:"pets"`
+	Events          []ImportedEvent `json:"events"`
 }

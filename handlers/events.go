@@ -128,6 +128,16 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventIDs := make([]uuid.UUID, len(eventsDB))
+	for i, eventDB := range eventsDB {
+		eventIDs[i] = eventDB.ID
+	}
+	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, eventIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов событий")
+		return
+	}
+
 	eventsByDay := make(map[string][]models.ActivityEvent)
 	for _, eventDB := range eventsDB {
 		// Календарный день события для группировки определяется по UTC-
@@ -141,11 +151,12 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 			*notes = eventDB.Notes.String
 		}
 		activityEvent := models.ActivityEvent{
-			ID:    eventDB.ID.String(),
-			Date:  eventDate.Format(time.RFC3339),
-			Type:  eventDB.Type,
-			Notes: notes,
-			Value: eventDB.Value,
+			ID:         eventDB.ID.String(),
+			Date:       eventDate.Format(time.RFC3339),
+			Type:       eventDB.Type,
+			Notes:      notes,
+			Value:      eventDB.Value,
+			FilesCount: filesCounts[eventDB.ID],
 		}
 		eventsByDay[dateStr] = append(eventsByDay[dateStr], activityEvent)
 	}
@@ -175,11 +186,12 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 // PetEventItem - одно событие в ответе GET /pet/{id}/events (GetEventResponse).
 type PetEventItem struct {
-	ID    string          `json:"id"`
-	Date  string          `json:"date"`
-	Type  string          `json:"type"`
-	Notes *string         `json:"notes,omitempty"`
-	Value json.RawMessage `json:"value"`
+	ID         string          `json:"id"`
+	Date       string          `json:"date"`
+	Type       string          `json:"type"`
+	Notes      *string         `json:"notes,omitempty"`
+	Value      json.RawMessage `json:"value"`
+	FilesCount int             `json:"files_count"`
 }
 
 // PetEventsResponse - тело ответа GET /pet/{id}/events.
@@ -250,6 +262,16 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		return
 	}
 
+	eventIDs := make([]uuid.UUID, len(eventsDB))
+	for i, eventDB := range eventsDB {
+		eventIDs[i] = eventDB.ID
+	}
+	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, eventIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов событий")
+		return
+	}
+
 	items := make([]PetEventItem, 0, len(eventsDB))
 	for _, eventDB := range eventsDB {
 		var notes *string
@@ -257,11 +279,12 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 			notes = &eventDB.Notes.String
 		}
 		items = append(items, PetEventItem{
-			ID:    eventDB.ID.String(),
-			Date:  eventDB.Date.Format(time.RFC3339),
-			Type:  eventDB.Type,
-			Notes: notes,
-			Value: eventDB.Value,
+			ID:         eventDB.ID.String(),
+			Date:       eventDB.Date.Format(time.RFC3339),
+			Type:       eventDB.Type,
+			Notes:      notes,
+			Value:      eventDB.Value,
+			FilesCount: filesCounts[eventDB.ID],
 		})
 	}
 
@@ -330,22 +353,7 @@ func GetEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var notes *string
-	if eventDB.Notes.Valid {
-		notes = &eventDB.Notes.String
-	}
-
-	response := models.EventResponse{
-		ID:      eventDB.ID.String(),
-		Date:    eventDB.Date.Format(time.RFC3339),
-		Type:    eventDB.Type,
-		Value:   eventDB.Value,
-		Notes:   notes,
-		PetID:   petID.String(),
-		PetName: petName,
-	}
-
-	writeJSON(w, http.StatusOK, response)
+	writeEventResponse(w, r, http.StatusOK, eventDB, petID, petName)
 }
 
 // POST /events
@@ -420,7 +428,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	if idempotencyKey != "" {
 		if existing, existingPetID, existingPetName, err := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey); err == nil {
-			writeJSON(w, http.StatusCreated, eventResponseFromDB(existing, existingPetID, existingPetName))
+			writeEventResponse(w, r, http.StatusCreated, existing, existingPetID, existingPetName)
 			return
 		} else if err != sql.ErrNoRows {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
@@ -438,7 +446,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
 				return
 			}
-			writeJSON(w, http.StatusCreated, eventResponseFromDB(existing, existingPetID, existingPetName))
+			writeEventResponse(w, r, http.StatusCreated, existing, existingPetID, existingPetName)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
@@ -451,7 +459,63 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, eventResponseFromDB(createdEvent, petIDOfEvent, petName))
+	writeEventResponse(w, r, http.StatusCreated, createdEvent, petIDOfEvent, petName)
+}
+
+// writeEventResponse строит EventResponse для одного события (POST /events,
+// GET /events/{id}) и дополняет его полем `files` (см. «Файлы события —
+// Backend», раздел «Чтение») перед отправкой ответа. Отдельной проверки
+// владения для files не требуется — она уже выполнена при выборке самого
+// события.
+func writeEventResponse(w http.ResponseWriter, r *http.Request, status int, eventDB *models.EventDB, petID uuid.UUID, petName string) {
+	response := eventResponseFromDB(eventDB, petID, petName)
+	if !attachEventFiles(w, r, eventDB.ID, &response) {
+		return
+	}
+	writeJSON(w, status, response)
+}
+
+// attachEventFiles заполняет поле Files ответа события подтверждёнными
+// строками file (owner_type = event_file), в порядке position (см. «Файлы
+// события — Backend», раздел «Чтение»). Files — всегда не-nil срез (может
+// быть пустым), чтобы сериализоваться как `[]`, а не `null`.
+func attachEventFiles(w http.ResponseWriter, r *http.Request, eventID uuid.UUID, response *models.EventResponse) bool {
+	response.Files = []models.EventFileItem{}
+
+	files, err := database.GetFilesForOwner(eventFileOwnerType, eventID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения файлов события")
+		return false
+	}
+	if len(files) == 0 {
+		return true
+	}
+
+	if storage == nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Хранилище файлов не сконфигурировано")
+		return false
+	}
+
+	items := make([]models.EventFileItem, 0, len(files))
+	for _, f := range files {
+		url, err := storage.PresignGetURL(r.Context(), f.ObjectKey)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подписать ссылку на файл события")
+			return false
+		}
+		var filename *string
+		if f.Filename.Valid {
+			filename = &f.Filename.String
+		}
+		items = append(items, models.EventFileItem{
+			FileID:      f.ID.String(),
+			URL:         url,
+			ContentType: f.ContentType,
+			Filename:    filename,
+		})
+	}
+	response.Files = items
+	return true
 }
 
 func eventResponseFromDB(eventDB *models.EventDB, petID uuid.UUID, petName string) models.EventResponse {

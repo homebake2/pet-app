@@ -33,20 +33,20 @@ var petColumns = []string{
 }
 
 var fileColumns = []string{
-	"id", "owner_type", "owner_id", "user_id", "object_key", "content_type", "position", "confirmed_at", "created_at",
+	"id", "owner_type", "owner_id", "user_id", "object_key", "content_type", "filename", "position", "confirmed_at", "created_at",
 }
 
 // expectNoPetPhoto mocks the file-table lookup that GetPetHandler/GetAllPetHandler
 // perform to fill photo_url/photo_file_id, reporting no confirmed photo.
 func expectNoPetPhoto(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
 		WillReturnError(sql.ErrNoRows)
 }
 
 // expectNoPetPhotos mocks the batched file-table lookup GetAllPetHandler
 // performs for the pet list, reporting no confirmed photos for any pet.
 func expectNoPetPhotos(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns))
 }
 
@@ -271,9 +271,9 @@ func TestGetAllPetHandler_WithPhoto(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "icon"}).
 			AddRow(testPetID, "Rex", "Labrador", "dog", "DOG"))
 	fileID := "55555555-5555-5555-5555-555555555555"
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
-			fileID, "pet_photo", testPetID, testUserID, "pet_photo/"+testPetID+"/"+fileID, "image/jpeg", nil, time.Now(), time.Now(),
+			fileID, "pet_photo", testPetID, testUserID, "pet_photo/"+testPetID+"/"+fileID, "image/jpeg", nil, nil, time.Now(), time.Now(),
 		))
 
 	w := httptest.NewRecorder()
@@ -358,9 +358,9 @@ func TestGetPetHandler_WithPhoto(t *testing.T) {
 			testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, "DOG",
 		))
 	fileID := "55555555-5555-5555-5555-555555555555"
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
-			fileID, "pet_photo", testPetID, testUserID, "pet_photo/"+testPetID+"/"+fileID, "image/jpeg", nil, time.Now(), time.Now(),
+			fileID, "pet_photo", testPetID, testUserID, "pet_photo/"+testPetID+"/"+fileID, "image/jpeg", nil, nil, time.Now(), time.Now(),
 		))
 
 	w := httptest.NewRecorder()

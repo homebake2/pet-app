@@ -65,6 +65,10 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 // pet_local_id — она выполняется отдельно, после того как собран набор
 // local_id всех питомцев запроса.
 func validateImportEvent(event models.ImportLocalDataEvent) string {
+	if strings.TrimSpace(event.LocalID) == "" {
+		return "Поле local_id обязательно для каждого события"
+	}
+
 	if strings.TrimSpace(event.PetLocalID) == "" {
 		return "Поле pet_local_id обязательно для каждого события"
 	}
@@ -183,9 +187,14 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
+		if localIDs[pet.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id питомцев должно быть уникальным в пределах запроса")
+			return
+		}
 		localIDs[pet.LocalID] = true
 	}
 
+	eventLocalIDs := make(map[string]bool, len(req.Events))
 	for _, event := range req.Events {
 		if msg := validateImportEvent(event); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -195,6 +204,11 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id не совпадает ни с одним local_id питомцев запроса")
 			return
 		}
+		if eventLocalIDs[event.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id событий должно быть уникальным в пределах запроса")
+			return
+		}
+		eventLocalIDs[event.LocalID] = true
 	}
 
 	if req.Profile != nil {

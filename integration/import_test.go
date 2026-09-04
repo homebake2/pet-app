@@ -28,6 +28,7 @@ func TestImportLocalData_HappyPath(t *testing.T) {
 		},
 		"events": []map[string]any{
 			{
+				"local_id":     "local-event-1",
 				"pet_local_id": "local-cat",
 				"date":         time.Now().UTC().Format(time.RFC3339),
 				"type":         "weight",
@@ -44,11 +45,26 @@ func TestImportLocalData_HappyPath(t *testing.T) {
 		PetsImported    int  `json:"pets_imported"`
 		EventsImported  int  `json:"events_imported"`
 		ProfileImported bool `json:"profile_imported"`
+		Pets            []struct {
+			LocalID string `json:"local_id"`
+			ID      string `json:"id"`
+		} `json:"pets"`
+		Events []struct {
+			LocalID string `json:"local_id"`
+			ID      string `json:"id"`
+		} `json:"events"`
 	}
 	resp.decode(t, &result)
 	require.Equal(t, 2, result.PetsImported)
 	require.Equal(t, 1, result.EventsImported)
 	require.True(t, result.ProfileImported)
+
+	// Поле events сопоставляет local_id клиента с новым серверным id,
+	// симметрично pets (см. "Импорт локальных данных — Backend", раздел 3).
+	require.Len(t, result.Events, 1)
+	require.Equal(t, "local-event-1", result.Events[0].LocalID)
+	require.NotEmpty(t, result.Events[0].ID)
+	require.Len(t, result.Pets, 2)
 
 	// Перенесённые данные действительно доступны через обычные эндпоинты, с
 	// новыми серверными id (local_id нигде не сохраняется/не возвращается).
@@ -186,10 +202,52 @@ func TestImportLocalData_EventPetLocalIDMismatchRejected(t *testing.T) {
 		"pets": []map[string]any{{"local_id": "local-cat", "name": "Барсик", "species": "cat"}},
 		"events": []map[string]any{
 			{
+				"local_id":     "local-event-1",
 				"pet_local_id": "does-not-exist",
 				"date":         time.Now().UTC().Format(time.RFC3339),
 				"type":         "weight",
 				"value":        map[string]any{"amount": 4.2},
+			},
+		},
+	}
+	resp := doRequest(t, http.MethodPost, "/import/local-data", body, tokens.AccessToken,
+		map[string]string{"Idempotency-Key": idempotencyKey})
+	require.Equal(t, http.StatusBadRequest, resp.status)
+
+	list := doRequest(t, http.MethodGet, "/pet", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, list.status)
+	var listBody struct {
+		Items []struct{ ID string } `json:"items"`
+	}
+	list.decode(t, &listBody)
+	require.Empty(t, listBody.Items)
+}
+
+// Дублирующийся events[].local_id делает отображение local_id -> id
+// неоднозначным для поля events ответа — запрос должен быть отклонён целиком
+// (см. "Импорт локальных данных — Backend", раздел 4).
+func TestImportLocalData_DuplicateEventLocalIDRejected(t *testing.T) {
+	resetDB(t)
+
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+
+	idempotencyKey := uuid.NewString()
+	body := map[string]any{
+		"pets": []map[string]any{{"local_id": "local-cat", "name": "Барсик", "species": "cat"}},
+		"events": []map[string]any{
+			{
+				"local_id":     "dup-event",
+				"pet_local_id": "local-cat",
+				"date":         time.Now().UTC().Format(time.RFC3339),
+				"type":         "weight",
+				"value":        map[string]any{"amount": 4.2},
+			},
+			{
+				"local_id":     "dup-event",
+				"pet_local_id": "local-cat",
+				"date":         time.Now().UTC().Format(time.RFC3339),
+				"type":         "weight",
+				"value":        map[string]any{"amount": 5.0},
 			},
 		},
 	}

@@ -99,6 +99,8 @@ func TestGetActivitiesHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
 			AddRow(testPetID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`)))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
 
 	w := httptest.NewRecorder()
 	path := "/activities?from=2024-01-01&to=2024-01-02&pet_id=" + testPetID
@@ -241,6 +243,8 @@ func TestCreateEventHandler_ValidValueForType(t *testing.T) {
 			mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 				WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
 					AddRow(eventID, testPetID, time.Now(), c.typ, nil, []byte(c.value), "Rex"))
+			mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+				WillReturnRows(sqlmock.NewRows(fileRowColumns))
 
 			body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: c.typ, Value: eventValue(c.value)}
 			w := httptest.NewRecorder()
@@ -280,6 +284,8 @@ func TestCreateEventHandler_IdempotencyKey_ReturnsExisting(t *testing.T) {
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name\s+FROM event e\s+JOIN pet p ON e.pet_id = p.id\s+WHERE e.pet_id = \$1 AND e.idempotency_key = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
 			AddRow(existingEventID, testPetID, time.Now(), "weight", nil, []byte(`{"amount":5}`), "Rex"))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns))
 
 	key := "11111111-1111-4111-8111-111111111111"
 	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "weight", Value: eventValue(`{"amount":5}`)}
@@ -338,6 +344,8 @@ func TestCreateEventHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, []byte(`{"amount":5}`), "Rex"))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns))
 
 	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "weight", Value: eventValue(`{"amount":5}`)}
 	w := httptest.NewRecorder()
@@ -398,6 +406,8 @@ func TestGetEventHandler_Success(t *testing.T) {
 			AddRow(eventID, testPetID, time.Now(), "weight", nil, []byte(`{"amount":5}`), "Rex"))
 	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodGet, "/events/"+eventID, nil, true)
@@ -407,6 +417,43 @@ func TestGetEventHandler_Success(t *testing.T) {
 	var resp models.EventResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "weight", resp.Type)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGetEventHandler_WithFiles проверяет, что поле `files` заполняется
+// подтверждёнными файлами события (owner_type = event_file), в порядке
+// position, с presigned GET URL — см. «Файлы события — Backend», раздел
+// «Чтение».
+func TestGetEventHandler_WithFiles(t *testing.T) {
+	mock := setupMockDB(t)
+	setupFakeStorage(t)
+	expectTokensValid(mock, testUserID)
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
+			AddRow(eventID, testPetID, time.Now(), "weight", nil, []byte(`{"amount":5}`), "Rex"))
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	docFileID := "99999999-9999-9999-9999-999999999999"
+	docFilename := "analysis.pdf"
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns).AddRow(
+			docFileID, "event_file", eventID, testUserID, "event_file/"+eventID+"/"+docFileID, "application/pdf", docFilename, 0, time.Now(), time.Now(),
+		))
+
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodGet, "/events/"+eventID, nil, true)
+	GetEventHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.EventResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Files, 1)
+	assert.Equal(t, docFileID, resp.Files[0].FileID)
+	assert.Equal(t, fakePresignedGetURL, resp.Files[0].URL)
+	assert.Equal(t, "application/pdf", resp.Files[0].ContentType)
+	require.NotNil(t, resp.Files[0].Filename)
+	assert.Equal(t, docFilename, *resp.Files[0].Filename)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

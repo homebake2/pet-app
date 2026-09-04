@@ -47,6 +47,9 @@ type EventResponse struct {
 	Notes   *string         `json:"notes,omitempty"`
 	PetID   string          `json:"pet_id"`
 	PetName string          `json:"pet_name"`
+	// Files — прикреплённые файлы события (фото и документы), в порядке
+	// position, не более 10 элементов (см. «Файлы события — Backend»).
+	Files []EventFileItem `json:"files"`
 }
 
 type EventDB struct {

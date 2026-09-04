@@ -7,6 +7,7 @@ import (
 	"myauthservice/models"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,7 @@ func TestFilesUploadUrlHandler_Success(t *testing.T) {
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
 	expectPetOwnership(mock, testPetID, testUserID, 1)
-	mock.ExpectExec(`INSERT INTO file \(id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at\)`).
+	mock.ExpectExec(`INSERT INTO file \(id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at\)`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	body := models.PostFilesUploadUrlRequest{OwnerType: "pet_photo", OwnerID: testPetID, ContentType: "image/jpeg"}
@@ -145,16 +146,16 @@ func TestFilesUploadUrlHandler_MissingFields(t *testing.T) {
 // --- POST /files/{file_id}/complete ---
 
 var fileRowColumns = []string{
-	"id", "owner_type", "owner_id", "user_id", "object_key", "content_type", "position", "confirmed_at", "created_at",
+	"id", "owner_type", "owner_id", "user_id", "object_key", "content_type", "filename", "position", "confirmed_at", "created_at",
 }
 
 const testFileID = "66666666-6666-6666-6666-666666666666"
 
 func expectGetFileByID(mock sqlmock.Sqlmock, fileID, ownerID, userID, objectKey string, confirmedAt any) {
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
 		WithArgs(fileID).
 		WillReturnRows(sqlmock.NewRows(fileRowColumns).AddRow(
-			fileID, "pet_photo", ownerID, userID, objectKey, "image/jpeg", nil, confirmedAt, time.Now(),
+			fileID, "pet_photo", ownerID, userID, objectKey, "image/jpeg", nil, nil, confirmedAt, time.Now(),
 		))
 }
 
@@ -229,7 +230,7 @@ func TestFilesCompleteHandler_OwnershipRecheckFails(t *testing.T) {
 func TestFilesCompleteHandler_FileNotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -270,7 +271,7 @@ func TestFilesDeleteHandler_Success(t *testing.T) {
 func TestFilesDeleteHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -286,7 +287,7 @@ func TestFilesDeleteHandler_NotFound(t *testing.T) {
 func TestFilesDeleteHandler_RepeatReturns404(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -340,4 +341,133 @@ func TestFilesByIDHandler_DeleteWrongMethod(t *testing.T) {
 	w := httptest.NewRecorder()
 	FilesByIDHandler(w, filesRequest(t, http.MethodGet, "/files/"+testFileID, nil, true))
 	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+}
+
+// --- event_file (кардинальность «до N») ---
+
+const testEventID = "88888888-8888-8888-8888-888888888888"
+
+func expectEventFileOwnership(mock sqlmock.Sqlmock, eventID string, userID string, count int) {
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM event\s+WHERE id = \$1 AND deleted_at IS NULL\s+AND EXISTS \(SELECT 1 FROM pet WHERE pet\.id = event\.pet_id AND pet\.user_id = \$2 AND pet\.deleted_at IS NULL\)`).
+		WithArgs(eventID, userID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
+}
+
+func TestFilesUploadUrlHandler_EventFile_Success(t *testing.T) {
+	mock := setupMockDB(t)
+	setupFakeStorage(t)
+	expectTokensValid(mock, testUserID)
+	expectEventFileOwnership(mock, testEventID, testUserID, 1)
+	mock.ExpectExec(`INSERT INTO file \(id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at\)`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	filename := "analysis.pdf"
+	body := models.PostFilesUploadUrlRequest{OwnerType: "event_file", OwnerID: testEventID, ContentType: "application/pdf", Filename: &filename}
+	w := httptest.NewRecorder()
+	FilesUploadUrlHandler(w, filesRequest(t, http.MethodPost, "/files/upload-url", body, true))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFilesUploadUrlHandler_EventFile_FilenameTooLong(t *testing.T) {
+	mock := setupMockDB(t)
+
+	filename := strings.Repeat("a", 256)
+	body := models.PostFilesUploadUrlRequest{OwnerType: "event_file", OwnerID: testEventID, ContentType: "application/pdf", Filename: &filename}
+	w := httptest.NewRecorder()
+	FilesUploadUrlHandler(w, filesRequest(t, http.MethodPost, "/files/upload-url", body, true))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFilesUploadUrlHandler_EventFile_BadContentType(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	expectEventFileOwnership(mock, testEventID, testUserID, 1)
+
+	body := models.PostFilesUploadUrlRequest{OwnerType: "event_file", OwnerID: testEventID, ContentType: "video/mp4"}
+	w := httptest.NewRecorder()
+	FilesUploadUrlHandler(w, filesRequest(t, http.MethodPost, "/files/upload-url", body, true))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func expectGetEventFileByID(mock sqlmock.Sqlmock, fileID, eventID, userID, objectKey string) {
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE id = \$1`).
+		WithArgs(fileID).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns).AddRow(
+			fileID, "event_file", eventID, userID, objectKey, "application/pdf", nil, nil, nil, time.Now(),
+		))
+}
+
+func TestFilesCompleteHandler_UpToN_FirstFile_PositionZero(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	objectKey := "event_file/" + testEventID + "/" + testFileID
+	expectGetEventFileByID(mock, testFileID, testEventID, testUserID, objectKey)
+	expectEventFileOwnership(mock, testEventID, testUserID, 1)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock\(hashtextextended\(\$1, 0\)\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT COUNT\(\*\), MAX\(position\) FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count", "max"}).AddRow(0, nil))
+	mock.ExpectExec(`UPDATE file SET confirmed_at = now\(\), position = \$1 WHERE id = \$2`).
+		WithArgs(int32(0), testFileID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	w := httptest.NewRecorder()
+	FilesCompleteHandler(w, filesRequest(t, http.MethodPost, "/files/"+testFileID+"/complete", nil, true), testFileID)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFilesCompleteHandler_UpToN_NextPosition(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	objectKey := "event_file/" + testEventID + "/" + testFileID
+	expectGetEventFileByID(mock, testFileID, testEventID, testUserID, objectKey)
+	expectEventFileOwnership(mock, testEventID, testUserID, 1)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock\(hashtextextended\(\$1, 0\)\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT COUNT\(\*\), MAX\(position\) FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count", "max"}).AddRow(3, 2))
+	mock.ExpectExec(`UPDATE file SET confirmed_at = now\(\), position = \$1 WHERE id = \$2`).
+		WithArgs(int32(3), testFileID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	w := httptest.NewRecorder()
+	FilesCompleteHandler(w, filesRequest(t, http.MethodPost, "/files/"+testFileID+"/complete", nil, true), testFileID)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestFilesCompleteHandler_UpToN_LimitReached409(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	objectKey := "event_file/" + testEventID + "/" + testFileID
+	expectGetEventFileByID(mock, testFileID, testEventID, testUserID, objectKey)
+	expectEventFileOwnership(mock, testEventID, testUserID, 1)
+
+	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock\(hashtextextended\(\$1, 0\)\)`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery(`SELECT COUNT\(\*\), MAX\(position\) FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count", "max"}).AddRow(10, 9))
+	mock.ExpectRollback()
+
+	w := httptest.NewRecorder()
+	FilesCompleteHandler(w, filesRequest(t, http.MethodPost, "/files/"+testFileID+"/complete", nil, true), testFileID)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -38,13 +38,13 @@ func ReserveImportIdempotencyKey(userID string, idempotencyKey string) (reserved
 func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (result models.ImportLocalDataResponse, hasResult bool, err error) {
 	var petsImported, eventsImported sql.NullInt64
 	var profileImported sql.NullBool
-	var petsMapping sql.NullString
+	var petsMapping, eventsMapping sql.NullString
 
 	err = DB.QueryRow(`
-		SELECT pets_imported, events_imported, profile_imported, pets_mapping
+		SELECT pets_imported, events_imported, profile_imported, pets_mapping, events_mapping
 		FROM import_local_data_idempotency_key
 		WHERE user_id = $1 AND idempotency_key = $2
-	`, userID, idempotencyKey).Scan(&petsImported, &eventsImported, &profileImported, &petsMapping)
+	`, userID, idempotencyKey).Scan(&petsImported, &eventsImported, &profileImported, &petsMapping, &eventsMapping)
 	if err != nil {
 		return models.ImportLocalDataResponse{}, false, err
 	}
@@ -60,11 +60,19 @@ func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (resu
 		}
 	}
 
+	events := []models.ImportedEvent{}
+	if eventsMapping.Valid {
+		if err = json.Unmarshal([]byte(eventsMapping.String), &events); err != nil {
+			return models.ImportLocalDataResponse{}, false, err
+		}
+	}
+
 	return models.ImportLocalDataResponse{
 		PetsImported:    int(petsImported.Int64),
 		EventsImported:  int(eventsImported.Int64),
 		ProfileImported: profileImported.Bool,
 		Pets:            pets,
+		Events:          events,
 	}, true, nil
 }
 
@@ -75,11 +83,15 @@ func FinalizeImportIdempotencyKey(userID string, idempotencyKey string, result m
 	if err != nil {
 		return err
 	}
+	eventsMapping, err := json.Marshal(result.Events)
+	if err != nil {
+		return err
+	}
 	_, err = DB.Exec(`
 		UPDATE import_local_data_idempotency_key
-		SET pets_imported = $1, events_imported = $2, profile_imported = $3, pets_mapping = $4
-		WHERE user_id = $5 AND idempotency_key = $6
-	`, result.PetsImported, result.EventsImported, result.ProfileImported, string(petsMapping), userID, idempotencyKey)
+		SET pets_imported = $1, events_imported = $2, profile_imported = $3, pets_mapping = $4, events_mapping = $5
+		WHERE user_id = $6 AND idempotency_key = $7
+	`, result.PetsImported, result.EventsImported, result.ProfileImported, string(petsMapping), string(eventsMapping), userID, idempotencyKey)
 	return err
 }
 
@@ -111,6 +123,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		localIDToServerID[pet.LocalID] = petID
 	}
 
+	eventLocalIDToServerID := make(map[string]uuid.UUID, len(req.Events))
 	for _, event := range req.Events {
 		petID, ok := localIDToServerID[event.PetLocalID]
 		if !ok {
@@ -120,9 +133,12 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			err = fmt.Errorf("import: pet_local_id %q не найден среди перенесённых питомцев", event.PetLocalID)
 			return result, err
 		}
-		if _, err = insertEventWith(tx, petID, event.ToCreateEventRequest(petID.String()), ""); err != nil {
+		var eventID uuid.UUID
+		eventID, err = insertEventWith(tx, petID, event.ToCreateEventRequest(petID.String()), "")
+		if err != nil {
 			return result, err
 		}
+		eventLocalIDToServerID[event.LocalID] = eventID
 	}
 
 	profileImported := false
@@ -145,11 +161,20 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		})
 	}
 
+	importedEvents := make([]models.ImportedEvent, 0, len(req.Events))
+	for _, event := range req.Events {
+		importedEvents = append(importedEvents, models.ImportedEvent{
+			LocalID: event.LocalID,
+			ID:      eventLocalIDToServerID[event.LocalID].String(),
+		})
+	}
+
 	result = models.ImportLocalDataResponse{
 		PetsImported:    len(req.Pets),
 		EventsImported:  len(req.Events),
 		ProfileImported: profileImported,
 		Pets:            importedPets,
+		Events:          importedEvents,
 	}
 	return result, nil
 }

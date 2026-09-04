@@ -1549,6 +1549,149 @@
           }
         }
       }
+    },
+    "/activities/calendar": {
+      "get": {
+        "summary": "/activities/calendar",
+        "description": "Количество событий по каждому дню диапазона по всем питомцам пользователя, без содержимого событий. Диапазон from..to не должен превышать 366 дней.",
+        "tags": [
+          "activities-controller"
+        ],
+        "operationId": "get-activities-calendar",
+        "x-stoplight": {
+          "id": "f11e001ecal"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "from",
+            "required": true
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "to",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetActivitiesCalendarResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
+    "/activities/day": {
+      "get": {
+        "summary": "/activities/day",
+        "description": "Все события всех питомцев пользователя за один календарный день (UTC), отсортированные по date по возрастанию.",
+        "tags": [
+          "activities-controller"
+        ],
+        "operationId": "get-activities-day",
+        "x-stoplight": {
+          "id": "f11e001fday"
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "in": "query",
+            "name": "date",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetActivitiesDayResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
     }
   },
   "components": {
@@ -1675,7 +1818,8 @@
           "id",
           "date",
           "type",
-          "value"
+          "value",
+          "files_count"
         ],
         "properties": {
           "id": {
@@ -1706,6 +1850,13 @@
           },
           "value": {
             "$ref": "#/components/schemas/EventValue"
+          },
+          "files_count": {
+            "type": "integer",
+            "description": "Количество прикреплённых файлов события (0, если файлов нет).",
+            "x-stoplight": {
+              "id": "f11e0007fc"
+            }
           }
         }
       },
@@ -2322,7 +2473,8 @@
           "type",
           "value",
           "pet_id",
-          "pet_name"
+          "pet_name",
+          "files"
         ],
         "properties": {
           "id": {
@@ -2365,6 +2517,17 @@
             "type": "string",
             "x-stoplight": {
               "id": "0djmc9eljuzad"
+            }
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 10,
+            "description": "Прикреплённые файлы события (фото и документы), в порядке position.",
+            "items": {
+              "$ref": "#/components/schemas/EventFile"
+            },
+            "x-stoplight": {
+              "id": "f11e0008files"
             }
           }
         }
@@ -2552,12 +2715,20 @@
         },
         "type": "object",
         "required": [
+          "local_id",
           "pet_local_id",
           "date",
           "type",
           "value"
         ],
         "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID события в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.",
+            "x-stoplight": {
+              "id": "f11e0019loc"
+            }
+          },
           "pet_local_id": {
             "type": "string",
             "description": "Должен совпадать с одним из pets[].local_id этого же запроса.",
@@ -2639,7 +2810,8 @@
           "pets_imported",
           "events_imported",
           "profile_imported",
-          "pets"
+          "pets",
+          "events"
         ],
         "properties": {
           "pets_imported": {
@@ -2668,6 +2840,16 @@
             "description": "Сопоставление local_id -> серверный id для каждого перенесённого питомца, в порядке pets запроса. Используется клиентом для фонового переноса фотографий (см. «Фотография питомца — Frontend (dataSource=local)»).",
             "items": {
               "$ref": "#/components/schemas/ImportedPet"
+            }
+          },
+          "events": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждого перенесённого события, в порядке events запроса. Используется клиентом для фонового переноса файлов события (см. «Файлы события — Frontend (dataSource=local)»).",
+            "items": {
+              "$ref": "#/components/schemas/ImportedEvent"
+            },
+            "x-stoplight": {
+              "id": "f11e001dimp"
             }
           }
         }
@@ -2984,6 +3166,14 @@
               "id": "9ab76b2b7b104"
             },
             "description": "MIME-тип файла, должен входить в список допустимых для данного owner_type"
+          },
+          "filename": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "Опциональное исходное имя файла, как выбрано пользователем; используется читающей стороной конкретного owner_type (см. «Общие требования: Файлы сущностей»).",
+            "x-stoplight": {
+              "id": "f11e0001name"
+            }
           }
         }
       },
@@ -3053,6 +3243,217 @@
               "id": "e680ee479ae04"
             },
             "format": "uuid"
+          }
+        }
+      },
+      "EventFile": {
+        "title": "EventFile",
+        "x-stoplight": {
+          "id": "f11e0002file"
+        },
+        "type": "object",
+        "required": [
+          "file_id",
+          "url",
+          "content_type"
+        ],
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "format": "uuid",
+            "x-stoplight": {
+              "id": "f11e0003fid"
+            }
+          },
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Presigned GET URL — временная ссылка, не постоянный адрес.",
+            "x-stoplight": {
+              "id": "f11e0004url"
+            }
+          },
+          "content_type": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "f11e0005ct"
+            }
+          },
+          "filename": {
+            "type": "string",
+            "nullable": true,
+            "description": "null для фотографий и для документов без переданного имени.",
+            "x-stoplight": {
+              "id": "f11e0006fn"
+            }
+          }
+        }
+      },
+      "ActivitiesDayEventItem": {
+        "title": "ActivitiesDayEventItem",
+        "x-stoplight": {
+          "id": "f11e0009day"
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "date",
+          "type",
+          "value",
+          "files_count",
+          "pet_id",
+          "pet_name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "x-stoplight": {
+              "id": "f11e000ada"
+            }
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "x-stoplight": {
+              "id": "f11e000bda"
+            }
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum",
+            "x-stoplight": {
+              "id": "f11e000cda"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "f11e000dda"
+            }
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          },
+          "files_count": {
+            "type": "integer",
+            "x-stoplight": {
+              "id": "f11e000eda"
+            }
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid",
+            "x-stoplight": {
+              "id": "f11e000fda"
+            }
+          },
+          "pet_name": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "f11e0010da"
+            }
+          }
+        }
+      },
+      "ActivitiesCalendarItem": {
+        "title": "ActivitiesCalendarItem",
+        "x-stoplight": {
+          "id": "f11e0011cal"
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "count"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "x-stoplight": {
+              "id": "f11e0012cal"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "x-stoplight": {
+              "id": "f11e0013cal"
+            }
+          }
+        }
+      },
+      "GetActivitiesCalendarResponse": {
+        "title": "GetActivitiesCalendarResponse",
+        "x-stoplight": {
+          "id": "f11e0014cal"
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivitiesCalendarItem"
+            },
+            "x-stoplight": {
+              "id": "f11e0015cal"
+            }
+          }
+        }
+      },
+      "GetActivitiesDayResponse": {
+        "title": "GetActivitiesDayResponse",
+        "x-stoplight": {
+          "id": "f11e0016day"
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "items"
+        ],
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "x-stoplight": {
+              "id": "f11e0017day"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActivitiesDayEventItem"
+            },
+            "x-stoplight": {
+              "id": "f11e0018day"
+            }
+          }
+        }
+      },
+      "ImportedEvent": {
+        "title": "ImportedEvent",
+        "x-stoplight": {
+          "id": "f11e001aimp"
+        },
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "x-stoplight": {
+              "id": "f11e001bimp"
+            }
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "x-stoplight": {
+              "id": "f11e001cimp"
+            }
           }
         }
       }

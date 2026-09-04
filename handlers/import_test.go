@@ -35,8 +35,9 @@ func validImportPet(localID string) models.ImportLocalDataPet {
 	}
 }
 
-func validImportEvent(petLocalID string) models.ImportLocalDataEvent {
+func validImportEvent(localID, petLocalID string) models.ImportLocalDataEvent {
 	return models.ImportLocalDataEvent{
+		LocalID:    localID,
 		PetLocalID: petLocalID,
 		Date:       "2024-01-01T12:00:00Z",
 		Type:       "weight",
@@ -145,7 +146,7 @@ func TestImportLocalDataHandler_InvalidEventRejected(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
-	badEvent := models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "not-a-type", Value: eventValue(`{"amount":4.2}`)}
+	badEvent := models.ImportLocalDataEvent{LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "not-a-type", Value: eventValue(`{"amount":4.2}`)}
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
 		Pets:   []models.ImportLocalDataPet{pet},
@@ -164,10 +165,10 @@ func TestImportLocalDataHandler_InvalidEventValueRejected(t *testing.T) {
 		name  string
 		event models.ImportLocalDataEvent
 	}{
-		{"вес вне диапазона", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`{"amount":500}`)}},
-		{"лишнее поле", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`{"amount":5,"unit":"g"}`)}},
-		{"нет обязательного поля", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "temperature", Value: eventValue(`{"amount":38}`)}},
-		{"строка вместо объекта", models.ImportLocalDataEvent{PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`"4.2"`)}},
+		{"вес вне диапазона", models.ImportLocalDataEvent{LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`{"amount":500}`)}},
+		{"лишнее поле", models.ImportLocalDataEvent{LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`{"amount":5,"unit":"g"}`)}},
+		{"нет обязательного поля", models.ImportLocalDataEvent{LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "temperature", Value: eventValue(`{"amount":38}`)}},
+		{"строка вместо объекта", models.ImportLocalDataEvent{LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight", Value: eventValue(`"4.2"`)}},
 	}
 
 	for _, c := range cases {
@@ -199,11 +200,55 @@ func TestImportLocalDataHandler_EventPetLocalIDMismatchRejected(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
-	event := validImportEvent("does-not-exist")
+	event := validImportEvent("event-1", "does-not-exist")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
 		Pets:   []models.ImportLocalDataPet{pet},
 		Events: []models.ImportLocalDataEvent{event},
+	}, true, testImportIdempotencyKey)
+	ImportLocalDataHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Дублирующийся local_id питомца делает отображение local_id -> id
+// неоднозначным для поля pets ответа — запрос должен быть отклонён (см.
+// "Импорт локальных данных — Backend", раздел 3, шаг 4).
+func TestImportLocalDataHandler_DuplicatePetLocalIDRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+		WithArgs(testUserID, testImportIdempotencyKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	r := importRequest(t, models.ImportLocalDataRequest{
+		Pets:   []models.ImportLocalDataPet{validImportPet("dup"), validImportPet("dup")},
+		Events: []models.ImportLocalDataEvent{},
+	}, true, testImportIdempotencyKey)
+	ImportLocalDataHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Дублирующийся local_id события делает отображение local_id -> id
+// неоднозначным для поля events ответа — запрос должен быть отклонён.
+func TestImportLocalDataHandler_DuplicateEventLocalIDRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+		WithArgs(testUserID, testImportIdempotencyKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	r := importRequest(t, models.ImportLocalDataRequest{
+		Pets: []models.ImportLocalDataPet{validImportPet("local-1")},
+		Events: []models.ImportLocalDataEvent{
+			validImportEvent("dup-event", "local-1"),
+			validImportEvent("dup-event", "local-1"),
+		},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -236,10 +281,11 @@ func TestImportLocalDataHandler_IdempotencyKeyReplaysStoredResult(t *testing.T) 
 	mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
 		WithArgs(testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	const storedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectQuery(`SELECT pets_imported, events_imported, profile_imported`).
 		WithArgs(testUserID, testImportIdempotencyKey).
-		WillReturnRows(sqlmock.NewRows([]string{"pets_imported", "events_imported", "profile_imported", "pets_mapping"}).
-			AddRow(2, 1, true, `[{"local_id":"whatever","id":"`+testPetID+`"}]`))
+		WillReturnRows(sqlmock.NewRows([]string{"pets_imported", "events_imported", "profile_imported", "pets_mapping", "events_mapping"}).
+			AddRow(2, 1, true, `[{"local_id":"whatever","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+storedEventID+`"}]`))
 
 	w := httptest.NewRecorder()
 	// Тело повторного запроса умышленно отличается от первого раза — должен
@@ -255,7 +301,8 @@ func TestImportLocalDataHandler_IdempotencyKeyReplaysStoredResult(t *testing.T) 
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, models.ImportLocalDataResponse{
 		PetsImported: 2, EventsImported: 1, ProfileImported: true,
-		Pets: []models.ImportedPet{{LocalID: "whatever", ID: testPetID}},
+		Pets:   []models.ImportedPet{{LocalID: "whatever", ID: testPetID}},
+		Events: []models.ImportedEvent{{LocalID: "event-1", ID: storedEventID}},
 	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -274,12 +321,13 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("66666666-6666-6666-6666-666666666666"))
 	mock.ExpectCommit()
 
+	const insertedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
-		WithArgs(1, 1, false, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, testUserID, testImportIdempotencyKey).
+		WithArgs(1, 1, false, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+insertedEventID+`"}]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
-	event := validImportEvent("local-1")
+	event := validImportEvent("event-1", "local-1")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
 		Pets:   []models.ImportLocalDataPet{pet},
@@ -292,7 +340,8 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, models.ImportLocalDataResponse{
 		PetsImported: 1, EventsImported: 1, ProfileImported: false,
-		Pets: []models.ImportedPet{{LocalID: "local-1", ID: testPetID}},
+		Pets:   []models.ImportedPet{{LocalID: "local-1", ID: testPetID}},
+		Events: []models.ImportedEvent{{LocalID: "event-1", ID: insertedEventID}},
 	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -313,12 +362,13 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
+	const insertedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
-		WithArgs(1, 1, true, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, testUserID, testImportIdempotencyKey).
+		WithArgs(1, 1, true, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+insertedEventID+`"}]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
-	event := validImportEvent("local-1")
+	event := validImportEvent("event-1", "local-1")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
 		Pets:    []models.ImportLocalDataPet{pet},
@@ -332,7 +382,8 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, models.ImportLocalDataResponse{
 		PetsImported: 1, EventsImported: 1, ProfileImported: true,
-		Pets: []models.ImportedPet{{LocalID: "local-1", ID: testPetID}},
+		Pets:   []models.ImportedPet{{LocalID: "local-1", ID: testPetID}},
+		Events: []models.ImportedEvent{{LocalID: "event-1", ID: insertedEventID}},
 	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

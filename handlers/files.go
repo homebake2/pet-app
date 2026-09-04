@@ -50,17 +50,28 @@ const (
 	// cardinalityExactlyOne — у владельца не может быть больше одного файла;
 	// подтверждение новой загрузки заменяет предыдущую (см. pet_photo).
 	cardinalityExactlyOne ownerCardinality = iota
-	// cardinalityUpToN зарезервирована для будущих типов владельцев
-	// (например, галерей событий) и не используется ни одним owner_type в
-	// этой итерации — см. «Основной сценарий», шаг d.
+	// cardinalityUpToN — у владельца может быть до maxCount подтверждённых
+	// файлов; подтверждение сверх лимита даёт 409, а не тихую замену (см.
+	// event_file, «Файлы события — Backend»).
 	cardinalityUpToN
 )
+
+// eventFileOwnerType — owner_type, под которым файлы события зарегистрированы
+// в реестре типов владельцев (см. «Файлы события — Backend»).
+const eventFileOwnerType = "event_file"
+
+// eventFileMaxCount — лимит кардинальности «до N» для event_file (см. «Файлы
+// события — Backend», раздел «Назначение»).
+const eventFileMaxCount = 10
 
 // ownerTypeSpec — запись реестра типов владельцев: как проверить владение,
 // какая кардинальность и какие content-type допустимы для owner_type.
 type ownerTypeSpec struct {
 	cardinality         ownerCardinality
 	allowedContentTypes map[string]bool
+	// maxCount — лимит кардинальности «до N»; не используется (игнорируется)
+	// для cardinalityExactlyOne.
+	maxCount int
 	// checkOwnership возвращает true, если ownerID существует и принадлежит
 	// userID (для pet_photo — ещё и не удалён). Ошибка — сбой БД (500);
 	// false без ошибки — единый 404 (см. «Общие требования: IDOR и владение
@@ -70,9 +81,11 @@ type ownerTypeSpec struct {
 
 // ownerTypeRegistry — статическая таблица «owner_type → { проверка владения,
 // кардинальность, допустимые content-type }», см. «Общие требования: Файлы
-// сущностей», раздел «Реестр типов владельцев». Единственная запись сегодня —
-// pet_photo (см. «Фотография питомца — Backend»); будущие owner_type
-// добавляются сюда отдельной работой, сами хендлеры ниже не меняются.
+// сущностей», раздел «Реестр типов владельцев». pet_photo — первое
+// подключение, кардинальность «ровно 1» (см. «Фотография питомца —
+// Backend»); event_file — второе, кардинальность «до 10» (см. «Файлы
+// события — Backend»). Будущие owner_type добавляются сюда отдельной
+// работой, сами хендлеры ниже не меняются.
 var ownerTypeRegistry = map[string]ownerTypeSpec{
 	"pet_photo": {
 		cardinality: cardinalityExactlyOne,
@@ -82,6 +95,17 @@ var ownerTypeRegistry = map[string]ownerTypeSpec{
 			"image/webp": true,
 		},
 		checkOwnership: database.CheckPetOwnership,
+	},
+	eventFileOwnerType: {
+		cardinality: cardinalityUpToN,
+		maxCount:    eventFileMaxCount,
+		allowedContentTypes: map[string]bool{
+			"image/jpeg":      true,
+			"image/png":       true,
+			"image/webp":      true,
+			"application/pdf": true,
+		},
+		checkOwnership: database.CheckEventFileOwnership,
 	},
 }
 
@@ -128,6 +152,11 @@ func FilesUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.OwnerType == "" || req.OwnerID == "" || req.ContentType == "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля owner_type, owner_id и content_type обязательны")
+		return
+	}
+
+	if req.Filename != nil && len(*req.Filename) > models.PostFilesUploadUrlRequestFilenameMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле filename не должно превышать 255 символов")
 		return
 	}
 
@@ -178,7 +207,7 @@ func FilesUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 	fileID := uuid.New()
 	objectKey := req.OwnerType + "/" + ownerID.String() + "/" + fileID.String()
 
-	if err := database.InsertUnconfirmedFile(fileID, req.OwnerType, ownerID, userID, objectKey, req.ContentType); err != nil {
+	if err := database.InsertUnconfirmedFile(fileID, req.OwnerType, ownerID, userID, objectKey, req.ContentType, req.Filename); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать запись файла")
 		return
 	}
@@ -228,10 +257,17 @@ func FilesCompleteHandler(w http.ResponseWriter, r *http.Request, fileIDStr stri
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подтвердить загрузку файла")
 			return
 		}
+	case cardinalityUpToN:
+		limitReached, err := database.ConfirmFileUpToN(file.ID, file.OwnerType, file.OwnerID, spec.maxCount)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подтвердить загрузку файла")
+			return
+		}
+		if limitReached {
+			writeError(w, http.StatusConflict, openapi.CONFLICT, "Достигнут лимит количества файлов для этого владельца")
+			return
+		}
 	default:
-		// cardinalityUpToN зарезервирована и сегодня не используется ни
-		// одним owner_type — до появления первого такого типа сюда попасть
-		// невозможно.
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Неподдерживаемая кардинальность owner_type")
 		return
 	}

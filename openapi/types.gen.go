@@ -202,6 +202,39 @@ const (
 	Ru LanguageCode = "ru"
 )
 
+// ActivitiesCalendarItem defines model for ActivitiesCalendarItem.
+type ActivitiesCalendarItem struct {
+	Count int                `json:"count"`
+	Date  openapi_types.Date `json:"date"`
+}
+
+// ActivitiesDayEventItem defines model for ActivitiesDayEventItem.
+type ActivitiesDayEventItem struct {
+	Date       time.Time          `json:"date"`
+	FilesCount int                `json:"files_count"`
+	Id         openapi_types.UUID `json:"id"`
+	Notes      *string            `json:"notes,omitempty"`
+	PetId      openapi_types.UUID `json:"pet_id"`
+	PetName    string             `json:"pet_name"`
+	Type       GetEventEnum       `json:"type"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status
+	// * other — label (1–50)
+	Value EventValue `json:"value"`
+}
+
 // ErrorCodeEnum Код ошибки для маппинга на фронте
 type ErrorCodeEnum string
 
@@ -216,6 +249,18 @@ type EventFeedingFoodEnum string
 
 // EventFeedingUnitEnum Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).
 type EventFeedingUnitEnum string
+
+// EventFile defines model for EventFile.
+type EventFile struct {
+	ContentType string             `json:"content_type"`
+	FileId      openapi_types.UUID `json:"file_id"`
+
+	// Filename null для фотографий и для документов без переданного имени.
+	Filename *string `json:"filename"`
+
+	// Url Presigned GET URL — временная ссылка, не постоянный адрес.
+	Url string `json:"url"`
+}
 
 // EventHygieneProcedureEnum Процедура гигиены (value.procedure при type=hygiene).
 type EventHygieneProcedureEnum string
@@ -327,6 +372,17 @@ type EventValue struct {
 	Unit *EventFeedingUnitEnum `json:"unit,omitempty"`
 }
 
+// GetActivitiesCalendarResponse defines model for GetActivitiesCalendarResponse.
+type GetActivitiesCalendarResponse struct {
+	Items []ActivitiesCalendarItem `json:"items"`
+}
+
+// GetActivitiesDayResponse defines model for GetActivitiesDayResponse.
+type GetActivitiesDayResponse struct {
+	Date  openapi_types.Date       `json:"date"`
+	Items []ActivitiesDayEventItem `json:"items"`
+}
+
 // GetActivitiesResponse defines model for GetActivitiesResponse.
 type GetActivitiesResponse struct {
 	Items   []ItemsArrayActivitiesModel `json:"items"`
@@ -350,7 +406,10 @@ type GetEventEnum string
 
 // GetEventIdResponseRequest defines model for GetEventIdResponseRequest.
 type GetEventIdResponseRequest struct {
-	Date    time.Time          `json:"date"`
+	Date time.Time `json:"date"`
+
+	// Files Прикреплённые файлы события (фото и документы), в порядке position.
+	Files   []EventFile        `json:"files"`
 	Id      openapi_types.UUID `json:"id"`
 	Notes   *string            `json:"notes,omitempty"`
 	PetId   openapi_types.UUID `json:"pet_id"`
@@ -400,10 +459,13 @@ type GetEventRequest struct {
 
 // GetEventResponse defines model for GetEventResponse.
 type GetEventResponse struct {
-	Date  time.Time          `json:"date"`
-	Id    openapi_types.UUID `json:"id"`
-	Notes *string            `json:"notes,omitempty"`
-	Type  GetEventEnum       `json:"type"`
+	Date time.Time `json:"date"`
+
+	// FilesCount Количество прикреплённых файлов события (0, если файлов нет).
+	FilesCount int                `json:"files_count"`
+	Id         openapi_types.UUID `json:"id"`
+	Notes      *string            `json:"notes,omitempty"`
+	Type       GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -541,8 +603,11 @@ type GetShortInfoPetResponse struct {
 
 // ImportLocalDataEvent defines model for ImportLocalDataEvent.
 type ImportLocalDataEvent struct {
-	Date  time.Time `json:"date"`
-	Notes *string   `json:"notes,omitempty"`
+	Date time.Time `json:"date"`
+
+	// LocalId Клиентский UUID события в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
+	LocalId string  `json:"local_id"`
+	Notes   *string `json:"notes,omitempty"`
 
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
 	PetLocalId string       `json:"pet_local_id"`
@@ -590,12 +655,20 @@ type ImportLocalDataRequest struct {
 
 // ImportLocalDataResponse defines model for ImportLocalDataResponse.
 type ImportLocalDataResponse struct {
-	EventsImported int `json:"events_imported"`
+	// Events Сопоставление local_id -> серверный id для каждого перенесённого события, в порядке events запроса. Используется клиентом для фонового переноса файлов события (см. «Файлы события — Frontend (dataSource=local)»).
+	Events         []ImportedEvent `json:"events"`
+	EventsImported int             `json:"events_imported"`
 
 	// Pets Сопоставление local_id -> серверный id для каждого перенесённого питомца, в порядке pets запроса. Используется клиентом для фонового переноса фотографий (см. «Фотография питомца — Frontend (dataSource=local)»).
 	Pets            []ImportedPet `json:"pets"`
 	PetsImported    int           `json:"pets_imported"`
 	ProfileImported bool          `json:"profile_imported"`
+}
+
+// ImportedEvent defines model for ImportedEvent.
+type ImportedEvent struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
 }
 
 // ImportedPet defines model for ImportedPet.
@@ -616,8 +689,11 @@ type PetIconEnum string
 // PostFilesUploadUrlRequest defines model for PostFilesUploadUrlRequest.
 type PostFilesUploadUrlRequest struct {
 	// ContentType MIME-тип файла, должен входить в список допустимых для данного owner_type
-	ContentType string             `json:"content_type"`
-	OwnerId     openapi_types.UUID `json:"owner_id"`
+	ContentType string `json:"content_type"`
+
+	// Filename Опциональное исходное имя файла, как выбрано пользователем; используется читающей стороной конкретного owner_type (см. «Общие требования: Файлы сущностей»).
+	Filename *string            `json:"filename,omitempty"`
+	OwnerId  openapi_types.UUID `json:"owner_id"`
 
 	// OwnerType Тип владельца файла из реестра типов владельцев, например pet_photo
 	OwnerType string `json:"owner_type"`
@@ -686,6 +762,17 @@ type GetActivitiesParams struct {
 	PetId openapi_types.UUID `form:"pet_id" json:"pet_id"`
 	From  openapi_types.Date `form:"from" json:"from"`
 	To    openapi_types.Date `form:"to" json:"to"`
+}
+
+// GetActivitiesCalendarParams defines parameters for GetActivitiesCalendar.
+type GetActivitiesCalendarParams struct {
+	From openapi_types.Date `form:"from" json:"from"`
+	To   openapi_types.Date `form:"to" json:"to"`
+}
+
+// GetActivitiesDayParams defines parameters for GetActivitiesDay.
+type GetActivitiesDayParams struct {
+	Date openapi_types.Date `form:"date" json:"date"`
 }
 
 // PostEventParams defines parameters for PostEvent.

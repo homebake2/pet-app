@@ -265,6 +265,115 @@ func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) (
 	return events, nil
 }
 
+// CheckEventFileOwnership проверяет владение событием по правилу,
+// зарегистрированному для owner_type = "event_file" в реестре типов
+// владельцев generic-механизма файлов сущностей (см. handlers/files.go,
+// «Файлы события — Backend»): событие не мягко удалено и принадлежит
+// (через pet_id) не мягко удалённому питомцу userID — то же правило, что и
+// при создании/редактировании события (в отличие от удаления самого
+// события, где мягко удалённый питомец операцию не блокирует).
+func CheckEventFileOwnership(eventID uuid.UUID, userID string) (bool, error) {
+	query := `
+	SELECT COUNT(1) FROM event
+	WHERE id = $1 AND deleted_at IS NULL
+	AND EXISTS (SELECT 1 FROM pet WHERE pet.id = event.pet_id AND pet.user_id = $2 AND pet.deleted_at IS NULL)
+	`
+	var count int
+	err := DB.QueryRow(query, eventID, userID).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count == 1, nil
+}
+
+// EventWithPet — строка события вместе с именем его питомца, используется
+// эндпоинтами, отдающими события разных питомцев одним списком
+// (GET /activities/day, см. «Просмотр календаря — Backend»).
+type EventWithPet struct {
+	Event   models.EventDB
+	PetName string
+}
+
+// CountEventsByUserIDGroupedByDay возвращает количество неудалённых событий
+// всех неудалённых питомцев userID, попадающих в полуоткрытый интервал
+// [fromDate, toDate+1 день) в UTC, сгруппированное по календарному дню (UTC)
+// — см. «Просмотр календаря — Backend», GET /activities/calendar. Дни без
+// событий отсутствуют в результирующей map — вызывающий код достраивает
+// диапазон нулями.
+func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) (map[string]int, error) {
+	query := `
+	SELECT (e.date_time AT TIME ZONE 'UTC')::date AS day, COUNT(*)
+	FROM event e
+	JOIN pet p ON e.pet_id = p.id
+	WHERE p.user_id = $1
+	AND p.deleted_at IS NULL
+	AND e.deleted_at IS NULL
+	AND e.date_time >= $2
+	AND e.date_time < $3
+	GROUP BY day
+	`
+	rows, err := DB.Query(query, userID, fromDate.UTC(), toDate.UTC().AddDate(0, 0, 1))
+	if err != nil {
+		log.Println("CountEventsByUserIDGroupedByDay error:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make(map[string]int)
+	for rows.Next() {
+		var day time.Time
+		var count int
+		if err := rows.Scan(&day, &count); err != nil {
+			return nil, err
+		}
+		result[day.Format("2006-01-02")] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// GetEventsByUserIDAndDate возвращает все неудалённые события всех
+// неудалённых питомцев userID, чей календарный день (UTC) — dayStart
+// (полуоткрытый интервал [dayStart, dayStart+1 день) в UTC), отсортированные
+// по date_time по возрастанию — см. «Просмотр календаря — Backend»,
+// GET /activities/day.
+func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet, error) {
+	query := `
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	FROM event e
+	JOIN pet p ON e.pet_id = p.id
+	WHERE p.user_id = $1
+	AND p.deleted_at IS NULL
+	AND e.deleted_at IS NULL
+	AND e.date_time >= $2
+	AND e.date_time < $3
+	ORDER BY e.date_time ASC
+	`
+	rows, err := DB.Query(query, userID, dayStart.UTC(), dayStart.UTC().AddDate(0, 0, 1))
+	if err != nil {
+		log.Println("GetEventsByUserIDAndDate error:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var events []EventWithPet
+	for rows.Next() {
+		var e EventWithPet
+		if err := rows.Scan(&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.PetName); err != nil {
+			return nil, err
+		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return events, nil
+}
+
 // GetEventsByPetID - получить события питомца, отсортированные по date_time
 // по убыванию (сначала последние), с пагинацией limit/offset.
 func GetEventsByPetID(petID uuid.UUID, limit, offset int) ([]models.EventDB, error) {
