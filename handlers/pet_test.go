@@ -50,6 +50,22 @@ func expectNoPetPhotos(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows(fileColumns))
 }
 
+// expectNoWeightEvent mocks the database.GetLatestPetWeight lookup that
+// database.GetPetByIDAndUserID performs on every successful read to compute
+// the computed, never-stored weight field, reporting no weight-type events
+// for the pet yet (weight: null in the response).
+func expectNoWeightEvent(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`SELECT \(value->>'amount'\)::float8\s+FROM event\s+WHERE pet_id = \$1 AND type = 'weight' AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT 1`).
+		WillReturnError(sql.ErrNoRows)
+}
+
+// expectWeightEvent mocks the same lookup as expectNoWeightEvent, but
+// reporting a latest weight-event amount (see «Вес питомца — Backend»).
+func expectWeightEvent(mock sqlmock.Sqlmock, amount float64) {
+	mock.ExpectQuery(`SELECT \(value->>'amount'\)::float8\s+FROM event\s+WHERE pet_id = \$1 AND type = 'weight' AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT 1`).
+		WillReturnRows(sqlmock.NewRows([]string{"amount"}).AddRow(amount))
+}
+
 func TestPetHandler_MethodNotAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	PetHandler(w, doRequest(http.MethodDelete, "/pet", nil))
@@ -194,6 +210,7 @@ func TestCreatePetHandler_IdempotencyKeyReplaysExistingPet(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog"}, true)
@@ -213,9 +230,78 @@ func TestCreatePetHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog"}, true)
+	CreatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreatePetHandler_InvalidWeightRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	badWeight := 500.0
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Weight: &badWeight}, true)
+	CreatePetHandler(w, r)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestCreatePetHandler_WithWeight_CreatesWeightEvent проверяет, что POST /pet
+// с полем weight создаёт событие типа weight для нового питомца и
+// возвращает его в поле weight ответа, вычисленном тем же путём, что и
+// GET /pet/{id} (см. «Вес питомца — Backend»).
+func TestCreatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`INSERT INTO pet`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	expectWeightEvent(mock, 5.5)
+
+	weight := 5.5
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Weight: &weight}, true)
+	CreatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	var resp models.PetIdResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Weight)
+	assert.Equal(t, 5.5, *resp.Weight)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestCreatePetHandler_WeightEventInsertFailureDoesNotFailCreate проверяет,
+// что сбой создания события веса не должен приводить к ошибке создания
+// питомца — это best-effort побочный эффект (см. «Вес питомца — Backend»,
+// шаг 4: pet creation must NOT roll back if this event insert fails).
+func TestCreatePetHandler_WeightEventInsertFailureDoesNotFailCreate(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`INSERT INTO pet`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnError(assertError)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	expectNoWeightEvent(mock)
+
+	weight := 5.5
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet", models.CreatePetRequest{Name: "Rex", Species: "dog", Weight: &weight}, true)
 	CreatePetHandler(w, r)
 
 	assert.Equal(t, http.StatusCreated, w.Code)
@@ -332,6 +418,7 @@ func TestGetPetHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	expectNoPetPhoto(mock)
 
 	w := httptest.NewRecorder()
@@ -357,6 +444,7 @@ func TestGetPetHandler_WithPhoto(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	fileID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
@@ -377,6 +465,32 @@ func TestGetPetHandler_WithPhoto(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// TestGetPetHandler_WithWeight проверяет, что GET /pet/{id} вычисляет weight
+// как amount последнего события типа weight — независимо от того, где это
+// событие было создано (POST /pet, PUT /pet/{id} или POST /events; см. «Вес
+// питомца — Backend»).
+func TestGetPetHandler_WithWeight(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, "DOG",
+		))
+	expectWeightEvent(mock, 12.3)
+	expectNoPetPhoto(mock)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID, nil, true)
+	GetPetHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.PetIdResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Weight)
+	assert.Equal(t, 12.3, *resp.Weight)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -384,6 +498,7 @@ func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 
 	empty := ""
 	w := httptest.NewRecorder()
@@ -400,6 +515,7 @@ func TestUpdatePetHandler_NameTooLongRejected(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 
 	longName := strings.Repeat("a", 101)
 	w := httptest.NewRecorder()
@@ -416,6 +532,7 @@ func TestUpdatePetHandler_NotesTooLongRejected(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 
 	longNotes := strings.Repeat("a", 1001)
 	w := httptest.NewRecorder()
@@ -432,6 +549,7 @@ func TestUpdatePetHandler_BirthDateTooOldRejected(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 
 	tooOld := "1400-01-01"
 	w := httptest.NewRecorder()
@@ -448,6 +566,7 @@ func TestUpdatePetHandler_PartialUpdate(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	notes := "Заметка без изменения имени и вида"
@@ -481,6 +600,7 @@ func TestUpdatePetHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	name := "Rexy"
@@ -490,6 +610,73 @@ func TestUpdatePetHandler_Success(t *testing.T) {
 	UpdatePetHandler(w, r)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdatePetHandler_InvalidWeightRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	expectNoWeightEvent(mock)
+
+	badWeight := 0.0
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Weight: &badWeight}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestUpdatePetHandler_WithWeight_CreatesWeightEvent проверяет, что PUT
+// /pet/{id} с непустым weight создаёт НОВОЕ событие типа weight, не
+// изменяя pet напрямую (см. «Вес питомца — Backend»).
+func TestUpdatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	expectNoWeightEvent(mock)
+	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
+
+	weight := 7.2
+	name := "Rexy"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Name: &name, Weight: &weight}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestUpdatePetHandler_OmittedAndNullWeightAreEquivalent проверяет, что
+// отсутствие ключа weight и явный null не создают событие weight (см. «Вес
+// питомца — Backend»: очистки веса через этот эндпоинт нет).
+func TestUpdatePetHandler_OmittedAndNullWeightAreEquivalent(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+		))
+	expectNoWeightEvent(mock)
+	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	name := "Rexy"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPut, "/pet/"+testPetID, models.UpdatePetRequest{Name: &name}, true)
+	UpdatePetHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	// Никакого INSERT INTO event не ожидается — ExpectationsWereMet проверит,
+	// что все замоканные вызовы (без лишнего INSERT INTO event) исчерпаны.
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -513,6 +700,7 @@ func TestDeletePetHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	w := httptest.NewRecorder()
@@ -530,6 +718,7 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
 
@@ -594,6 +783,7 @@ func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 50, 0).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
@@ -613,6 +803,7 @@ func TestGetPetEventsHandler_LimitClampedTo200(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
 			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
 		))
+	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 200, 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))

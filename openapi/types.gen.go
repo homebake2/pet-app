@@ -537,6 +537,9 @@ type GetPetProfileRequest struct {
 	Notes      *string              `json:"notes,omitempty"`
 	Species    string               `json:"species"`
 	Sterilized *bool                `json:"sterilized,omitempty"`
+
+	// Weight Вес питомца в кг (0.001–400), опционально. Не сохраняется как поле питомца — при передаче сервер создаёт событие типа weight со значением amount=weight.
+	Weight *float32 `json:"weight,omitempty"`
 }
 
 // GetPetProfileResponse defines model for GetPetProfileResponse.
@@ -559,6 +562,9 @@ type GetPetProfileResponse struct {
 	PhotoUrl   *string `json:"photo_url"`
 	Species    string  `json:"species"`
 	Sterilized *bool   `json:"sterilized,omitempty"`
+
+	// Weight Текущий вес питомца в кг, вычисляется как amount последнего по date_time события типа weight; null если таких событий нет. Не хранится как отдельное поле питомца.
+	Weight *float32 `json:"weight"`
 }
 
 // GetProfileRequest defines model for GetProfileRequest.
@@ -746,6 +752,9 @@ type UpdatePetProfileRequest struct {
 	Notes      *string              `json:"notes,omitempty"`
 	Species    *string              `json:"species,omitempty"`
 	Sterilized *bool                `json:"sterilized,omitempty"`
+
+	// Weight Вес питомца в кг (0.001–400), опционально. Отсутствие ключа и явный null равнозначны — событие weight не создаётся. При передаче не-null числа сервер создаёт новое событие типа weight; существующие события не изменяются.
+	Weight *float32 `json:"weight"`
 }
 
 // IdempotencyKey defines model for IdempotencyKey.

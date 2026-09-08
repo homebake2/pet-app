@@ -232,7 +232,42 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 		pet.Icon = petDB.Icon.String
 	}
 
+	weight, err := GetLatestPetWeight(petID)
+	if err != nil {
+		return nil, err
+	}
+	pet.Weight = weight
+
 	return &pet, nil
+}
+
+// GetLatestPetWeight возвращает текущий вес питомца — amount последнего по
+// date_time (неудалённого) события типа weight для этого питомца, либо nil,
+// если таких событий нет. Вес НЕ хранится как поле pet: это единая функция
+// вычисления, используемая GET /pet/{id} и read-back POST/PUT /pet, и
+// отражает любое событие weight независимо от того, где оно было создано
+// (POST /pet, PUT /pet/{id} или обычный POST /events) — см. «Вес питомца —
+// Backend».
+func GetLatestPetWeight(petID uuid.UUID) (*float64, error) {
+	var amount sql.NullFloat64
+	err := DB.QueryRow(`
+		SELECT (value->>'amount')::float8
+		FROM event
+		WHERE pet_id = $1 AND type = 'weight' AND deleted_at IS NULL
+		ORDER BY date_time DESC
+		LIMIT 1
+	`, petID).Scan(&amount)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		log.Println("GetLatestPetWeight error:", err)
+		return nil, err
+	}
+	if !amount.Valid {
+		return nil, nil
+	}
+	return &amount.Float64, nil
 }
 
 // UpdatePet обновляет только те поля питомца, что переданы в запросе.

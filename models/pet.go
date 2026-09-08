@@ -132,6 +132,10 @@ type CreatePetRequest struct {
 	Notes      *string `json:"notes,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
 	Icon       *string `json:"icon,omitempty"` // enum: DOG, CAT, HAMSTER, GUINEA_PIG, RABBIT, PARROT, CANARY, FISH, TURTLE, RAT, MOUSE, FERRET, HEDGEHOG, CHINCHILLA, MINI_PIG, MINI_GOAT, CHICKEN, DUCK, PIGEON, IGUANA, GECKO, BEARDED_AGAMA, SNAKE, PYTHON, FROG, AXOLOTL, TARANTULA, HERMIT_CRAB, ANT_FARM, SNAIL, OTHER
+	// Weight — вес питомца в кг (0.001–400), опционально; НЕ сохраняется как
+	// поле питомца. При передаче сервер создаёт событие типа weight со
+	// значением amount=weight (см. «Вес питомца — Backend»).
+	Weight *float64 `json:"weight,omitempty"`
 }
 
 type PetItem struct {
@@ -180,6 +184,10 @@ type PetIdResponse struct {
 	// (см. «Фотография питомца — Backend»).
 	PhotoURL    *string `json:"photo_url"`
 	PhotoFileID *string `json:"photo_file_id"`
+	// Weight — текущий вес питомца в кг, вычисляется как amount последнего по
+	// date_time события типа weight; null, если таких событий нет. Не
+	// хранится как отдельное поле питомца (см. «Вес питомца — Backend»).
+	Weight *float64 `json:"weight"`
 }
 
 type PetIdDB struct {
@@ -210,4 +218,9 @@ type UpdatePetRequest struct {
 	IsDeleted  *bool   `json:"is_deleted,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
 	Icon       *string `json:"icon,omitempty"`
+	// Weight — вес питомца в кг (0.001–400), опционально и nullable.
+	// Отсутствие ключа и явный null равнозначны: событие weight не
+	// создаётся. Очистки веса через этот эндпоинт нет — только передача
+	// нового числа создаёт новое событие weight (см. «Вес питомца — Backend»).
+	Weight *float64 `json:"weight,omitempty"`
 }

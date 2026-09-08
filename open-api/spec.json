@@ -1805,6 +1805,14 @@
             "format": "uuid",
             "nullable": true,
             "description": "id файла фотографии для DELETE /files/{file_id}; null если фотографии нет"
+          },
+          "weight": {
+            "type": "number",
+            "x-stoplight": {
+              "id": "w31ght0resp001"
+            },
+            "nullable": true,
+            "description": "Текущий вес питомца в кг, вычисляется как amount последнего по date_time события типа weight; null если таких событий нет. Не хранится как отдельное поле питомца."
           }
         }
       },
@@ -2394,6 +2402,13 @@
             "x-stoplight": {
               "id": "evi4rzr8r8uu6"
             }
+          },
+          "weight": {
+            "type": "number",
+            "x-stoplight": {
+              "id": "w31ght0req0001"
+            },
+            "description": "Вес питомца в кг (0.001–400), опционально. Не сохраняется как поле питомца — при передаче сервер создаёт событие типа weight со значением amount=weight."
           }
         }
       },
@@ -2458,6 +2473,14 @@
             "x-stoplight": {
               "id": "evi4rzr8r8uu6"
             }
+          },
+          "weight": {
+            "type": "number",
+            "x-stoplight": {
+              "id": "w31ght0upd0001"
+            },
+            "nullable": true,
+            "description": "Вес питомца в кг (0.001–400), опционально. Отсутствие ключа и явный null равнозначны — событие weight не создаётся. При передаче не-null числа сервер создаёт новое событие типа weight; существующие события не изменяются."
           }
         }
       },

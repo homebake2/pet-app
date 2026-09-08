@@ -120,6 +120,11 @@ func TestPetAndEventLifecycle(t *testing.T) {
 
 	getOne := doRequest(t, http.MethodGet, "/pet/"+pet.ID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, getOne.status)
+	var getOneBody struct {
+		Weight *float64 `json:"weight"`
+	}
+	getOne.decode(t, &getOneBody)
+	require.Nil(t, getOneBody.Weight, "weight должен быть null, пока нет событий типа weight")
 
 	eventDate := time.Now().UTC().Format(time.RFC3339)
 	eventResp := doRequest(t, http.MethodPost, "/events", map[string]any{
@@ -161,6 +166,19 @@ func TestPetAndEventLifecycle(t *testing.T) {
 	require.Len(t, petEventsBody.Items, 1)
 	require.Equal(t, 4.3, petEventsBody.Items[0].Value.Amount)
 
+	// GET /pet/{id}.weight — вычисляется как amount последнего события типа
+	// weight для питомца, независимо от того, что оно было создано через
+	// обычный POST /events, а не через POST/PUT /pet (см. «Вес питомца —
+	// Backend»).
+	getAfterEvent := doRequest(t, http.MethodGet, "/pet/"+pet.ID, nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, getAfterEvent.status)
+	var getAfterEventBody struct {
+		Weight *float64 `json:"weight"`
+	}
+	getAfterEvent.decode(t, &getAfterEventBody)
+	require.NotNil(t, getAfterEventBody.Weight)
+	require.Equal(t, 4.3, *getAfterEventBody.Weight)
+
 	today := time.Now().UTC().Format("2006-01-02")
 	activities := doRequest(t, http.MethodGet,
 		fmt.Sprintf("/activities?pet_id=%s&from=%s&to=%s", pet.ID, today, today),
@@ -185,6 +203,86 @@ func TestPetAndEventLifecycle(t *testing.T) {
 
 	getDeletedPet := doRequest(t, http.MethodGet, "/pet/"+pet.ID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNotFound, getDeletedPet.status)
+}
+
+// TestPetWeightField проверяет сквозной сценарий поля weight (см. «Вес
+// питомца — Backend»): POST /pet с weight создаёт событие типа weight и
+// сразу отражает его в ответе; PUT /pet/{id} с weight добавляет новое
+// событие weight, не изменяя предыдущие; отсутствие/null weight в PUT не
+// создаёт событие и не влияет на текущий вес.
+func TestPetWeightField(t *testing.T) {
+	resetDB(t)
+
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	createProfile(t, tokens.AccessToken, "Иван")
+
+	createResp := doRequest(t, http.MethodPost, "/pet", map[string]any{
+		"name":    "Барсик",
+		"species": "cat",
+		"weight":  4.2,
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
+	var created struct {
+		ID     string   `json:"id"`
+		Weight *float64 `json:"weight"`
+	}
+	createResp.decode(t, &created)
+	require.NotEmpty(t, created.ID)
+	require.NotNil(t, created.Weight)
+	require.Equal(t, 4.2, *created.Weight)
+
+	// weight вне диапазона 0.001–400 отклоняется.
+	invalidWeight := doRequest(t, http.MethodPost, "/pet", map[string]any{
+		"name":    "Слишком тяжёлый",
+		"species": "dog",
+		"weight":  500,
+	}, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, invalidWeight.status)
+
+	// PUT с новым weight создаёт ещё одно событие weight — становится текущим.
+	updateResp := doRequest(t, http.MethodPut, "/pet/"+created.ID, map[string]any{
+		"weight": 4.8,
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusNoContent, updateResp.status, "%s", updateResp.body)
+
+	afterUpdate := doRequest(t, http.MethodGet, "/pet/"+created.ID, nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, afterUpdate.status)
+	var afterUpdateBody struct {
+		Weight *float64 `json:"weight"`
+	}
+	afterUpdate.decode(t, &afterUpdateBody)
+	require.NotNil(t, afterUpdateBody.Weight)
+	require.Equal(t, 4.8, *afterUpdateBody.Weight)
+
+	// PUT без weight (омиссия ключа) не создаёт событие и не сбрасывает вес.
+	updateNoWeight := doRequest(t, http.MethodPut, "/pet/"+created.ID, map[string]any{
+		"name": "Барсик",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusNoContent, updateNoWeight.status, "%s", updateNoWeight.body)
+
+	afterNoWeightUpdate := doRequest(t, http.MethodGet, "/pet/"+created.ID, nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, afterNoWeightUpdate.status)
+	var afterNoWeightUpdateBody struct {
+		Weight *float64 `json:"weight"`
+	}
+	afterNoWeightUpdate.decode(t, &afterNoWeightUpdateBody)
+	require.NotNil(t, afterNoWeightUpdateBody.Weight)
+	require.Equal(t, 4.8, *afterNoWeightUpdateBody.Weight)
+
+	// PUT с явным weight=null равнозначен омиссии ключа.
+	updateNullWeight := doRequest(t, http.MethodPut, "/pet/"+created.ID, map[string]any{
+		"weight": nil,
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusNoContent, updateNullWeight.status, "%s", updateNullWeight.body)
+
+	afterNullWeightUpdate := doRequest(t, http.MethodGet, "/pet/"+created.ID, nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, afterNullWeightUpdate.status)
+	var afterNullWeightUpdateBody struct {
+		Weight *float64 `json:"weight"`
+	}
+	afterNullWeightUpdate.decode(t, &afterNullWeightUpdateBody)
+	require.NotNil(t, afterNullWeightUpdateBody.Weight)
+	require.Equal(t, 4.8, *afterNullWeightUpdateBody.Weight)
 }
 
 func TestPetOwnershipIsolation(t *testing.T) {

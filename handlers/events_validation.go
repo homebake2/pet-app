@@ -20,6 +20,22 @@ func validateEventValue(eventType string, value json.RawMessage) string {
 	return eventreg.ValidateValue(eventType, value)
 }
 
+// isValidWeight проверяет диапазон веса питомца (POST /pet и PUT /pet/{id},
+// поле weight), переиспользуя границы value.amount типа события "weight" из
+// eventreg — единственного источника истины для диапазона 0.001–400 кг
+// (см. «Вес питомца — Backend»).
+func isValidWeight(weight float64) bool {
+	spec, ok := eventreg.Spec("weight")
+	if !ok {
+		return false
+	}
+	field, ok := spec.Field("amount")
+	if !ok {
+		return false
+	}
+	return weight >= field.Min && weight <= field.Max
+}
+
 func validateNotesLength(notes *string) bool {
 	return notes == nil || len(*notes) <= maxEventFieldLen
 }

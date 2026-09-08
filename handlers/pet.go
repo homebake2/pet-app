@@ -3,10 +3,13 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"log"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -102,6 +105,24 @@ func isBirthDateNotTooOld(birthDate string) bool {
 		return false
 	}
 	return !t.Before(time.Now().AddDate(-500, 0, 0))
+}
+
+// createPetWeightEvent best-effort создаёт событие типа weight для питомца
+// с value={amount: weight} и date_time = текущее время сервера. Ошибка
+// только логируется, не проваливая запрос клиента (POST /pet и
+// PUT /pet/{id} не должны откатываться/падать из-за этого побочного
+// эффекта — см. «Вес питомца — Backend», а также bestEffortDeleteObject в
+// handlers/files.go как аналогичный пример в этой кодовой базе).
+func createPetWeightEvent(petID uuid.UUID, weight float64) {
+	req := models.CreateEventRequest{
+		PetID: petID.String(),
+		Date:  time.Now().UTC().Format(time.RFC3339),
+		Type:  "weight",
+		Value: json.RawMessage(fmt.Sprintf(`{"amount":%s}`, strconv.FormatFloat(weight, 'f', -1, 64))),
+	}
+	if _, err := database.InsertEvent(petID, req, ""); err != nil {
+		log.Printf("failed to create weight event for pet %s: %v", petID, err)
+	}
 }
 
 // PetHandler обрабатывает /pet (без id): список и создание.
@@ -211,6 +232,11 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Weight != nil && !isValidWeight(*req.Weight) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле weight должно быть в диапазоне 0.001–400")
+		return
+	}
+
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -247,6 +273,10 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать питомца")
 		return
+	}
+
+	if req.Weight != nil {
+		createPetWeightEvent(newPetID, *req.Weight)
 	}
 
 	if idempotencyKey != "" {
@@ -409,9 +439,18 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Weight != nil && !isValidWeight(*req.Weight) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле weight должно быть в диапазоне 0.001–400")
+		return
+	}
+
 	if err := database.UpdatePet(petID, userID, req); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления питомца")
 		return
+	}
+
+	if req.Weight != nil {
+		createPetWeightEvent(petID, *req.Weight)
 	}
 
 	w.WriteHeader(http.StatusNoContent)
