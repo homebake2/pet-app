@@ -2830,7 +2830,7 @@
       },
       "post": {
         "summary": "/pet/{id}/medications",
-        "description": "Создание курса лекарств для питомца. Само создание не порождает события — для этого используйте POST /medications/{id}/events.",
+        "description": "Создание курса лекарств для питомца. Опционально создаёт связанный набор событий-напоминаний сразу (add_event=true, недопустимо при frequency_type=as_needed) — либо можно создать его позже через POST /medications/{id}/events.",
         "tags": [
           "medication-controller"
         ],
@@ -3004,7 +3004,7 @@
       ],
       "post": {
         "summary": "/medications/{id}/events",
-        "description": "(До-)создаёт связанные события приёма препарата по расписанию: date[i] = start_date + i*periodicity_days для i от 0 до repeat_count-1. Возвращает актуальный список event_ids курса.",
+        "description": "(До-)создаёт связанные события приёма препарата по расписанию, вычисленному из frequency_type/weekdays/interval_days/times/start_date/end_date курса (не более 60 событий за одну операцию). Недоступно при frequency_type=as_needed. Возвращает актуальный список event_ids курса.",
         "tags": [
           "medication-controller"
         ],
@@ -3042,6 +3042,16 @@
           },
           "404": {
             "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -5475,6 +5485,37 @@
           }
         }
       },
+      "MedicationFrequencyTypeEnum": {
+        "title": "MedicationFrequencyTypeEnum",
+        "type": "string",
+        "description": "Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).",
+        "enum": [
+          "daily",
+          "specific_days",
+          "every_n_days",
+          "as_needed"
+        ]
+      },
+      "MedicationTimeSlot": {
+        "title": "MedicationTimeSlot",
+        "type": "object",
+        "required": [
+          "time"
+        ],
+        "properties": {
+          "time": {
+            "type": "string",
+            "format": "time",
+            "description": "Время приёма, HH:mm."
+          },
+          "dose_note": {
+            "type": "string",
+            "maxLength": 100,
+            "nullable": true,
+            "description": "Доза для этого времени приёма; если не задана, используется общая dosage лекарства."
+          }
+        }
+      },
       "GetMedicationResponse": {
         "title": "GetMedicationResponse",
         "type": "object",
@@ -5483,9 +5524,7 @@
           "pet_id",
           "name",
           "dosage",
-          "periodicity_days",
-          "start_date",
-          "repeat_count",
+          "frequency_type",
           "event_ids",
           "files_count"
         ],
@@ -5505,32 +5544,52 @@
           "dosage": {
             "type": "string",
             "maxLength": 100,
-            "description": "Дозировка в свободной форме, например «1 таблетка» или «5 мл»."
+            "description": "Базовая дозировка в свободной форме, например «1 таблетка» или «5 мл»; используется по умолчанию для времён приёма без собственного dose_note."
           },
-          "periodicity_days": {
+          "frequency_type": {
+            "$ref": "#/components/schemas/MedicationFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "description": "Дни недели приёма (пн=1..вс=7), только при frequency_type=specific_days, иначе null.",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
             "type": "integer",
-            "minimum": 1,
+            "nullable": true,
+            "minimum": 2,
             "maximum": 365,
-            "description": "Периодичность приёма в днях."
+            "description": "Интервал в днях, только при frequency_type=every_n_days, иначе null."
+          },
+          "times": {
+            "type": "array",
+            "nullable": true,
+            "maxItems": 4,
+            "description": "Времена приёма в день, только при frequency_type!=as_needed, иначе null.",
+            "items": {
+              "$ref": "#/components/schemas/MedicationTimeSlot"
+            }
           },
           "start_date": {
             "type": "string",
-            "format": "date"
+            "format": "date",
+            "nullable": true,
+            "description": "Обязателен при frequency_type!=as_needed, иначе null."
           },
-          "repeat_count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 14,
-            "description": "Количество приёмов курса."
-          },
-          "event_time": {
+          "end_date": {
             "type": "string",
-            "format": "time",
-            "nullable": true
+            "format": "date",
+            "nullable": true,
+            "description": "Дата окончания курса; null = без даты окончания (бессрочно). Всегда null при frequency_type=as_needed."
           },
           "event_ids": {
             "type": "array",
-            "maxItems": 14,
+            "maxItems": 60,
             "description": "id уже созданных событий приёма препарата, в порядке дат приёма. Заполняется через POST /medications/{id}/events.",
             "items": {
               "type": "string",
@@ -5541,6 +5600,12 @@
             "type": "string",
             "maxLength": 1000,
             "nullable": true
+          },
+          "next_dose": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор событий (event_ids). null при frequency_type=as_needed или если весь расчитанный график уже в прошлом."
           },
           "files_count": {
             "type": "integer",
@@ -5554,9 +5619,7 @@
         "required": [
           "name",
           "dosage",
-          "periodicity_days",
-          "start_date",
-          "repeat_count"
+          "frequency_type"
         ],
         "properties": {
           "name": {
@@ -5567,29 +5630,51 @@
             "type": "string",
             "maxLength": 100
           },
-          "periodicity_days": {
+          "frequency_type": {
+            "$ref": "#/components/schemas/MedicationFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
             "type": "integer",
-            "minimum": 1,
+            "nullable": true,
+            "minimum": 2,
             "maximum": 365
+          },
+          "times": {
+            "type": "array",
+            "nullable": true,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/MedicationTimeSlot"
+            }
           },
           "start_date": {
             "type": "string",
-            "format": "date"
+            "format": "date",
+            "nullable": true
           },
-          "repeat_count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 14
-          },
-          "event_time": {
+          "end_date": {
             "type": "string",
-            "format": "time",
+            "format": "date",
             "nullable": true
           },
           "note": {
             "type": "string",
             "maxLength": 1000,
             "nullable": true
+          },
+          "add_event": {
+            "type": "boolean",
+            "default": false,
+            "description": "Создать набор событий-напоминаний сразу при создании курса. Недопустимо при frequency_type=as_needed."
           }
         }
       },
@@ -5605,29 +5690,51 @@
             "type": "string",
             "maxLength": 100
           },
-          "periodicity_days": {
+          "frequency_type": {
+            "$ref": "#/components/schemas/MedicationFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
             "type": "integer",
-            "minimum": 1,
+            "nullable": true,
+            "minimum": 2,
             "maximum": 365
+          },
+          "times": {
+            "type": "array",
+            "nullable": true,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/MedicationTimeSlot"
+            }
           },
           "start_date": {
             "type": "string",
-            "format": "date"
+            "format": "date",
+            "nullable": true
           },
-          "repeat_count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 14
-          },
-          "event_time": {
+          "end_date": {
             "type": "string",
-            "format": "time",
+            "format": "date",
             "nullable": true
           },
           "note": {
             "type": "string",
             "maxLength": 1000,
             "nullable": true
+          },
+          "regenerate_events": {
+            "type": "boolean",
+            "default": false,
+            "description": "Если поля расписания меняются и у курса уже есть event_ids — true пересоздаёт события по новому расписанию (жёсткое удаление старых + создание новых), false/отсутствие — сохраняет существующие события как есть."
           }
         }
       },
@@ -5823,9 +5930,7 @@
           "pet_local_id",
           "name",
           "dosage",
-          "periodicity_days",
-          "start_date",
-          "repeat_count"
+          "frequency_type"
         ],
         "properties": {
           "local_id": {
@@ -5844,23 +5949,40 @@
             "type": "string",
             "maxLength": 100
           },
-          "periodicity_days": {
+          "frequency_type": {
+            "$ref": "#/components/schemas/MedicationFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
             "type": "integer",
-            "minimum": 1,
+            "nullable": true,
+            "minimum": 2,
             "maximum": 365
+          },
+          "times": {
+            "type": "array",
+            "nullable": true,
+            "maxItems": 4,
+            "items": {
+              "$ref": "#/components/schemas/MedicationTimeSlot"
+            }
           },
           "start_date": {
             "type": "string",
-            "format": "date"
+            "format": "date",
+            "nullable": true
           },
-          "repeat_count": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 14
-          },
-          "event_time": {
+          "end_date": {
             "type": "string",
-            "format": "time",
+            "format": "date",
             "nullable": true
           },
           "note": {
@@ -5870,7 +5992,7 @@
           },
           "event_local_ids": {
             "type": "array",
-            "maxItems": 14,
+            "maxItems": 60,
             "description": "local_id уже переданных в этом же запросе local-событий приёма (events[].local_id), для связывания без пересчёта расписания на сервере.",
             "items": {
               "type": "string"

@@ -174,6 +174,14 @@ const (
 	Outside GetHabilitationEnum = "outside"
 )
 
+// Defines values for MedicationFrequencyTypeEnum.
+const (
+	AsNeeded     MedicationFrequencyTypeEnum = "as_needed"
+	Daily        MedicationFrequencyTypeEnum = "daily"
+	EveryNDays   MedicationFrequencyTypeEnum = "every_n_days"
+	SpecificDays MedicationFrequencyTypeEnum = "specific_days"
+)
+
 // Defines values for PetBodyConditionEnum.
 const (
 	PetBodyConditionEnumNormal      PetBodyConditionEnum = "normal"
@@ -615,37 +623,56 @@ type GetMedicationIdResponseRequest struct {
 
 // GetMedicationRequest defines model for GetMedicationRequest.
 type GetMedicationRequest struct {
-	Dosage          string             `json:"dosage"`
-	EventTime       *string            `json:"event_time"`
-	Name            string             `json:"name"`
-	Note            *string            `json:"note"`
-	PeriodicityDays int                `json:"periodicity_days"`
-	RepeatCount     int                `json:"repeat_count"`
-	StartDate       openapi_types.Date `json:"start_date"`
+	// AddEvent Создать набор событий-напоминаний сразу при создании курса. Недопустимо при frequency_type=as_needed.
+	AddEvent *bool               `json:"add_event,omitempty"`
+	Dosage   string              `json:"dosage"`
+	EndDate  *openapi_types.Date `json:"end_date"`
+
+	// FrequencyType Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
+	FrequencyType MedicationFrequencyTypeEnum `json:"frequency_type"`
+	IntervalDays  *int                        `json:"interval_days"`
+	Name          string                      `json:"name"`
+	Note          *string                     `json:"note"`
+	StartDate     *openapi_types.Date         `json:"start_date"`
+	Times         *[]MedicationTimeSlot       `json:"times"`
+	Weekdays      *[]int                      `json:"weekdays"`
 }
 
 // GetMedicationResponse defines model for GetMedicationResponse.
 type GetMedicationResponse struct {
-	// Dosage Дозировка в свободной форме, например «1 таблетка» или «5 мл».
+	// Dosage Базовая дозировка в свободной форме, например «1 таблетка» или «5 мл»; используется по умолчанию для времён приёма без собственного dose_note.
 	Dosage string `json:"dosage"`
 
+	// EndDate Дата окончания курса; null = без даты окончания (бессрочно). Всегда null при frequency_type=as_needed.
+	EndDate *openapi_types.Date `json:"end_date"`
+
 	// EventIds id уже созданных событий приёма препарата, в порядке дат приёма. Заполняется через POST /medications/{id}/events.
-	EventIds  []openapi_types.UUID `json:"event_ids"`
-	EventTime *string              `json:"event_time"`
+	EventIds []openapi_types.UUID `json:"event_ids"`
 
 	// FilesCount Количество прикреплённых файлов курса лечения (0, если файлов нет).
-	FilesCount int                `json:"files_count"`
-	Id         openapi_types.UUID `json:"id"`
-	Name       string             `json:"name"`
-	Note       *string            `json:"note"`
+	FilesCount int `json:"files_count"`
 
-	// PeriodicityDays Периодичность приёма в днях.
-	PeriodicityDays int                `json:"periodicity_days"`
-	PetId           openapi_types.UUID `json:"pet_id"`
+	// FrequencyType Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
+	FrequencyType MedicationFrequencyTypeEnum `json:"frequency_type"`
+	Id            openapi_types.UUID          `json:"id"`
 
-	// RepeatCount Количество приёмов курса.
-	RepeatCount int                `json:"repeat_count"`
-	StartDate   openapi_types.Date `json:"start_date"`
+	// IntervalDays Интервал в днях, только при frequency_type=every_n_days, иначе null.
+	IntervalDays *int   `json:"interval_days"`
+	Name         string `json:"name"`
+
+	// NextDose Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор событий (event_ids). null при frequency_type=as_needed или если весь расчитанный график уже в прошлом.
+	NextDose *time.Time         `json:"next_dose"`
+	Note     *string            `json:"note"`
+	PetId    openapi_types.UUID `json:"pet_id"`
+
+	// StartDate Обязателен при frequency_type!=as_needed, иначе null.
+	StartDate *openapi_types.Date `json:"start_date"`
+
+	// Times Времена приёма в день, только при frequency_type!=as_needed, иначе null.
+	Times *[]MedicationTimeSlot `json:"times"`
+
+	// Weekdays Дни недели приёма (пн=1..вс=7), только при frequency_type=specific_days, иначе null.
+	Weekdays *[]int `json:"weekdays"`
 }
 
 // GetPetProfileRequest defines model for GetPetProfileRequest.
@@ -931,22 +958,26 @@ type ImportLocalDataResponse struct {
 
 // ImportMedication defines model for ImportMedication.
 type ImportMedication struct {
-	Dosage string `json:"dosage"`
+	Dosage  string              `json:"dosage"`
+	EndDate *openapi_types.Date `json:"end_date"`
 
 	// EventLocalIds local_id уже переданных в этом же запросе local-событий приёма (events[].local_id), для связывания без пересчёта расписания на сервере.
 	EventLocalIds *[]string `json:"event_local_ids,omitempty"`
-	EventTime     *string   `json:"event_time"`
+
+	// FrequencyType Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
+	FrequencyType MedicationFrequencyTypeEnum `json:"frequency_type"`
+	IntervalDays  *int                        `json:"interval_days"`
 
 	// LocalId Клиентский UUID курса лекарств в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
-	LocalId         string  `json:"local_id"`
-	Name            string  `json:"name"`
-	Note            *string `json:"note"`
-	PeriodicityDays int     `json:"periodicity_days"`
+	LocalId string  `json:"local_id"`
+	Name    string  `json:"name"`
+	Note    *string `json:"note"`
 
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
-	PetLocalId  string             `json:"pet_local_id"`
-	RepeatCount int                `json:"repeat_count"`
-	StartDate   openapi_types.Date `json:"start_date"`
+	PetLocalId string                `json:"pet_local_id"`
+	StartDate  *openapi_types.Date   `json:"start_date"`
+	Times      *[]MedicationTimeSlot `json:"times"`
+	Weekdays   *[]int                `json:"weekdays"`
 }
 
 // ImportVaccination defines model for ImportVaccination.
@@ -1033,6 +1064,18 @@ type ItemsArrayActivitiesModel struct {
 	Events []GetEventResponse `json:"events"`
 }
 
+// MedicationFrequencyTypeEnum Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
+type MedicationFrequencyTypeEnum string
+
+// MedicationTimeSlot defines model for MedicationTimeSlot.
+type MedicationTimeSlot struct {
+	// DoseNote Доза для этого времени приёма; если не задана, используется общая dosage лекарства.
+	DoseNote *string `json:"dose_note"`
+
+	// Time Время приёма, HH:mm.
+	Time string `json:"time"`
+}
+
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
 
@@ -1107,13 +1150,20 @@ type UpdateEventRequest struct {
 
 // UpdateMedicationRequest defines model for UpdateMedicationRequest.
 type UpdateMedicationRequest struct {
-	Dosage          *string             `json:"dosage,omitempty"`
-	EventTime       *string             `json:"event_time"`
-	Name            *string             `json:"name,omitempty"`
-	Note            *string             `json:"note"`
-	PeriodicityDays *int                `json:"periodicity_days,omitempty"`
-	RepeatCount     *int                `json:"repeat_count,omitempty"`
-	StartDate       *openapi_types.Date `json:"start_date,omitempty"`
+	Dosage  *string             `json:"dosage,omitempty"`
+	EndDate *openapi_types.Date `json:"end_date"`
+
+	// FrequencyType Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
+	FrequencyType *MedicationFrequencyTypeEnum `json:"frequency_type,omitempty"`
+	IntervalDays  *int                         `json:"interval_days"`
+	Name          *string                      `json:"name,omitempty"`
+	Note          *string                      `json:"note"`
+
+	// RegenerateEvents Если поля расписания меняются и у курса уже есть event_ids — true пересоздаёт события по новому расписанию (жёсткое удаление старых + создание новых), false/отсутствие — сохраняет существующие события как есть.
+	RegenerateEvents *bool                 `json:"regenerate_events,omitempty"`
+	StartDate        *openapi_types.Date   `json:"start_date"`
+	Times            *[]MedicationTimeSlot `json:"times"`
+	Weekdays         *[]int                `json:"weekdays"`
 }
 
 // UpdatePetProfileRequest defines model for UpdatePetProfileRequest.

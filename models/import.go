@@ -197,31 +197,36 @@ func (a ImportAllergy) ToCreateAllergyRequest() CreateAllergyRequest {
 // ImportMedication — элемент medications[] в теле запроса POST /import/local-data.
 // EventLocalIDs здесь намеренно не используется сервером для генерации
 // расписания приёмов при переносе (сервер не пересчитывает event_ids на
-// импорте — см. "Ведпаспорт — Backend": клиент вызывает
-// POST /medications/{id}/events отдельно после переноса, аналогично тому,
-// как файлы переносятся отдельным фоновым шагом).
+// импорте — см. "Ведпаспорт — Backend"/"Импорт локальных данных — Backend",
+// шаг 9: те события, что уже перечислены в event_local_ids и найдены среди
+// events[] этого же запроса, переносятся как есть в event_ids курса; сервер
+// не вызывает расчёт расписания).
 type ImportMedication struct {
-	LocalID         string   `json:"local_id"`
-	PetLocalID      string   `json:"pet_local_id"`
-	Name            string   `json:"name"`
-	Dosage          string   `json:"dosage"`
-	PeriodicityDays int      `json:"periodicity_days"`
-	StartDate       string   `json:"start_date"`
-	RepeatCount     int      `json:"repeat_count"`
-	EventTime       *string  `json:"event_time,omitempty"`
-	Note            *string  `json:"note,omitempty"`
-	EventLocalIDs   []string `json:"event_local_ids,omitempty"`
+	LocalID       string               `json:"local_id"`
+	PetLocalID    string               `json:"pet_local_id"`
+	Name          string               `json:"name"`
+	Dosage        string               `json:"dosage"`
+	FrequencyType string               `json:"frequency_type"`
+	Weekdays      []int                `json:"weekdays,omitempty"`
+	IntervalDays  *int                 `json:"interval_days,omitempty"`
+	Times         []MedicationTimeSlot `json:"times,omitempty"`
+	StartDate     *string              `json:"start_date,omitempty"`
+	EndDate       *string              `json:"end_date,omitempty"`
+	Note          *string              `json:"note,omitempty"`
+	EventLocalIDs []string             `json:"event_local_ids,omitempty"`
 }
 
 func (m ImportMedication) ToCreateMedicationRequest() CreateMedicationRequest {
 	return CreateMedicationRequest{
-		Name:            m.Name,
-		Dosage:          m.Dosage,
-		PeriodicityDays: m.PeriodicityDays,
-		StartDate:       m.StartDate,
-		RepeatCount:     m.RepeatCount,
-		EventTime:       m.EventTime,
-		Note:            m.Note,
+		Name:          m.Name,
+		Dosage:        m.Dosage,
+		FrequencyType: m.FrequencyType,
+		Weekdays:      m.Weekdays,
+		IntervalDays:  m.IntervalDays,
+		Times:         m.Times,
+		StartDate:     m.StartDate,
+		EndDate:       m.EndDate,
+		Note:          m.Note,
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"myauthservice/openapi"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -147,9 +148,10 @@ func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, label 
 }
 
 // createMedicationEvent создаёт одно событие type=medication со значением
-// {"name": <medication.name>} на заданную дату/время — используется
-// POST /medications/{id}/events для (пере-)создания расписания приёма.
-func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, name string) (uuid.UUID, error) {
+// {"name": <medication.name>} на заданную дату/время и заметкой notes —
+// используется расчётом расписания (см. handlers/medication_schedule.go) для
+// (до-/пере-)создания событий приёма.
+func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, name string, notes string) (uuid.UUID, error) {
 	value, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
 		return uuid.Nil, err
@@ -158,9 +160,23 @@ func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, n
 		PetID: petID.String(),
 		Date:  combineDateAndTime(date, timeOfDay),
 		Type:  "medication",
+		Notes: &notes,
 		Value: value,
 	}
 	return database.InsertEvent(petID, req, "")
+}
+
+// createMedicationEventFromSlot материализует один слот расписания
+// (см. computeMedicationScheduleSlots) в строку event: notes = slot.DoseNote,
+// либо, если он не задан, dosageFallback (medication.dosage) — см. "Расчёт
+// расписания", шаг 3.
+func createMedicationEventFromSlot(petID uuid.UUID, slot medicationScheduleSlot, name, dosageFallback string) (uuid.UUID, error) {
+	notes := dosageFallback
+	if slot.DoseNote != nil && *slot.DoseNote != "" {
+		notes = *slot.DoseNote
+	}
+	t := slot.Time
+	return createMedicationEvent(petID, slot.Date, &t, name, notes)
 }
 
 // resolvePetForVetPassportCreate проверяет, что питомец petID существует,
@@ -1088,28 +1104,136 @@ func DeleteAllergyHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 // Medication
 // ---------------------------------------------------------------------------
 
-func medicationResponseFromDB(m models.MedicationDB, filesCount int) models.MedicationResponse {
+// medicationResponseFromDB строит MedicationResponse, вычисляя next_dose по
+// текущим полям расписания курса относительно now (см. "Вычисление
+// next_dose").
+func medicationResponseFromDB(m models.MedicationDB, filesCount int, now time.Time) models.MedicationResponse {
 	resp := models.MedicationResponse{
-		ID:              m.ID.String(),
-		PetID:           m.PetID.String(),
-		Name:            m.Name,
-		Dosage:          m.Dosage,
-		PeriodicityDays: m.PeriodicityDays,
-		StartDate:       m.StartDate.Format("2006-01-02"),
-		RepeatCount:     m.RepeatCount,
-		EventIDs:        m.EventIDs,
-		FilesCount:      filesCount,
+		ID:            m.ID.String(),
+		PetID:         m.PetID.String(),
+		Name:          m.Name,
+		Dosage:        m.Dosage,
+		FrequencyType: m.FrequencyType,
+		EventIDs:      m.EventIDs,
+		FilesCount:    filesCount,
 	}
 	if resp.EventIDs == nil {
 		resp.EventIDs = []string{}
 	}
-	if m.EventTime.Valid {
-		resp.EventTime = &m.EventTime.String
+	if m.Weekdays != nil {
+		w := m.Weekdays
+		resp.Weekdays = &w
+	}
+	if m.IntervalDays.Valid {
+		v := int(m.IntervalDays.Int64)
+		resp.IntervalDays = &v
+	}
+	if m.Times != nil {
+		t := m.Times
+		resp.Times = &t
+	}
+	var startDate time.Time
+	if m.StartDate.Valid {
+		s := m.StartDate.Time.Format("2006-01-02")
+		resp.StartDate = &s
+		startDate = m.StartDate.Time
+	}
+	var endDate *time.Time
+	if m.EndDate.Valid {
+		s := m.EndDate.Time.Format("2006-01-02")
+		resp.EndDate = &s
+		endDate = &m.EndDate.Time
 	}
 	if m.Note.Valid {
 		resp.Note = &m.Note.String
 	}
+
+	intervalDays := 0
+	if m.IntervalDays.Valid {
+		intervalDays = int(m.IntervalDays.Int64)
+	}
+	if m.StartDate.Valid {
+		if nextDose := computeMedicationNextDose(m.FrequencyType, m.Weekdays, intervalDays, m.Times, startDate, endDate, now); nextDose != nil {
+			s := nextDose.UTC().Format(time.RFC3339)
+			resp.NextDose = &s
+		}
+	}
 	return resp
+}
+
+// validateMedicationFieldsConsistency проверяет согласованность
+// weekdays/interval_days/times/start_date/end_date с frequency_type — общая
+// функция для создания (значения запроса как есть) и редактирования
+// (эффективные, уже смёрженные с текущим состоянием значения), см.
+// "Лекарства — Backend", раздел «Согласованность полей расписания с
+// frequency_type».
+func validateMedicationFieldsConsistency(freq string, weekdays []int, intervalDays *int, times []models.MedicationTimeSlot, startDate *string, endDate *string) string {
+	if !models.IsValidMedicationFrequencyType(freq) {
+		return "Некорректное значение frequency_type"
+	}
+
+	if freq == models.MedicationFrequencySpecificDays {
+		if len(weekdays) < 1 || len(weekdays) > 7 {
+			return "Поле weekdays обязательно и должно содержать 1-7 уникальных значений 1-7 при frequency_type=specific_days"
+		}
+		seen := map[int]bool{}
+		for _, d := range weekdays {
+			if d < models.MedicationMinWeekday || d > models.MedicationMaxWeekday || seen[d] {
+				return "Поле weekdays должно содержать уникальные значения в диапазоне 1-7"
+			}
+			seen[d] = true
+		}
+	} else if weekdays != nil {
+		return "Поле weekdays допустимо только при frequency_type=specific_days"
+	}
+
+	if freq == models.MedicationFrequencyEveryNDays {
+		if intervalDays == nil || *intervalDays < models.MedicationMinIntervalDays || *intervalDays > models.MedicationMaxIntervalDays {
+			return "Поле interval_days обязательно и должно быть в диапазоне 2-365 при frequency_type=every_n_days"
+		}
+	} else if intervalDays != nil {
+		return "Поле interval_days допустимо только при frequency_type=every_n_days"
+	}
+
+	if freq != models.MedicationFrequencyAsNeeded {
+		if len(times) < models.MedicationMinTimesCount || len(times) > models.MedicationMaxTimesCount {
+			return "Поле times обязательно и должно содержать 1-4 элемента при frequency_type!=as_needed"
+		}
+		seenTimes := map[string]bool{}
+		for _, t := range times {
+			if !isValidTimeOfDay(t.Time) || seenTimes[t.Time] {
+				return "Поле times содержит некорректное или повторяющееся время"
+			}
+			seenTimes[t.Time] = true
+			if t.DoseNote != nil && len(*t.DoseNote) > models.MedicationDoseNoteMaxLen {
+				return "Поле dose_note превышает допустимую длину"
+			}
+		}
+		if startDate == nil || !isValidDateOnly(*startDate) {
+			return "Некорректный формат start_date, ожидается YYYY-MM-DD"
+		}
+	} else {
+		if times != nil {
+			return "Поле times допустимо только при frequency_type!=as_needed"
+		}
+		if startDate != nil {
+			return "Поле start_date допустимо только при frequency_type!=as_needed"
+		}
+	}
+
+	if endDate != nil {
+		if freq == models.MedicationFrequencyAsNeeded {
+			return "Поле end_date недопустимо при frequency_type=as_needed"
+		}
+		if !isValidDateOnly(*endDate) {
+			return "Некорректный формат end_date, ожидается YYYY-MM-DD"
+		}
+		if startDate != nil && *endDate < *startDate {
+			return "Поле end_date не может быть раньше start_date"
+		}
+	}
+
+	return ""
 }
 
 func validateCreateMedicationRequest(req models.CreateMedicationRequest) string {
@@ -1119,17 +1243,11 @@ func validateCreateMedicationRequest(req models.CreateMedicationRequest) string 
 	if strings.TrimSpace(req.Dosage) == "" || len(req.Dosage) > models.MedicationDosageMaxLen {
 		return "Некорректное значение dosage"
 	}
-	if req.PeriodicityDays < models.MedicationMinPeriodicityDays || req.PeriodicityDays > models.MedicationMaxPeriodicityDays {
-		return "Поле periodicity_days должно быть в диапазоне 1-365"
+	if msg := validateMedicationFieldsConsistency(req.FrequencyType, req.Weekdays, req.IntervalDays, req.Times, req.StartDate, req.EndDate); msg != "" {
+		return msg
 	}
-	if req.StartDate == "" || !isValidDateOnly(req.StartDate) {
-		return "Некорректный формат start_date, ожидается YYYY-MM-DD"
-	}
-	if req.RepeatCount < models.MedicationMinRepeatCount || req.RepeatCount > models.MedicationMaxRepeatCount {
-		return "Поле repeat_count должно быть в диапазоне 1-14"
-	}
-	if req.EventTime != nil && *req.EventTime != "" && !isValidTimeOfDay(*req.EventTime) {
-		return "Некорректный формат event_time, ожидается HH:MM[:SS]"
+	if req.AddEvent != nil && *req.AddEvent && req.FrequencyType == models.MedicationFrequencyAsNeeded {
+		return "Поле add_event недопустимо при frequency_type=as_needed"
 	}
 	if req.Note != nil && len(*req.Note) > models.MedicationNoteMaxLen {
 		return "Поле note превышает допустимую длину"
@@ -1150,11 +1268,13 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
 		return
 	}
-	items, err := database.GetMedicationsByPetID(petID, limit, offset)
+	items, err := database.GetMedicationsByPetID(petID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения курсов лекарств")
 		return
 	}
+
+	now := time.Now().UTC()
 	ids := make([]uuid.UUID, len(items))
 	for i, it := range items {
 		ids[i] = it.ID
@@ -1164,11 +1284,35 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов")
 		return
 	}
-	resp := models.MedicationListResponse{Items: make([]models.MedicationResponse, 0, len(items))}
+
+	responses := make([]models.MedicationResponse, 0, len(items))
 	for _, it := range items {
-		resp.Items = append(resp.Items, medicationResponseFromDB(it, filesCounts[it.ID]))
+		responses = append(responses, medicationResponseFromDB(it, filesCounts[it.ID], now))
 	}
-	writeJSON(w, http.StatusOK, resp)
+	// Сортировка: по ближайшему будущему next_dose возр. (null — в конце),
+	// затем по created_at убыв. — см. "Лекарства — Backend", раздел «Список».
+	sort.SliceStable(responses, func(i, j int) bool {
+		ni, nj := responses[i].NextDose, responses[j].NextDose
+		if (ni == nil) != (nj == nil) {
+			return ni != nil
+		}
+		if ni != nil && nj != nil && *ni != *nj {
+			return *ni < *nj
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
+	})
+
+	if offset >= len(responses) {
+		responses = []models.MedicationResponse{}
+	} else {
+		end := offset + limit
+		if end > len(responses) {
+			end = len(responses)
+		}
+		responses = responses[offset:end]
+	}
+
+	writeJSON(w, http.StatusOK, models.MedicationListResponse{Items: responses})
 }
 
 func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
@@ -1198,6 +1342,34 @@ func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать курс лекарств")
 		return
 	}
+
+	if req.AddEvent != nil && *req.AddEvent {
+		startDate, _ := parseDateOnly(*req.StartDate)
+		var endDate *time.Time
+		if req.EndDate != nil {
+			t, _ := parseDateOnly(*req.EndDate)
+			endDate = &t
+		}
+		intervalDays := 0
+		if req.IntervalDays != nil {
+			intervalDays = *req.IntervalDays
+		}
+		slots := computeMedicationScheduleSlots(req.FrequencyType, req.Weekdays, intervalDays, req.Times, startDate, endDate, models.MedicationScheduleEventsCap)
+		newEventIDs := make([]string, 0, len(slots))
+		for _, slot := range slots {
+			eventID, err := createMedicationEventFromSlot(petID, slot, req.Name, req.Dosage)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
+				return
+			}
+			newEventIDs = append(newEventIDs, eventID.String())
+		}
+		if err := database.SetMedicationEventIDs(newID, newEventIDs); err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить события курса")
+			return
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, models.IDResponse{ID: newID.String()})
 }
 
@@ -1242,6 +1414,74 @@ func MedicationByIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func equalIntSlices(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func equalTimeSlots(a, b []models.MedicationTimeSlot) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Time != b[i].Time {
+			return false
+		}
+		an, bn := a[i].DoseNote, b[i].DoseNote
+		if (an == nil) != (bn == nil) {
+			return false
+		}
+		if an != nil && *an != *bn {
+			return false
+		}
+	}
+	return true
+}
+
+func equalStringPtr(a, b *string) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || *a == *b
+}
+
+func equalIntPtr(a, b *int) bool {
+	if (a == nil) != (b == nil) {
+		return false
+	}
+	return a == nil || *a == *b
+}
+
+func nullIntToPtr(v sql.NullInt64) *int {
+	if !v.Valid {
+		return nil
+	}
+	i := int(v.Int64)
+	return &i
+}
+
+func nullTimeToDateStrPtr(v sql.NullTime) *string {
+	if !v.Valid {
+		return nil
+	}
+	s := v.Time.Format("2006-01-02")
+	return &s
+}
+
+// UpdateMedicationHandler обрабатывает PATCH /medications/{id} — см.
+// "Лекарства — Backend", раздел «Редактирование»: смёрживает переданные
+// поля с текущим состоянием, валидирует итоговую согласованность с
+// frequency_type, и, если поля расписания изменились и у курса уже есть
+// event_ids, либо оставляет события как есть (regenerate_events=false),
+// либо пересоздаёт их (regenerate_events=true) — переход в as_needed с
+// непустым event_ids без regenerate_events=true запрещён (400).
 func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1278,33 +1518,133 @@ func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение dosage")
 		return
 	}
-	if req.PeriodicityDays != nil && (*req.PeriodicityDays < models.MedicationMinPeriodicityDays || *req.PeriodicityDays > models.MedicationMaxPeriodicityDays) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле periodicity_days должно быть в диапазоне 1-365")
-		return
-	}
-	if req.StartDate != nil && !isValidDateOnly(*req.StartDate) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат start_date, ожидается YYYY-MM-DD")
-		return
-	}
-	if req.RepeatCount != nil && (*req.RepeatCount < models.MedicationMinRepeatCount || *req.RepeatCount > models.MedicationMaxRepeatCount) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле repeat_count должно быть в диапазоне 1-14")
-		return
-	}
-	if req.EventTime != nil && *req.EventTime != "" && !isValidTimeOfDay(*req.EventTime) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат event_time, ожидается HH:MM[:SS]")
+	if req.FrequencyType != nil && !models.IsValidMedicationFrequencyType(*req.FrequencyType) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение frequency_type")
 		return
 	}
 	if req.Note != nil && len(*req.Note) > models.MedicationNoteMaxLen {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле note превышает допустимую длину")
 		return
 	}
+
+	// Эффективные (смёрженные с текущим состоянием курса) значения полей
+	// расписания + признак того, что каждое поле реально изменилось.
+	effFreq := medication.FrequencyType
+	freqChanged := false
+	if req.FrequencyType != nil {
+		effFreq = *req.FrequencyType
+		freqChanged = effFreq != medication.FrequencyType
+	}
+
+	effWeekdays := medication.Weekdays
+	weekdaysChanged := false
+	if req.Weekdays.Set {
+		var newWeekdays []int
+		if req.Weekdays.Value != nil {
+			newWeekdays = *req.Weekdays.Value
+		}
+		weekdaysChanged = !equalIntSlices(medication.Weekdays, newWeekdays)
+		effWeekdays = newWeekdays
+	}
+
+	effIntervalDays := nullIntToPtr(medication.IntervalDays)
+	intervalChanged := false
+	if req.IntervalDays.Set {
+		intervalChanged = !equalIntPtr(effIntervalDays, req.IntervalDays.Value)
+		effIntervalDays = req.IntervalDays.Value
+	}
+
+	effTimes := medication.Times
+	timesChanged := false
+	if req.Times.Set {
+		var newTimes []models.MedicationTimeSlot
+		if req.Times.Value != nil {
+			newTimes = *req.Times.Value
+		}
+		timesChanged = !equalTimeSlots(medication.Times, newTimes)
+		effTimes = newTimes
+	}
+
+	effStartDate := nullTimeToDateStrPtr(medication.StartDate)
+	startDateChanged := false
+	if req.StartDate.Set {
+		startDateChanged = !equalStringPtr(effStartDate, req.StartDate.Value)
+		effStartDate = req.StartDate.Value
+	}
+
+	effEndDate := nullTimeToDateStrPtr(medication.EndDate)
+	endDateChanged := false
+	if req.EndDate.Set {
+		endDateChanged = !equalStringPtr(effEndDate, req.EndDate.Value)
+		effEndDate = req.EndDate.Value
+	}
+
+	if msg := validateMedicationFieldsConsistency(effFreq, effWeekdays, effIntervalDays, effTimes, effStartDate, effEndDate); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+		return
+	}
+
+	scheduleFieldsChanged := freqChanged || weekdaysChanged || intervalChanged || timesChanged || startDateChanged || endDateChanged
+	hasEvents := len(medication.EventIDs) > 0
+	regenerate := req.RegenerateEvents != nil && *req.RegenerateEvents
+
+	if scheduleFieldsChanged && hasEvents && !regenerate && effFreq == models.MedicationFrequencyAsNeeded {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Переход в frequency_type=as_needed с непустым event_ids требует regenerate_events=true")
+		return
+	}
+
 	if err := database.UpdateMedication(id, req); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления курса лекарств")
 		return
 	}
+
+	if scheduleFieldsChanged && hasEvents && regenerate {
+		if err := database.HardDeleteEventsByIDs(medication.EventIDs); err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить предыдущие события курса")
+			return
+		}
+		newEventIDs := []string{}
+		if effFreq != models.MedicationFrequencyAsNeeded {
+			startDate, _ := parseDateOnly(*effStartDate)
+			var endDate *time.Time
+			if effEndDate != nil {
+				t, _ := parseDateOnly(*effEndDate)
+				endDate = &t
+			}
+			intervalDays := 0
+			if effIntervalDays != nil {
+				intervalDays = *effIntervalDays
+			}
+			effName := medication.Name
+			if req.Name != nil {
+				effName = *req.Name
+			}
+			effDosage := medication.Dosage
+			if req.Dosage != nil {
+				effDosage = *req.Dosage
+			}
+			slots := computeMedicationScheduleSlots(effFreq, effWeekdays, intervalDays, effTimes, startDate, endDate, models.MedicationScheduleEventsCap)
+			for _, slot := range slots {
+				eventID, err := createMedicationEventFromSlot(medication.PetID, slot, effName, effDosage)
+				if err != nil {
+					writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
+					return
+				}
+				newEventIDs = append(newEventIDs, eventID.String())
+			}
+		}
+		if err := database.SetMedicationEventIDs(id, newEventIDs); err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить события курса")
+			return
+		}
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteMedicationHandler обрабатывает DELETE /medications/{id}: мягко
+// удаляет запись курса и, если у него есть event_ids, физически удаляет
+// все связанные события (см. "Исключение из правила soft-delete").
 func DeleteMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1336,6 +1676,12 @@ func DeleteMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления курса лекарств")
 		return
 	}
+	if len(medication.EventIDs) > 0 {
+		if err := database.HardDeleteEventsByIDs(medication.EventIDs); err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить события курса")
+			return
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1365,10 +1711,12 @@ func resolveOwnedMedicationForEvents(w http.ResponseWriter, id uuid.UUID, userID
 }
 
 // CreateMedicationEventsHandler обрабатывает POST /medications/{id}/events:
-// (пере-)создаёт связанные события приёма препарата по расписанию
-// date[i] = start_date + i*periodicity_days, i от 0 до repeat_count-1.
-// Предыдущий набор событий (если был) мягко удаляется перед вставкой нового
-// — обычный soft-delete, в отличие от DELETE-варианта этого же эндпоинта.
+// (до-)создаёт связанные события приёма препарата по расписанию,
+// вычисленному из текущих frequency_type/weekdays/interval_days/times/
+// start_date/end_date курса (не более 60 событий, см.
+// computeMedicationScheduleSlots). Доступно только если event_ids пуст
+// (иначе 409) и frequency_type != as_needed (иначе 400) — см. "Лекарства —
+// Backend", раздел «Ручное создание набора событий».
 func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1379,19 +1727,28 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 		return
 	}
 
-	if err := database.SoftDeleteEventsByIDs(medication.EventIDs); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить предыдущие события курса")
+	if len(medication.EventIDs) > 0 {
+		writeError(w, http.StatusConflict, openapi.CONFLICT, "У курса лекарств уже есть набор событий — сначала удалите его")
+		return
+	}
+	if medication.FrequencyType == models.MedicationFrequencyAsNeeded {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "У курса лекарств с frequency_type=as_needed нет расписания")
 		return
 	}
 
-	newEventIDs := make([]string, 0, medication.RepeatCount)
-	for i := 0; i < medication.RepeatCount; i++ {
-		date := medication.StartDate.AddDate(0, 0, i*medication.PeriodicityDays)
-		var eventTime *string
-		if medication.EventTime.Valid {
-			eventTime = &medication.EventTime.String
-		}
-		eventID, err := createMedicationEvent(medication.PetID, date, eventTime, medication.Name)
+	intervalDays := 0
+	if medication.IntervalDays.Valid {
+		intervalDays = int(medication.IntervalDays.Int64)
+	}
+	var endDate *time.Time
+	if medication.EndDate.Valid {
+		endDate = &medication.EndDate.Time
+	}
+	slots := computeMedicationScheduleSlots(medication.FrequencyType, medication.Weekdays, intervalDays, medication.Times, medication.StartDate.Time, endDate, models.MedicationScheduleEventsCap)
+
+	newEventIDs := make([]string, 0, len(slots))
+	for _, slot := range slots {
+		eventID, err := createMedicationEventFromSlot(medication.PetID, slot, medication.Name, medication.Dosage)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
 			return
@@ -1411,13 +1768,14 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 		return
 	}
 
-	writeJSON(w, http.StatusOK, medicationResponseFromDB(*medication, filesCounts[medication.ID]))
+	writeJSON(w, http.StatusOK, medicationResponseFromDB(*medication, filesCounts[medication.ID], time.Now().UTC()))
 }
 
 // DeleteMedicationEventsHandler обрабатывает DELETE /medications/{id}/events —
 // ЕДИНСТВЕННОЕ намеренное исключение из soft-delete во всём проекте: события
 // удаляются физически (hard delete), см. описание операции
-// delete-medication-events в open-api/spec.json.
+// delete-medication-events в open-api/spec.json. Требует непустого
+// event_ids (иначе 404).
 func DeleteMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1425,6 +1783,11 @@ func DeleteMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 	}
 	medication, ok := resolveOwnedMedicationForEvents(w, id, userID)
 	if !ok {
+		return
+	}
+
+	if len(medication.EventIDs) == 0 {
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "У курса лекарств нет набора событий")
 		return
 	}
 

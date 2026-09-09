@@ -92,6 +92,85 @@ func TestImportLocalData_HappyPath(t *testing.T) {
 	require.Equal(t, "Иван", profileBody.FirstName)
 }
 
+// TestImportLocalData_MedicationWithEventLocalIDs проверяет перенос
+// medications[] с новой моделью частот (frequency_type/weekdays/
+// interval_days/times/start_date/end_date) и связывание event_local_ids с
+// уже перенесёнными events[] без пересчёта расписания на сервере — см.
+// "Импорт локальных данных — Backend", шаг 9.
+func TestImportLocalData_MedicationWithEventLocalIDs(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+
+	idempotencyKey := uuid.NewString()
+	body := map[string]any{
+		"pets": []map[string]any{
+			{"local_id": "local-cat", "name": "Барсик", "species": "cat"},
+		},
+		"events": []map[string]any{
+			{
+				"local_id":     "local-event-1",
+				"pet_local_id": "local-cat",
+				"date":         "2024-01-01T08:00:00Z",
+				"type":         "medication",
+				"value":        map[string]any{"name": "Amoxicillin"},
+			},
+		},
+		"medications": []map[string]any{
+			{
+				"local_id":        "local-med-1",
+				"pet_local_id":    "local-cat",
+				"name":            "Amoxicillin",
+				"dosage":          "1 tablet",
+				"frequency_type":  "daily",
+				"times":           []map[string]any{{"time": "08:00"}},
+				"start_date":      "2024-01-01",
+				"event_local_ids": []string{"local-event-1"},
+			},
+		},
+	}
+
+	resp := doRequest(t, http.MethodPost, "/import/local-data", body, tokens.AccessToken,
+		map[string]string{"Idempotency-Key": idempotencyKey})
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+
+	var result struct {
+		MedicationsImported int `json:"medications_imported"`
+		Medications         []struct {
+			LocalID string `json:"local_id"`
+			ID      string `json:"id"`
+		} `json:"medications"`
+		Events []struct {
+			LocalID string `json:"local_id"`
+			ID      string `json:"id"`
+		} `json:"events"`
+	}
+	resp.decode(t, &result)
+	require.Equal(t, 1, result.MedicationsImported)
+	require.Len(t, result.Medications, 1)
+	require.Equal(t, "local-med-1", result.Medications[0].LocalID)
+	require.NotEmpty(t, result.Medications[0].ID)
+
+	pets := doRequest(t, http.MethodGet, "/pet", nil, tokens.AccessToken)
+	var petsBody struct {
+		Items []struct{ ID string } `json:"items"`
+	}
+	pets.decode(t, &petsBody)
+	require.Len(t, petsBody.Items, 1)
+
+	medList := doRequest(t, http.MethodGet, "/pet/"+petsBody.Items[0].ID+"/medications", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, medList.status)
+	var medListBody struct {
+		Items []struct {
+			FrequencyType string   `json:"frequency_type"`
+			EventIDs      []string `json:"event_ids"`
+		} `json:"items"`
+	}
+	medList.decode(t, &medListBody)
+	require.Len(t, medListBody.Items, 1)
+	require.Equal(t, "daily", medListBody.Items[0].FrequencyType)
+	require.Equal(t, []string{result.Events[0].ID}, medListBody.Items[0].EventIDs)
+}
+
 func TestImportLocalData_WithoutProfile(t *testing.T) {
 	resetDB(t)
 

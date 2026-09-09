@@ -349,6 +349,16 @@ func TestDeleteAllergyHandler_NotOwned(t *testing.T) {
 // Medication
 // ---------------------------------------------------------------------------
 
+var medicationColumns = []string{"id", "pet_id", "name", "dosage", "frequency_type", "weekdays", "interval_days", "times", "start_date", "end_date", "event_ids", "note", "deleted_at", "created_at"}
+
+// medicationSelectRe — regex-фрагмент общего SELECT для medication (см.
+// database.medicationSelectColumns), общий для GetMedicationByIDForUpdate.
+const medicationSelectRe = `SELECT id, pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note, deleted_at, created_at\s+FROM medication\s+WHERE id = \$1 AND deleted_at IS NULL`
+
+func addMedicationRow(rows *sqlmock.Rows, id string, weekdays, times any, intervalDays any, startDate, endDate any, eventIDs string) *sqlmock.Rows {
+	return rows.AddRow(id, testPetID, "Amoxicillin", "1 tablet", "daily", weekdays, intervalDays, times, startDate, endDate, eventIDs, nil, nil, timeParse("2024-01-01"))
+}
+
 func TestCreateMedicationHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -358,11 +368,11 @@ func TestCreateMedicationHandler_Success(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
-		Name:            "Amoxicillin",
-		Dosage:          "1 tablet",
-		PeriodicityDays: 1,
-		StartDate:       "2024-01-01",
-		RepeatCount:     5,
+		Name:          "Amoxicillin",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencyDaily,
+		Times:         []models.MedicationTimeSlot{{Time: "08:00"}},
+		StartDate:     strPtr("2024-01-01"),
 	}, true)
 	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
 
@@ -370,17 +380,37 @@ func TestCreateMedicationHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestCreateMedicationHandler_InvalidRepeatCount(t *testing.T) {
+func TestCreateMedicationHandler_AsNeeded_Success(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	expectPetOwnedForCreate(mock)
+	mock.ExpectQuery(`INSERT INTO medication`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("33333333-3333-3333-3333-333333333338"))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
+		Name:          "Painkiller",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencyAsNeeded,
+	}, true)
+	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreateMedicationHandler_WeekdaysNotAllowedForDaily(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
-		Name:            "Amoxicillin",
-		Dosage:          "1 tablet",
-		PeriodicityDays: 1,
-		StartDate:       "2024-01-01",
-		RepeatCount:     20,
+		Name:          "Amoxicillin",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencyDaily,
+		Weekdays:      []int{1, 2},
+		Times:         []models.MedicationTimeSlot{{Time: "08:00"}},
+		StartDate:     strPtr("2024-01-01"),
 	}, true)
 	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
 
@@ -388,13 +418,99 @@ func TestCreateMedicationHandler_InvalidRepeatCount(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestCreateMedicationHandler_SpecificDaysMissingWeekdays(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
+		Name:          "Amoxicillin",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencySpecificDays,
+		Times:         []models.MedicationTimeSlot{{Time: "08:00"}},
+		StartDate:     strPtr("2024-01-01"),
+	}, true)
+	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreateMedicationHandler_EveryNDaysIntervalOutOfRange(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	interval := 400
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
+		Name:          "Amoxicillin",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencyEveryNDays,
+		IntervalDays:  &interval,
+		Times:         []models.MedicationTimeSlot{{Time: "08:00"}},
+		StartDate:     strPtr("2024-01-01"),
+	}, true)
+	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreateMedicationHandler_AsNeededWithAddEvent(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := httptest.NewRecorder()
+	addEvent := true
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
+		Name:          "Painkiller",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencyAsNeeded,
+		AddEvent:      &addEvent,
+	}, true)
+	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreateMedicationHandler_AddEventCreatesSchedule(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	expectPetOwnedForCreate(mock)
+	newID := "33333333-3333-3333-3333-333333333339"
+	mock.ExpectQuery(`INSERT INTO medication`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"))
+	mock.ExpectExec(`UPDATE medication SET event_ids`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	addEvent := true
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/medications", models.CreateMedicationRequest{
+		Name:          "Amoxicillin",
+		Dosage:        "1 tablet",
+		FrequencyType: models.MedicationFrequencyDaily,
+		Times:         []models.MedicationTimeSlot{{Time: "08:00"}},
+		StartDate:     strPtr("2024-01-01"),
+		EndDate:       strPtr("2024-01-02"),
+		AddEvent:      &addEvent,
+	}, true)
+	CreateMedicationHandler(w, r, uuid.MustParse(testPetID))
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestDeleteMedicationHandler_NotOwned(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	medicationID := "33333333-3333-3333-3333-333333333335"
-	mock.ExpectQuery(`SELECT id, pet_id, name, dosage, periodicity_days, start_date, repeat_count, event_time, event_ids, note, deleted_at\s+FROM medication\s+WHERE id = \$1 AND deleted_at IS NULL`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "name", "dosage", "periodicity_days", "start_date", "repeat_count", "event_time", "event_ids", "note", "deleted_at"}).
-			AddRow(medicationID, testPetID, "Amoxicillin", "1 tablet", 1, timeParse("2024-01-01"), 5, nil, "{}", nil, nil))
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, "{}"))
 	expectPetBelongsToUser(mock, false)
 
 	w := httptest.NewRecorder()
@@ -405,18 +521,33 @@ func TestDeleteMedicationHandler_NotOwned(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestDeleteMedicationHandler_HardDeletesExistingEvents(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-33333333333a"
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`))
+	expectPetBelongsToUser(mock, true)
+	mock.ExpectExec(`UPDATE medication SET deleted_at`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM event WHERE id = ANY`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodDelete, "/medications/"+medicationID, nil, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestCreateMedicationEventsHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	medicationID := "33333333-3333-3333-3333-333333333336"
-	mock.ExpectQuery(`SELECT id, pet_id, name, dosage, periodicity_days, start_date, repeat_count, event_time, event_ids, note, deleted_at\s+FROM medication\s+WHERE id = \$1 AND deleted_at IS NULL`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "name", "dosage", "periodicity_days", "start_date", "repeat_count", "event_time", "event_ids", "note", "deleted_at"}).
-			AddRow(medicationID, testPetID, "Amoxicillin", "1 tablet", 1, timeParse("2024-01-01"), 2, nil, "{}", nil, nil))
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), timeParse("2024-01-02"), "{}"))
 	expectPetBelongsToUser(mock, true)
-	// medication.EventIDs начинается пустым ("{}") — SoftDeleteEventsByIDs
-	// не делает запрос к БД вовсе (см. database.SoftDeleteEventsByIDs), в
-	// отличие от повторного вызова этого эндпоинта на курсе с уже
-	// существующими событиями.
 	mock.ExpectQuery(`INSERT INTO event`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"))
 	mock.ExpectQuery(`INSERT INTO event`).
@@ -437,13 +568,45 @@ func TestCreateMedicationEventsHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestCreateMedicationEventsHandler_ConflictWhenEventsExist(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-33333333333b"
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`))
+	expectPetBelongsToUser(mock, true)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/medications/"+medicationID+"/events", nil, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestCreateMedicationEventsHandler_AsNeededBadRequest(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-33333333333c"
+	rows := sqlmock.NewRows(medicationColumns).AddRow(
+		medicationID, testPetID, "Painkiller", "1 tablet", "as_needed", nil, nil, nil, nil, nil, "{}", nil, nil, timeParse("2024-01-01"))
+	mock.ExpectQuery(medicationSelectRe).WillReturnRows(rows)
+	expectPetBelongsToUser(mock, true)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/medications/"+medicationID+"/events", nil, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestDeleteMedicationEventsHandler_HardDeletes(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	medicationID := "33333333-3333-3333-3333-333333333337"
-	mock.ExpectQuery(`SELECT id, pet_id, name, dosage, periodicity_days, start_date, repeat_count, event_time, event_ids, note, deleted_at\s+FROM medication\s+WHERE id = \$1 AND deleted_at IS NULL`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "name", "dosage", "periodicity_days", "start_date", "repeat_count", "event_time", "event_ids", "note", "deleted_at"}).
-			AddRow(medicationID, testPetID, "Amoxicillin", "1 tablet", 1, timeParse("2024-01-01"), 2, nil, `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`, nil, nil))
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`))
 	expectPetBelongsToUser(mock, true)
 	mock.ExpectExec(`DELETE FROM event WHERE id = ANY`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -455,5 +618,98 @@ func TestDeleteMedicationEventsHandler_HardDeletes(t *testing.T) {
 	MedicationByIDHandler(w, r)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestDeleteMedicationEventsHandler_NotFoundWhenEmpty(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-33333333333d"
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, "{}"))
+	expectPetBelongsToUser(mock, true)
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodDelete, "/medications/"+medicationID+"/events", nil, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateMedicationHandler_NoRegenerate_KeepsEvents(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-33333333333e"
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`))
+	expectPetBelongsToUser(mock, true)
+	mock.ExpectExec(`UPDATE medication SET`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	newStartDate := "2024-02-01"
+	r := petRequest(t, http.MethodPatch, "/medications/"+medicationID, models.UpdateMedicationRequest{
+		StartDate: models.OptionalField[string]{Set: true, Value: &newStartDate},
+	}, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateMedicationHandler_RegenerateEvents(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-33333333333f"
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), timeParse("2024-01-02"), `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`))
+	expectPetBelongsToUser(mock, true)
+	mock.ExpectExec(`UPDATE medication SET`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`DELETE FROM event WHERE id = ANY`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("cccccccc-cccc-cccc-cccc-cccccccccccc"))
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("dddddddd-dddd-dddd-dddd-dddddddddddd"))
+	mock.ExpectExec(`UPDATE medication SET event_ids`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	w := httptest.NewRecorder()
+	newStartDate := "2024-03-01"
+	newEndDate := "2024-03-02"
+	regenerate := true
+	r := petRequest(t, http.MethodPatch, "/medications/"+medicationID, models.UpdateMedicationRequest{
+		StartDate:        models.OptionalField[string]{Set: true, Value: &newStartDate},
+		EndDate:          models.OptionalField[string]{Set: true, Value: &newEndDate},
+		RegenerateEvents: &regenerate,
+	}, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestUpdateMedicationHandler_AsNeededWithoutRegenerate_BadRequest(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	medicationID := "33333333-3333-3333-3333-333333333340"
+	mock.ExpectQuery(medicationSelectRe).
+		WillReturnRows(addMedicationRow(sqlmock.NewRows(medicationColumns), medicationID, nil, `[{"time":"08:00"}]`, nil, timeParse("2024-01-01"), nil, `{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}`))
+	expectPetBelongsToUser(mock, true)
+
+	w := httptest.NewRecorder()
+	asNeeded := models.MedicationFrequencyAsNeeded
+	r := petRequest(t, http.MethodPatch, "/medications/"+medicationID, models.UpdateMedicationRequest{
+		FrequencyType: &asNeeded,
+		Weekdays:      models.OptionalField[[]int]{Set: true, Value: nil},
+		IntervalDays:  models.OptionalField[int]{Set: true, Value: nil},
+		Times:         models.OptionalField[[]models.MedicationTimeSlot]{Set: true, Value: nil},
+		StartDate:     models.OptionalField[string]{Set: true, Value: nil},
+	}, true)
+	MedicationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

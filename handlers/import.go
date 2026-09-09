@@ -184,6 +184,9 @@ func validateImportMedication(m models.ImportMedication) string {
 	if strings.TrimSpace(m.PetLocalID) == "" {
 		return "Поле pet_local_id обязательно для каждого курса лекарств"
 	}
+	if len(m.EventLocalIDs) > models.MedicationMaxEventIDsCount {
+		return "Поле event_local_ids не может содержать больше 60 элементов"
+	}
 	return validateCreateMedicationRequest(m.ToCreateMedicationRequest())
 }
 

@@ -8,6 +8,7 @@ package database
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"myauthservice/models"
@@ -522,20 +523,45 @@ func InsertMedication(petID uuid.UUID, req models.CreateMedicationRequest) (uuid
 }
 
 func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMedicationRequest) (uuid.UUID, error) {
-	startDate, err := time.Parse("2006-01-02", req.StartDate)
+	weekdaysNS, err := medicationWeekdaysToNullString(req.Weekdays)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	var eventTime sql.NullString
-	if req.EventTime != nil {
-		eventTime = sql.NullString{String: *req.EventTime, Valid: true}
+	timesNS, err := medicationTimesToNullString(req.Times)
+	if err != nil {
+		return uuid.Nil, err
 	}
+	var intervalDays sql.NullInt64
+	if req.IntervalDays != nil {
+		intervalDays = sql.NullInt64{Int64: int64(*req.IntervalDays), Valid: true}
+	}
+	var startDate sql.NullTime
+	if req.StartDate != nil {
+		t, err := time.Parse("2006-01-02", *req.StartDate)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		startDate = sql.NullTime{Time: t, Valid: true}
+	}
+	var endDate sql.NullTime
+	if req.EndDate != nil {
+		t, err := time.Parse("2006-01-02", *req.EndDate)
+		if err != nil {
+			return uuid.Nil, err
+		}
+		endDate = sql.NullTime{Time: t, Valid: true}
+	}
+	var note sql.NullString
+	if req.Note != nil {
+		note = sql.NullString{String: *req.Note, Valid: true}
+	}
+
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO medication (pet_id, name, dosage, periodicity_days, start_date, repeat_count, event_time, event_ids, note)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, '{}', $8)
+		INSERT INTO medication (pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}', $10)
 		RETURNING id
-	`, petID, req.Name, req.Dosage, req.PeriodicityDays, startDate, req.RepeatCount, eventTime, req.Note).Scan(&newID)
+	`, petID, req.Name, req.Dosage, req.FrequencyType, weekdaysNS, intervalDays, timesNS, startDate, endDate, note).Scan(&newID)
 	if err != nil {
 		log.Println("InsertMedication error:", err)
 		return uuid.Nil, err
@@ -543,14 +569,39 @@ func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMed
 	return newID, nil
 }
 
-func GetMedicationsByPetID(petID uuid.UUID, limit, offset int) ([]models.MedicationDB, error) {
+// medicationSelectColumns — общий список колонок для GetMedicationsByPetID /
+// GetMedicationByIDForUpdate, порядок должен совпадать с scanMedicationRow.
+const medicationSelectColumns = `id, pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note, deleted_at, created_at`
+
+// scanMedicationRow сканирует одну строку medication (обёртка над
+// *sql.Row.Scan/*sql.Rows.Scan — обе сигнатуры совпадают) и разбирает
+// jsonb-колонки weekdays/times в модельные срезы.
+func scanMedicationRow(scan func(dest ...any) error) (models.MedicationDB, error) {
+	var m models.MedicationDB
+	var weekdaysNS, timesNS sql.NullString
+	err := scan(&m.ID, &m.PetID, &m.Name, &m.Dosage, &m.FrequencyType, &weekdaysNS, &m.IntervalDays, &timesNS, &m.StartDate, &m.EndDate, pq.Array(&m.EventIDs), &m.Note, &m.DeletedAt, &m.CreatedAt)
+	if err != nil {
+		return m, err
+	}
+	if m.Weekdays, err = medicationNullStringToWeekdays(weekdaysNS); err != nil {
+		return m, err
+	}
+	if m.Times, err = medicationNullStringToTimes(timesNS); err != nil {
+		return m, err
+	}
+	return m, nil
+}
+
+// GetMedicationsByPetID возвращает все неудалённые курсы лекарств питомца
+// без сортировки/пагинации на уровне SQL — сортировка по next_dose требует
+// вычисления в Go (см. handlers.GetPetMedicationsHandler), пагинация
+// применяется уже к отсортированному списку.
+func GetMedicationsByPetID(petID uuid.UUID) ([]models.MedicationDB, error) {
 	rows, err := DB.Query(`
-		SELECT id, pet_id, name, dosage, periodicity_days, start_date, repeat_count, event_time, event_ids, note, deleted_at
+		SELECT `+medicationSelectColumns+`
 		FROM medication
 		WHERE pet_id = $1 AND deleted_at IS NULL
-		ORDER BY start_date DESC
-		LIMIT $2 OFFSET $3
-	`, petID, limit, offset)
+	`, petID)
 	if err != nil {
 		return nil, err
 	}
@@ -558,8 +609,8 @@ func GetMedicationsByPetID(petID uuid.UUID, limit, offset int) ([]models.Medicat
 
 	var items []models.MedicationDB
 	for rows.Next() {
-		var m models.MedicationDB
-		if err := rows.Scan(&m.ID, &m.PetID, &m.Name, &m.Dosage, &m.PeriodicityDays, &m.StartDate, &m.RepeatCount, &m.EventTime, pq.Array(&m.EventIDs), &m.Note, &m.DeletedAt); err != nil {
+		m, err := scanMedicationRow(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, m)
@@ -568,21 +619,84 @@ func GetMedicationsByPetID(petID uuid.UUID, limit, offset int) ([]models.Medicat
 }
 
 func GetMedicationByIDForUpdate(id uuid.UUID) (*models.MedicationDB, error) {
-	var m models.MedicationDB
-	err := DB.QueryRow(`
-		SELECT id, pet_id, name, dosage, periodicity_days, start_date, repeat_count, event_time, event_ids, note, deleted_at
+	row := DB.QueryRow(`
+		SELECT `+medicationSelectColumns+`
 		FROM medication
 		WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&m.ID, &m.PetID, &m.Name, &m.Dosage, &m.PeriodicityDays, &m.StartDate, &m.RepeatCount, &m.EventTime, pq.Array(&m.EventIDs), &m.Note, &m.DeletedAt)
+	`, id)
+	m, err := scanMedicationRow(row.Scan)
 	if err != nil {
 		return nil, err
 	}
 	return &m, nil
 }
 
-// UpdateMedication обновляет только переданные поля. event_ids этой функцией
-// никогда не трогается — доступно только на чтение через
-// POST/DELETE /medications/{id}/events (см. UpdateMedicationRequest в
+// medicationWeekdaysToNullString/medicationTimesToNullString сериализуют
+// nullable jsonb-поля medication.weekdays/medication.times: nil-срез -> SQL
+// NULL (а не JSON "null"), непустой/пустой срез -> jsonb-массив.
+func medicationWeekdaysToNullString(weekdays []int) (sql.NullString, error) {
+	if weekdays == nil {
+		return sql.NullString{}, nil
+	}
+	b, err := json.Marshal(weekdays)
+	if err != nil {
+		return sql.NullString{}, err
+	}
+	return sql.NullString{String: string(b), Valid: true}, nil
+}
+
+func medicationTimesToNullString(times []models.MedicationTimeSlot) (sql.NullString, error) {
+	if times == nil {
+		return sql.NullString{}, nil
+	}
+	b, err := json.Marshal(times)
+	if err != nil {
+		return sql.NullString{}, err
+	}
+	return sql.NullString{String: string(b), Valid: true}, nil
+}
+
+func medicationNullStringToWeekdays(ns sql.NullString) ([]int, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	var out []int
+	if err := json.Unmarshal([]byte(ns.String), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func medicationNullStringToTimes(ns sql.NullString) ([]models.MedicationTimeSlot, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	var out []models.MedicationTimeSlot
+	if err := json.Unmarshal([]byte(ns.String), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func derefMedicationIntSlice(p *[]int) []int {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+func derefMedicationTimesSlice(p *[]models.MedicationTimeSlot) []models.MedicationTimeSlot {
+	if p == nil {
+		return nil
+	}
+	return *p
+}
+
+// UpdateMedication обновляет только явно переданные поля (см.
+// models.OptionalField — поля расписания различают "не менять" и "явно
+// обнулить"). event_ids этой функцией никогда не трогается — доступно
+// только через SetMedicationEventIDs (POST/DELETE /medications/{id}/events
+// и ветку regenerate_events=true PATCH, см. UpdateMedicationRequest в
 // spec.json).
 func UpdateMedication(id uuid.UUID, req models.UpdateMedicationRequest) error {
 	setParts := []string{}
@@ -600,24 +714,50 @@ func UpdateMedication(id uuid.UUID, req models.UpdateMedicationRequest) error {
 	if req.Dosage != nil {
 		add("dosage", *req.Dosage)
 	}
-	if req.PeriodicityDays != nil {
-		add("periodicity_days", *req.PeriodicityDays)
+	if req.FrequencyType != nil {
+		add("frequency_type", *req.FrequencyType)
 	}
-	if req.StartDate != nil {
-		t, err := time.Parse("2006-01-02", *req.StartDate)
+	if req.Weekdays.Set {
+		ns, err := medicationWeekdaysToNullString(derefMedicationIntSlice(req.Weekdays.Value))
 		if err != nil {
 			return err
 		}
-		add("start_date", t)
+		add("weekdays", ns)
 	}
-	if req.RepeatCount != nil {
-		add("repeat_count", *req.RepeatCount)
-	}
-	if req.EventTime != nil {
-		if *req.EventTime == "" {
-			add("event_time", sql.NullString{Valid: false})
+	if req.IntervalDays.Set {
+		if req.IntervalDays.Value == nil {
+			add("interval_days", sql.NullInt64{})
 		} else {
-			add("event_time", sql.NullString{String: *req.EventTime, Valid: true})
+			add("interval_days", sql.NullInt64{Int64: int64(*req.IntervalDays.Value), Valid: true})
+		}
+	}
+	if req.Times.Set {
+		ns, err := medicationTimesToNullString(derefMedicationTimesSlice(req.Times.Value))
+		if err != nil {
+			return err
+		}
+		add("times", ns)
+	}
+	if req.StartDate.Set {
+		if req.StartDate.Value == nil {
+			add("start_date", sql.NullTime{})
+		} else {
+			t, err := time.Parse("2006-01-02", *req.StartDate.Value)
+			if err != nil {
+				return err
+			}
+			add("start_date", sql.NullTime{Time: t, Valid: true})
+		}
+	}
+	if req.EndDate.Set {
+		if req.EndDate.Value == nil {
+			add("end_date", sql.NullTime{})
+		} else {
+			t, err := time.Parse("2006-01-02", *req.EndDate.Value)
+			if err != nil {
+				return err
+			}
+			add("end_date", sql.NullTime{Time: t, Valid: true})
 		}
 	}
 	if req.Note != nil {

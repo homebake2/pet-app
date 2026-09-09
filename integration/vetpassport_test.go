@@ -286,17 +286,19 @@ func TestMedication_CRUDAndEventsLifecycle(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/medications", map[string]any{
-		"name":             "Amoxicillin",
-		"dosage":           "1 tablet",
-		"periodicity_days": 1,
-		"start_date":       "2024-01-01",
-		"repeat_count":     3,
+		"name":           "Amoxicillin",
+		"dosage":         "1 tablet",
+		"frequency_type": "daily",
+		"times":          []map[string]any{{"time": "08:00"}},
+		"start_date":     "2024-01-01",
+		"end_date":       "2024-01-03",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
 	var created idResponse
 	createResp.decode(t, &created)
 
-	// POST /medications/{id}/events создаёт расписание приёма.
+	// POST /medications/{id}/events создаёт расписание приёма: 3 дня x 1
+	// время/день = 3 события.
 	eventsResp := doRequest(t, http.MethodPost, "/medications/"+created.ID+"/events", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, eventsResp.status, "%s", eventsResp.body)
 	var medication struct {
@@ -304,6 +306,10 @@ func TestMedication_CRUDAndEventsLifecycle(t *testing.T) {
 	}
 	eventsResp.decode(t, &medication)
 	require.Len(t, medication.EventIDs, 3)
+
+	// Повторный вызов, пока event_ids не пуст, — конфликт.
+	conflictResp := doRequest(t, http.MethodPost, "/medications/"+created.ID+"/events", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusConflict, conflictResp.status)
 
 	petEvents := doRequest(t, http.MethodGet, "/pet/"+petID+"/events", nil, tokens.AccessToken)
 	var petEventsBody struct {
@@ -317,6 +323,10 @@ func TestMedication_CRUDAndEventsLifecycle(t *testing.T) {
 	// /pet/{id}/events.
 	deleteEvents := doRequest(t, http.MethodDelete, "/medications/"+created.ID+"/events", nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNoContent, deleteEvents.status)
+
+	// Повторное удаление, когда event_ids уже пуст, — 404.
+	deleteAgain := doRequest(t, http.MethodDelete, "/medications/"+created.ID+"/events", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusNotFound, deleteAgain.status)
 
 	petEventsAfter := doRequest(t, http.MethodGet, "/pet/"+petID+"/events", nil, tokens.AccessToken)
 	petEventsAfter.decode(t, &petEventsBody)
@@ -336,21 +346,123 @@ func TestMedication_CRUDAndEventsLifecycle(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, del.status)
 }
 
-// repeat_count вне диапазона 1-14 не проверяется здесь: диапазон задан прямо
-// в спеке (minimum/maximum), запрос был бы отклонён проверкой гармонизации
-// раньше хендлера — покрыто unit-тестом
-// TestCreateMedicationHandler_InvalidRepeatCount.
+func TestMedication_AsNeeded_NoSchedule(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/medications", map[string]any{
+		"name":           "Painkiller",
+		"dosage":         "1 tablet",
+		"frequency_type": "as_needed",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
+	var created idResponse
+	createResp.decode(t, &created)
+
+	// Нет расписания у as_needed — 400.
+	eventsResp := doRequest(t, http.MethodPost, "/medications/"+created.ID+"/events", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, eventsResp.status)
+
+	list := doRequest(t, http.MethodGet, "/pet/"+petID+"/medications", nil, tokens.AccessToken)
+	var listBody struct {
+		Items []struct {
+			NextDose *string `json:"next_dose"`
+		} `json:"items"`
+	}
+	list.decode(t, &listBody)
+	require.Len(t, listBody.Items, 1)
+	require.Nil(t, listBody.Items[0].NextDose)
+}
+
+func TestMedication_PatchRegenerateEvents(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/medications", map[string]any{
+		"name":           "Amoxicillin",
+		"dosage":         "1 tablet",
+		"frequency_type": "daily",
+		"times":          []map[string]any{{"time": "08:00"}},
+		"start_date":     "2024-01-01",
+		"end_date":       "2024-01-02",
+		"add_event":      true,
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
+	var created idResponse
+	createResp.decode(t, &created)
+
+	// regenerate_events=false (по умолчанию) — поля расписания меняются, но
+	// набор событий остаётся прежним.
+	patchNoRegen := doRequest(t, http.MethodPatch, "/medications/"+created.ID, map[string]any{
+		"end_date": "2024-01-05",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusNoContent, patchNoRegen.status, "%s", patchNoRegen.body)
+
+	list := doRequest(t, http.MethodGet, "/pet/"+petID+"/medications", nil, tokens.AccessToken)
+	var listBody struct {
+		Items []struct {
+			EventIDs []string `json:"event_ids"`
+			EndDate  *string  `json:"end_date"`
+		} `json:"items"`
+	}
+	list.decode(t, &listBody)
+	require.Len(t, listBody.Items, 1)
+	require.Len(t, listBody.Items[0].EventIDs, 2)
+	require.Equal(t, "2024-01-05", *listBody.Items[0].EndDate)
+
+	// regenerate_events=true — старые события жёстко удаляются, новые
+	// создаются по обновлённому расписанию (4 дня x 1 время = 4 события).
+	patchRegen := doRequest(t, http.MethodPatch, "/medications/"+created.ID, map[string]any{
+		"end_date":          "2024-01-04",
+		"regenerate_events": true,
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusNoContent, patchRegen.status, "%s", patchRegen.body)
+
+	list2 := doRequest(t, http.MethodGet, "/pet/"+petID+"/medications", nil, tokens.AccessToken)
+	list2.decode(t, &listBody)
+	require.Len(t, listBody.Items[0].EventIDs, 4)
+
+	petEvents := doRequest(t, http.MethodGet, "/pet/"+petID+"/events", nil, tokens.AccessToken)
+	var petEventsBody struct {
+		Items []struct{ ID string } `json:"items"`
+	}
+	petEvents.decode(t, &petEventsBody)
+	require.Len(t, petEventsBody.Items, 4)
+}
+
+// interval_days/weekdays вне допустимого диапазона не проверяются здесь:
+// диапазон задан прямо в спеке (minimum/maximum) и покрыт unit-тестами
+// (TestCreateMedicationHandler_EveryNDaysIntervalOutOfRange и др.).
 func TestMedication_EmptyNameRejected(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "correct-password")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	resp := doRequest(t, http.MethodPost, "/pet/"+petID+"/medications", map[string]any{
-		"name":             "",
-		"dosage":           "1 tablet",
-		"periodicity_days": 1,
-		"start_date":       "2024-01-01",
-		"repeat_count":     3,
+		"name":           "",
+		"dosage":         "1 tablet",
+		"frequency_type": "daily",
+		"times":          []map[string]any{{"time": "08:00"}},
+		"start_date":     "2024-01-01",
+	}, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, resp.status)
+}
+
+func TestMedication_FrequencyFieldConsistencyRejected(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	// weekdays недопустим при frequency_type=daily.
+	resp := doRequest(t, http.MethodPost, "/pet/"+petID+"/medications", map[string]any{
+		"name":           "Amoxicillin",
+		"dosage":         "1 tablet",
+		"frequency_type": "daily",
+		"weekdays":       []int{1, 2},
+		"times":          []map[string]any{{"time": "08:00"}},
+		"start_date":     "2024-01-01",
 	}, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, resp.status)
 }
@@ -362,11 +474,12 @@ func TestMedication_OwnershipEnforcedOnEvents(t *testing.T) {
 	petID := createPet(t, owner.AccessToken, "Барсик")
 
 	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/medications", map[string]any{
-		"name":             "Amoxicillin",
-		"dosage":           "1 tablet",
-		"periodicity_days": 1,
-		"start_date":       "2024-01-01",
-		"repeat_count":     3,
+		"name":           "Amoxicillin",
+		"dosage":         "1 tablet",
+		"frequency_type": "daily",
+		"times":          []map[string]any{{"time": "08:00"}},
+		"start_date":     "2024-01-01",
+		"end_date":       "2024-01-03",
 	}, owner.AccessToken)
 	require.Equal(t, http.StatusCreated, createResp.status)
 	var created idResponse
