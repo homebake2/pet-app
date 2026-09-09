@@ -1692,6 +1692,1399 @@
         }
       },
       "parameters": []
+    },
+    "/pet/{id}/vaccinations": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/vaccinations",
+        "description": "Список прививок питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0).",
+        "tags": [
+          "vaccination-controller"
+        ],
+        "operationId": "get-pet-vaccinations",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "maximum": 200
+            },
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Смещение для пагинации. По умолчанию 0."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GetVaccinationResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "/pet/{id}/vaccinations",
+        "description": "Создание прививки для питомца. Опционально создаёт связанные события (add_event_on_administered/add_event_on_next).",
+        "tags": [
+          "vaccination-controller"
+        ],
+        "operationId": "post-vaccination",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetVaccinationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetVaccinationIdResponseRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vaccinations/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "patch": {
+        "summary": "/vaccinations/{id}",
+        "description": "Частичное обновление прививки — обновляются только переданные поля.",
+        "tags": [
+          "vaccination-controller"
+        ],
+        "operationId": "patch-vaccination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVaccinationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/vaccinations/{id}",
+        "tags": [
+          "vaccination-controller"
+        ],
+        "operationId": "delete-vaccination",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pet/{id}/diseases": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/diseases",
+        "description": "Список заболеваний питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0).",
+        "tags": [
+          "disease-controller"
+        ],
+        "operationId": "get-pet-diseases",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "maximum": 200
+            },
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Смещение для пагинации. По умолчанию 0."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GetDiseaseResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "/pet/{id}/diseases",
+        "tags": [
+          "disease-controller"
+        ],
+        "operationId": "post-disease",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetDiseaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetDiseaseIdResponseRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/diseases/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "patch": {
+        "summary": "/diseases/{id}",
+        "description": "Частичное обновление заболевания — обновляются только переданные поля.",
+        "tags": [
+          "disease-controller"
+        ],
+        "operationId": "patch-disease",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDiseaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/diseases/{id}",
+        "tags": [
+          "disease-controller"
+        ],
+        "operationId": "delete-disease",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pet/{id}/vet-visits": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/vet-visits",
+        "description": "Список визитов к ветеринару питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0).",
+        "tags": [
+          "vet-visit-controller"
+        ],
+        "operationId": "get-pet-vet-visits",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "maximum": 200
+            },
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Смещение для пагинации. По умолчанию 0."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GetVetVisitResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "/pet/{id}/vet-visits",
+        "tags": [
+          "vet-visit-controller"
+        ],
+        "operationId": "post-vet-visit",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetVetVisitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetVetVisitIdResponseRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/vet-visits/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "patch": {
+        "summary": "/vet-visits/{id}",
+        "description": "Частичное обновление визита к ветеринару — обновляются только переданные поля.",
+        "tags": [
+          "vet-visit-controller"
+        ],
+        "operationId": "patch-vet-visit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVetVisitRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/vet-visits/{id}",
+        "tags": [
+          "vet-visit-controller"
+        ],
+        "operationId": "delete-vet-visit",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pet/{id}/allergies": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/allergies",
+        "description": "Список аллергий питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0).",
+        "tags": [
+          "allergy-controller"
+        ],
+        "operationId": "get-pet-allergies",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "maximum": 200
+            },
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Смещение для пагинации. По умолчанию 0."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GetAllergyResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "/pet/{id}/allergies",
+        "tags": [
+          "allergy-controller"
+        ],
+        "operationId": "post-allergy",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetAllergyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetAllergyIdResponseRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/allergies/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "patch": {
+        "summary": "/allergies/{id}",
+        "description": "Частичное обновление аллергии — обновляются только переданные поля.",
+        "tags": [
+          "allergy-controller"
+        ],
+        "operationId": "patch-allergy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAllergyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/allergies/{id}",
+        "tags": [
+          "allergy-controller"
+        ],
+        "operationId": "delete-allergy",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pet/{id}/medications": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/medications",
+        "description": "Список курсов лекарств питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0).",
+        "tags": [
+          "medication-controller"
+        ],
+        "operationId": "get-pet-medications",
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 50,
+              "maximum": 200
+            },
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200."
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            },
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "description": "Смещение для пагинации. По умолчанию 0."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/GetMedicationResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "/pet/{id}/medications",
+        "description": "Создание курса лекарств для питомца. Само создание не порождает события — для этого используйте POST /medications/{id}/events.",
+        "tags": [
+          "medication-controller"
+        ],
+        "operationId": "post-medication",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetMedicationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMedicationIdResponseRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/medications/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "patch": {
+        "summary": "/medications/{id}",
+        "description": "Частичное обновление курса лекарств — обновляются только переданные поля. event_ids доступен только на чтение и не может быть изменён этим методом.",
+        "tags": [
+          "medication-controller"
+        ],
+        "operationId": "patch-medication",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMedicationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/medications/{id}",
+        "tags": [
+          "medication-controller"
+        ],
+        "operationId": "delete-medication",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/medications/{id}/events": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "post": {
+        "summary": "/medications/{id}/events",
+        "description": "(До-)создаёт связанные события приёма препарата по расписанию: date[i] = start_date + i*periodicity_days для i от 0 до repeat_count-1. Возвращает актуальный список event_ids курса.",
+        "tags": [
+          "medication-controller"
+        ],
+        "operationId": "post-medication-events",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetMedicationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/medications/{id}/events",
+        "description": "ВНИМАНИЕ: в отличие от всех остальных операций удаления в этом API, физически (hard delete) удаляет все события, связанные с этим курсом лекарств, а не помечает их как удалённые. Это единственное исключение из soft-delete во всём проекте — используйте с осторожностью, отменить это действие нельзя.",
+        "tags": [
+          "medication-controller"
+        ],
+        "operationId": "delete-medication-events",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1813,6 +3206,10 @@
             },
             "nullable": true,
             "description": "Текущий вес питомца в кг, вычисляется как amount последнего по date_time события типа weight; null если таких событий нет. Не хранится как отдельное поле питомца."
+          },
+          "body_condition": {
+            "$ref": "#/components/schemas/PetBodyConditionEnum",
+            "nullable": true
           }
         }
       },
@@ -2409,6 +3806,9 @@
               "id": "w31ght0req0001"
             },
             "description": "Вес питомца в кг (0.001–400), опционально. Не сохраняется как поле питомца — при передаче сервер создаёт событие типа weight со значением amount=weight."
+          },
+          "body_condition": {
+            "$ref": "#/components/schemas/PetBodyConditionEnum"
           }
         }
       },
@@ -2481,6 +3881,10 @@
             },
             "nullable": true,
             "description": "Вес питомца в кг (0.001–400), опционально. Отсутствие ключа и явный null равнозначны — событие weight не создаётся. При передаче не-null числа сервер создаёт новое событие типа weight; существующие события не изменяются."
+          },
+          "body_condition": {
+            "$ref": "#/components/schemas/PetBodyConditionEnum",
+            "nullable": true
           }
         }
       },
@@ -2728,6 +4132,11 @@
             "x-stoplight": {
               "id": "74np2q5rd7dra"
             }
+          },
+          "body_condition": {
+            "$ref": "#/components/schemas/PetBodyConditionEnum",
+            "nullable": true,
+            "description": "Кондиция тела питомца, опционально (см. «Ведпаспорт — Backend», паритет сущностей при переносе)."
           }
         }
       },
@@ -2820,6 +4229,41 @@
             "items": {
               "$ref": "#/components/schemas/ImportLocalDataEvent"
             }
+          },
+          "vaccinations": {
+            "type": "array",
+            "description": "Опционально: переносимые прививки. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportVaccination"
+            }
+          },
+          "diseases": {
+            "type": "array",
+            "description": "Опционально: переносимые заболевания. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportDisease"
+            }
+          },
+          "vet_visits": {
+            "type": "array",
+            "description": "Опционально: переносимые визиты к ветеринару. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportVetVisit"
+            }
+          },
+          "allergies": {
+            "type": "array",
+            "description": "Опционально: переносимые аллергии. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportAllergy"
+            }
+          },
+          "medications": {
+            "type": "array",
+            "description": "Опционально: переносимые курсы лекарств. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportMedication"
+            }
           }
         }
       },
@@ -2834,7 +4278,17 @@
           "events_imported",
           "profile_imported",
           "pets",
-          "events"
+          "events",
+          "vaccinations_imported",
+          "diseases_imported",
+          "vet_visits_imported",
+          "allergies_imported",
+          "medications_imported",
+          "vaccinations",
+          "diseases",
+          "vet_visits",
+          "allergies",
+          "medications"
         ],
         "properties": {
           "pets_imported": {
@@ -2873,6 +4327,56 @@
             },
             "x-stoplight": {
               "id": "f11e001dimp"
+            }
+          },
+          "vaccinations_imported": {
+            "type": "integer"
+          },
+          "diseases_imported": {
+            "type": "integer"
+          },
+          "vet_visits_imported": {
+            "type": "integer"
+          },
+          "allergies_imported": {
+            "type": "integer"
+          },
+          "medications_imported": {
+            "type": "integer"
+          },
+          "vaccinations": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждой перенесённой прививки, в порядке vaccinations запроса. Используется клиентом для фонового переноса файлов прививки.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedVaccination"
+            }
+          },
+          "diseases": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждого перенесённого заболевания, в порядке diseases запроса. Используется клиентом для фонового переноса файлов заболевания.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedDisease"
+            }
+          },
+          "vet_visits": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждого перенесённого визита к ветеринару, в порядке vet_visits запроса. Используется клиентом для фонового переноса файлов визита.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedVetVisit"
+            }
+          },
+          "allergies": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждой перенесённой аллергии, в порядке allergies запроса. Используется клиентом для фонового переноса файлов аллергии.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedAllergy"
+            }
+          },
+          "medications": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждого перенесённого курса лекарств, в порядке medications запроса. Используется клиентом для фонового переноса файлов курса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedMedication"
             }
           }
         }
@@ -3174,7 +4678,7 @@
             "x-stoplight": {
               "id": "57b6c19c6ebf4"
             },
-            "description": "Тип владельца файла из реестра типов владельцев, например pet_photo"
+            "description": "Тип владельца файла из реестра типов владельцев, например pet_photo, event_file, vaccination_file, disease_file, vet_visit_file, allergy_file, medication_file"
           },
           "owner_id": {
             "type": "string",
@@ -3477,6 +4981,985 @@
             "x-stoplight": {
               "id": "f11e001cimp"
             }
+          }
+        }
+      },
+      "PetBodyConditionEnum": {
+        "title": "PetBodyConditionEnum",
+        "type": "string",
+        "description": "Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.",
+        "enum": [
+          "underweight",
+          "thin",
+          "normal",
+          "overweight",
+          "obese"
+        ]
+      },
+      "DiseaseStatusEnum": {
+        "title": "DiseaseStatusEnum",
+        "type": "string",
+        "enum": [
+          "active",
+          "cured"
+        ]
+      },
+      "AllergySeverityEnum": {
+        "title": "AllergySeverityEnum",
+        "type": "string",
+        "enum": [
+          "mild",
+          "moderate",
+          "severe"
+        ]
+      },
+      "GetVaccinationResponse": {
+        "title": "GetVaccinationResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "pet_id",
+          "name",
+          "administered_date",
+          "files_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "administered_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "next_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "administered_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "id события, связанного с этой прививкой на дату введения; null, если такое событие не создавалось."
+          },
+          "next_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "id события-напоминания о следующей прививке; null, если такое событие не создавалось."
+          },
+          "files_count": {
+            "type": "integer",
+            "description": "Количество прикреплённых файлов прививки (0, если файлов нет)."
+          }
+        }
+      },
+      "GetVaccinationRequest": {
+        "title": "GetVaccinationRequest",
+        "type": "object",
+        "required": [
+          "name",
+          "administered_date"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "administered_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "next_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "add_event_on_administered": {
+            "type": "boolean",
+            "description": "Если true — сервер дополнительно создаёт событие на дату введения (administered_date)."
+          },
+          "add_event_on_next": {
+            "type": "boolean",
+            "description": "Если true и передан next_date — сервер дополнительно создаёт событие-напоминание на дату next_date."
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true,
+            "description": "Время суток для создаваемых событий (administered/next). Не хранится в самой прививке."
+          }
+        }
+      },
+      "UpdateVaccinationRequest": {
+        "title": "UpdateVaccinationRequest",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "administered_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "next_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "add_event_on_administered": {
+            "type": "boolean"
+          },
+          "add_event_on_next": {
+            "type": "boolean"
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          }
+        }
+      },
+      "GetVaccinationIdResponseRequest": {
+        "title": "GetVaccinationIdResponseRequest",
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GetDiseaseResponse": {
+        "title": "GetDiseaseResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "pet_id",
+          "name",
+          "diagnosed_date",
+          "status",
+          "files_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "diagnosed_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DiseaseStatusEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "files_count": {
+            "type": "integer",
+            "description": "Количество прикреплённых файлов заболевания (0, если файлов нет)."
+          }
+        }
+      },
+      "GetDiseaseRequest": {
+        "title": "GetDiseaseRequest",
+        "type": "object",
+        "required": [
+          "name",
+          "diagnosed_date",
+          "status"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "diagnosed_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DiseaseStatusEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "UpdateDiseaseRequest": {
+        "title": "UpdateDiseaseRequest",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "diagnosed_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DiseaseStatusEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "GetDiseaseIdResponseRequest": {
+        "title": "GetDiseaseIdResponseRequest",
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GetVetVisitResponse": {
+        "title": "GetVetVisitResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "pet_id",
+          "visit_date",
+          "reason",
+          "files_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "visit_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "clinic": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "files_count": {
+            "type": "integer",
+            "description": "Количество прикреплённых файлов визита (0, если файлов нет)."
+          }
+        }
+      },
+      "GetVetVisitRequest": {
+        "title": "GetVetVisitRequest",
+        "type": "object",
+        "required": [
+          "visit_date",
+          "reason"
+        ],
+        "properties": {
+          "visit_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "clinic": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "UpdateVetVisitRequest": {
+        "title": "UpdateVetVisitRequest",
+        "type": "object",
+        "properties": {
+          "visit_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "clinic": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "GetVetVisitIdResponseRequest": {
+        "title": "GetVetVisitIdResponseRequest",
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GetAllergyResponse": {
+        "title": "GetAllergyResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "pet_id",
+          "allergen",
+          "severity",
+          "files_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "allergen": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "reaction": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "detected_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AllergySeverityEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "files_count": {
+            "type": "integer",
+            "description": "Количество прикреплённых файлов аллергии (0, если файлов нет)."
+          }
+        }
+      },
+      "GetAllergyRequest": {
+        "title": "GetAllergyRequest",
+        "type": "object",
+        "required": [
+          "allergen",
+          "severity"
+        ],
+        "properties": {
+          "allergen": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "reaction": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "detected_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AllergySeverityEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "UpdateAllergyRequest": {
+        "title": "UpdateAllergyRequest",
+        "type": "object",
+        "properties": {
+          "allergen": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "reaction": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "detected_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AllergySeverityEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "GetAllergyIdResponseRequest": {
+        "title": "GetAllergyIdResponseRequest",
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "GetMedicationResponse": {
+        "title": "GetMedicationResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "pet_id",
+          "name",
+          "dosage",
+          "periodicity_days",
+          "start_date",
+          "repeat_count",
+          "event_ids",
+          "files_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "dosage": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Дозировка в свободной форме, например «1 таблетка» или «5 мл»."
+          },
+          "periodicity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365,
+            "description": "Периодичность приёма в днях."
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14,
+            "description": "Количество приёмов курса."
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "event_ids": {
+            "type": "array",
+            "maxItems": 14,
+            "description": "id уже созданных событий приёма препарата, в порядке дат приёма. Заполняется через POST /medications/{id}/events.",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "files_count": {
+            "type": "integer",
+            "description": "Количество прикреплённых файлов курса лечения (0, если файлов нет)."
+          }
+        }
+      },
+      "GetMedicationRequest": {
+        "title": "GetMedicationRequest",
+        "type": "object",
+        "required": [
+          "name",
+          "dosage",
+          "periodicity_days",
+          "start_date",
+          "repeat_count"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "dosage": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "periodicity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "UpdateMedicationRequest": {
+        "title": "UpdateMedicationRequest",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "dosage": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "periodicity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "GetMedicationIdResponseRequest": {
+        "title": "GetMedicationIdResponseRequest",
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ImportVaccination": {
+        "title": "ImportVaccination",
+        "type": "object",
+        "required": [
+          "local_id",
+          "pet_local_id",
+          "name",
+          "administered_date"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID прививки в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере."
+          },
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "administered_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "next_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "add_event_on_administered": {
+            "type": "boolean"
+          },
+          "add_event_on_next": {
+            "type": "boolean"
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "administered_event_local_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "local_id связанного local-события из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки."
+          },
+          "next_event_local_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "local_id связанного local-события-напоминания из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем next_event_id прививки."
+          }
+        }
+      },
+      "ImportDisease": {
+        "title": "ImportDisease",
+        "type": "object",
+        "required": [
+          "local_id",
+          "pet_local_id",
+          "name",
+          "diagnosed_date",
+          "status"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID заболевания в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере."
+          },
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "diagnosed_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DiseaseStatusEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "ImportVetVisit": {
+        "title": "ImportVetVisit",
+        "type": "object",
+        "required": [
+          "local_id",
+          "pet_local_id",
+          "visit_date",
+          "reason"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID визита к ветеринару в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере."
+          },
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          },
+          "visit_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "clinic": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "ImportAllergy": {
+        "title": "ImportAllergy",
+        "type": "object",
+        "required": [
+          "local_id",
+          "pet_local_id",
+          "allergen",
+          "severity"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID аллергии в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере."
+          },
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          },
+          "allergen": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "reaction": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "detected_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AllergySeverityEnum"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          }
+        }
+      },
+      "ImportMedication": {
+        "title": "ImportMedication",
+        "type": "object",
+        "required": [
+          "local_id",
+          "pet_local_id",
+          "name",
+          "dosage",
+          "periodicity_days",
+          "start_date",
+          "repeat_count"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID курса лекарств в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере."
+          },
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "dosage": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "periodicity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14
+          },
+          "event_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "event_local_ids": {
+            "type": "array",
+            "maxItems": 14,
+            "description": "local_id уже переданных в этом же запросе local-событий приёма (events[].local_id), для связывания без пересчёта расписания на сервере.",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ImportedVaccination": {
+        "title": "ImportedVaccination",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ImportedDisease": {
+        "title": "ImportedDisease",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ImportedVetVisit": {
+        "title": "ImportedVetVisit",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ImportedAllergy": {
+        "title": "ImportedAllergy",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ImportedMedication": {
+        "title": "ImportedMedication",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       }

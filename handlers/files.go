@@ -107,6 +107,38 @@ var ownerTypeRegistry = map[string]ownerTypeSpec{
 		},
 		checkOwnership: database.CheckEventFileOwnership,
 	},
+	// Ведпаспорт (медкарта питомца, см. handlers/vetpassport.go): 5 новых
+	// owner_type, все с кардинальностью «до 10», симметрично event_file.
+	vaccinationFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            vetPassportFileMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckVaccinationFileOwnership,
+	},
+	diseaseFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            vetPassportFileMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckDiseaseFileOwnership,
+	},
+	vetVisitFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            vetPassportFileMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckVetVisitFileOwnership,
+	},
+	allergyFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            vetPassportFileMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckAllergyFileOwnership,
+	},
+	medicationFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            vetPassportFileMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckMedicationFileOwnership,
+	},
 }
 
 // FilesByIDHandler маршрутизирует /files/{file_id} и /files/{file_id}/complete.

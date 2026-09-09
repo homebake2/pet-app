@@ -23,7 +23,7 @@ func statsPath(query string) string {
 func expectOwnedPet(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG",
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG", nil,
 		))
 	expectNoWeightEvent(mock)
 }

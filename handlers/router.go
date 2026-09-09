@@ -24,6 +24,15 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/activities/calendar", GetActivitiesCalendarHandler)
 	mux.HandleFunc("/activities/day", GetActivitiesDayHandler)
 	mux.HandleFunc("/import/local-data", ImportLocalDataHandler)
+	// Ведпаспорт (медкарта питомца, см. handlers/vetpassport.go): списки/
+	// создание живут в PetByIDHandler (/pet/{id}/vaccinations и т.п., через
+	// petChildResourceHandlers), здесь регистрируются только PATCH/DELETE по
+	// собственному id сущности (и POST/DELETE /medications/{id}/events).
+	mux.HandleFunc("/vaccinations/", VaccinationByIDHandler)
+	mux.HandleFunc("/diseases/", DiseaseByIDHandler)
+	mux.HandleFunc("/vet-visits/", VetVisitByIDHandler)
+	mux.HandleFunc("/allergies/", AllergyByIDHandler)
+	mux.HandleFunc("/medications/", MedicationByIDHandler)
 	// Точный путь /files/upload-url выигрывает у поддерева /files/ в
 	// ServeMux, поэтому не попадает в FilesByIDHandler — та же идиома, что и
 	// у /events/stats против /events/.

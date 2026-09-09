@@ -13,6 +13,19 @@ const (
 	AuthorizationScopes = "Authorization.Scopes"
 )
 
+// Defines values for AllergySeverityEnum.
+const (
+	Mild     AllergySeverityEnum = "mild"
+	Moderate AllergySeverityEnum = "moderate"
+	Severe   AllergySeverityEnum = "severe"
+)
+
+// Defines values for DiseaseStatusEnum.
+const (
+	Active DiseaseStatusEnum = "active"
+	Cured  DiseaseStatusEnum = "cured"
+)
+
 // Defines values for ErrorCodeEnum.
 const (
 	BADREQUEST      ErrorCodeEnum = "BAD_REQUEST"
@@ -37,8 +50,8 @@ const (
 
 // Defines values for EventExcretionStatusEnum.
 const (
-	Abnormal EventExcretionStatusEnum = "abnormal"
-	Normal   EventExcretionStatusEnum = "normal"
+	EventExcretionStatusEnumAbnormal EventExcretionStatusEnum = "abnormal"
+	EventExcretionStatusEnumNormal   EventExcretionStatusEnum = "normal"
 )
 
 // Defines values for EventFeedingFoodEnum.
@@ -161,6 +174,15 @@ const (
 	Outside GetHabilitationEnum = "outside"
 )
 
+// Defines values for PetBodyConditionEnum.
+const (
+	PetBodyConditionEnumNormal      PetBodyConditionEnum = "normal"
+	PetBodyConditionEnumObese       PetBodyConditionEnum = "obese"
+	PetBodyConditionEnumOverweight  PetBodyConditionEnum = "overweight"
+	PetBodyConditionEnumThin        PetBodyConditionEnum = "thin"
+	PetBodyConditionEnumUnderweight PetBodyConditionEnum = "underweight"
+)
+
 // Defines values for PetIconEnum.
 const (
 	ANTFARM      PetIconEnum = "ANT_FARM"
@@ -234,6 +256,12 @@ type ActivitiesDayEventItem struct {
 	// * other — label (1–50)
 	Value EventValue `json:"value"`
 }
+
+// AllergySeverityEnum defines model for AllergySeverityEnum.
+type AllergySeverityEnum string
+
+// DiseaseStatusEnum defines model for DiseaseStatusEnum.
+type DiseaseStatusEnum string
 
 // ErrorCodeEnum Код ошибки для маппинга на фронте
 type ErrorCodeEnum string
@@ -389,6 +417,60 @@ type GetActivitiesResponse struct {
 	PetName string                      `json:"pet_name"`
 }
 
+// GetAllergyIdResponseRequest defines model for GetAllergyIdResponseRequest.
+type GetAllergyIdResponseRequest struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+// GetAllergyRequest defines model for GetAllergyRequest.
+type GetAllergyRequest struct {
+	Allergen     string              `json:"allergen"`
+	DetectedDate *openapi_types.Date `json:"detected_date"`
+	Note         *string             `json:"note"`
+	Reaction     *string             `json:"reaction"`
+	Severity     AllergySeverityEnum `json:"severity"`
+}
+
+// GetAllergyResponse defines model for GetAllergyResponse.
+type GetAllergyResponse struct {
+	Allergen     string              `json:"allergen"`
+	DetectedDate *openapi_types.Date `json:"detected_date"`
+
+	// FilesCount Количество прикреплённых файлов аллергии (0, если файлов нет).
+	FilesCount int                 `json:"files_count"`
+	Id         openapi_types.UUID  `json:"id"`
+	Note       *string             `json:"note"`
+	PetId      openapi_types.UUID  `json:"pet_id"`
+	Reaction   *string             `json:"reaction"`
+	Severity   AllergySeverityEnum `json:"severity"`
+}
+
+// GetDiseaseIdResponseRequest defines model for GetDiseaseIdResponseRequest.
+type GetDiseaseIdResponseRequest struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+// GetDiseaseRequest defines model for GetDiseaseRequest.
+type GetDiseaseRequest struct {
+	DiagnosedDate openapi_types.Date `json:"diagnosed_date"`
+	Name          string             `json:"name"`
+	Note          *string            `json:"note"`
+	Status        DiseaseStatusEnum  `json:"status"`
+}
+
+// GetDiseaseResponse defines model for GetDiseaseResponse.
+type GetDiseaseResponse struct {
+	DiagnosedDate openapi_types.Date `json:"diagnosed_date"`
+
+	// FilesCount Количество прикреплённых файлов заболевания (0, если файлов нет).
+	FilesCount int                `json:"files_count"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       string             `json:"name"`
+	Note       *string            `json:"note"`
+	PetId      openapi_types.UUID `json:"pet_id"`
+	Status     DiseaseStatusEnum  `json:"status"`
+}
+
 // GetErrorResponse defines model for GetErrorResponse.
 type GetErrorResponse struct {
 	// Code Код ошибки для маппинга на фронте
@@ -526,17 +608,60 @@ type GetMasterProfileResponse struct {
 	Phone      *string            `json:"phone"`
 }
 
+// GetMedicationIdResponseRequest defines model for GetMedicationIdResponseRequest.
+type GetMedicationIdResponseRequest struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+// GetMedicationRequest defines model for GetMedicationRequest.
+type GetMedicationRequest struct {
+	Dosage          string             `json:"dosage"`
+	EventTime       *string            `json:"event_time"`
+	Name            string             `json:"name"`
+	Note            *string            `json:"note"`
+	PeriodicityDays int                `json:"periodicity_days"`
+	RepeatCount     int                `json:"repeat_count"`
+	StartDate       openapi_types.Date `json:"start_date"`
+}
+
+// GetMedicationResponse defines model for GetMedicationResponse.
+type GetMedicationResponse struct {
+	// Dosage Дозировка в свободной форме, например «1 таблетка» или «5 мл».
+	Dosage string `json:"dosage"`
+
+	// EventIds id уже созданных событий приёма препарата, в порядке дат приёма. Заполняется через POST /medications/{id}/events.
+	EventIds  []openapi_types.UUID `json:"event_ids"`
+	EventTime *string              `json:"event_time"`
+
+	// FilesCount Количество прикреплённых файлов курса лечения (0, если файлов нет).
+	FilesCount int                `json:"files_count"`
+	Id         openapi_types.UUID `json:"id"`
+	Name       string             `json:"name"`
+	Note       *string            `json:"note"`
+
+	// PeriodicityDays Периодичность приёма в днях.
+	PeriodicityDays int                `json:"periodicity_days"`
+	PetId           openapi_types.UUID `json:"pet_id"`
+
+	// RepeatCount Количество приёмов курса.
+	RepeatCount int                `json:"repeat_count"`
+	StartDate   openapi_types.Date `json:"start_date"`
+}
+
 // GetPetProfileRequest defines model for GetPetProfileRequest.
 type GetPetProfileRequest struct {
-	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed      *string              `json:"breed,omitempty"`
-	Color      *string              `json:"color,omitempty"`
-	Gender     *GetGenderEnum       `json:"gender,omitempty"`
-	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
-	Name       string               `json:"name"`
-	Notes      *string              `json:"notes,omitempty"`
-	Species    string               `json:"species"`
-	Sterilized *bool                `json:"sterilized,omitempty"`
+	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
+
+	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
+	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
+	Breed         *string               `json:"breed,omitempty"`
+	Color         *string               `json:"color,omitempty"`
+	Gender        *GetGenderEnum        `json:"gender,omitempty"`
+	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
+	Name          string                `json:"name"`
+	Notes         *string               `json:"notes,omitempty"`
+	Species       string                `json:"species"`
+	Sterilized    *bool                 `json:"sterilized,omitempty"`
 
 	// Weight Вес питомца в кг (0.001–400), опционально. Не сохраняется как поле питомца — при передаче сервер создаёт событие типа weight со значением amount=weight.
 	Weight *float32 `json:"weight,omitempty"`
@@ -544,16 +669,19 @@ type GetPetProfileRequest struct {
 
 // GetPetProfileResponse defines model for GetPetProfileResponse.
 type GetPetProfileResponse struct {
-	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed      *string              `json:"breed,omitempty"`
-	Color      *string              `json:"color"`
-	Gender     *GetGenderEnum       `json:"gender,omitempty"`
-	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
-	Icon       PetIconEnum          `json:"icon"`
-	Id         openapi_types.UUID   `json:"id"`
-	IsDeleted  *bool                `json:"is_deleted,omitempty"`
-	Name       string               `json:"name"`
-	Notes      *string              `json:"notes"`
+	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
+
+	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
+	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
+	Breed         *string               `json:"breed,omitempty"`
+	Color         *string               `json:"color"`
+	Gender        *GetGenderEnum        `json:"gender,omitempty"`
+	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
+	Icon          PetIconEnum           `json:"icon"`
+	Id            openapi_types.UUID    `json:"id"`
+	IsDeleted     *bool                 `json:"is_deleted,omitempty"`
+	Name          string                `json:"name"`
+	Notes         *string               `json:"notes"`
 
 	// PhotoFileId id файла фотографии для DELETE /files/{file_id}; null если фотографии нет
 	PhotoFileId *openapi_types.UUID `json:"photo_file_id"`
@@ -607,6 +735,99 @@ type GetShortInfoPetResponse struct {
 	Species  string  `json:"species"`
 }
 
+// GetVaccinationIdResponseRequest defines model for GetVaccinationIdResponseRequest.
+type GetVaccinationIdResponseRequest struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+// GetVaccinationRequest defines model for GetVaccinationRequest.
+type GetVaccinationRequest struct {
+	// AddEventOnAdministered Если true — сервер дополнительно создаёт событие на дату введения (administered_date).
+	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
+
+	// AddEventOnNext Если true и передан next_date — сервер дополнительно создаёт событие-напоминание на дату next_date.
+	AddEventOnNext   *bool              `json:"add_event_on_next,omitempty"`
+	AdministeredDate openapi_types.Date `json:"administered_date"`
+
+	// EventTime Время суток для создаваемых событий (administered/next). Не хранится в самой прививке.
+	EventTime *string             `json:"event_time"`
+	Name      string              `json:"name"`
+	NextDate  *openapi_types.Date `json:"next_date"`
+}
+
+// GetVaccinationResponse defines model for GetVaccinationResponse.
+type GetVaccinationResponse struct {
+	AdministeredDate openapi_types.Date `json:"administered_date"`
+
+	// AdministeredEventId id события, связанного с этой прививкой на дату введения; null, если такое событие не создавалось.
+	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
+
+	// FilesCount Количество прикреплённых файлов прививки (0, если файлов нет).
+	FilesCount int                 `json:"files_count"`
+	Id         openapi_types.UUID  `json:"id"`
+	Name       string              `json:"name"`
+	NextDate   *openapi_types.Date `json:"next_date"`
+
+	// NextEventId id события-напоминания о следующей прививке; null, если такое событие не создавалось.
+	NextEventId *openapi_types.UUID `json:"next_event_id"`
+	PetId       openapi_types.UUID  `json:"pet_id"`
+}
+
+// GetVetVisitIdResponseRequest defines model for GetVetVisitIdResponseRequest.
+type GetVetVisitIdResponseRequest struct {
+	Id openapi_types.UUID `json:"id"`
+}
+
+// GetVetVisitRequest defines model for GetVetVisitRequest.
+type GetVetVisitRequest struct {
+	Clinic    *string            `json:"clinic"`
+	Note      *string            `json:"note"`
+	Reason    string             `json:"reason"`
+	VisitDate openapi_types.Date `json:"visit_date"`
+}
+
+// GetVetVisitResponse defines model for GetVetVisitResponse.
+type GetVetVisitResponse struct {
+	Clinic *string `json:"clinic"`
+
+	// FilesCount Количество прикреплённых файлов визита (0, если файлов нет).
+	FilesCount int                `json:"files_count"`
+	Id         openapi_types.UUID `json:"id"`
+	Note       *string            `json:"note"`
+	PetId      openapi_types.UUID `json:"pet_id"`
+	Reason     string             `json:"reason"`
+	VisitDate  openapi_types.Date `json:"visit_date"`
+}
+
+// ImportAllergy defines model for ImportAllergy.
+type ImportAllergy struct {
+	Allergen     string              `json:"allergen"`
+	DetectedDate *openapi_types.Date `json:"detected_date"`
+
+	// LocalId Клиентский UUID аллергии в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
+	LocalId string  `json:"local_id"`
+	Note    *string `json:"note"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId string              `json:"pet_local_id"`
+	Reaction   *string             `json:"reaction"`
+	Severity   AllergySeverityEnum `json:"severity"`
+}
+
+// ImportDisease defines model for ImportDisease.
+type ImportDisease struct {
+	DiagnosedDate openapi_types.Date `json:"diagnosed_date"`
+
+	// LocalId Клиентский UUID заболевания в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
+	LocalId string  `json:"local_id"`
+	Name    string  `json:"name"`
+	Note    *string `json:"note"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId string            `json:"pet_local_id"`
+	Status     DiseaseStatusEnum `json:"status"`
+}
+
 // ImportLocalDataEvent defines model for ImportLocalDataEvent.
 type ImportLocalDataEvent struct {
 	Date time.Time `json:"date"`
@@ -638,11 +859,14 @@ type ImportLocalDataEvent struct {
 
 // ImportLocalDataPet defines model for ImportLocalDataPet.
 type ImportLocalDataPet struct {
-	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed      *string              `json:"breed,omitempty"`
-	Color      *string              `json:"color,omitempty"`
-	Gender     *GetGenderEnum       `json:"gender,omitempty"`
-	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
+
+	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
+	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
+	Breed         *string               `json:"breed,omitempty"`
+	Color         *string               `json:"color,omitempty"`
+	Gender        *GetGenderEnum        `json:"gender,omitempty"`
+	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
 
 	// LocalId Клиентский UUID питомца в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса (для сопоставления с events[].pet_local_id), не сохраняется на сервере.
 	LocalId    string  `json:"local_id"`
@@ -654,25 +878,133 @@ type ImportLocalDataPet struct {
 
 // ImportLocalDataRequest defines model for ImportLocalDataRequest.
 type ImportLocalDataRequest struct {
-	Events  []ImportLocalDataEvent `json:"events"`
-	Pets    []ImportLocalDataPet   `json:"pets"`
-	Profile *GetProfileRequest     `json:"profile,omitempty"`
+	// Allergies Опционально: переносимые аллергии. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
+	Allergies *[]ImportAllergy `json:"allergies,omitempty"`
+
+	// Diseases Опционально: переносимые заболевания. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
+	Diseases *[]ImportDisease       `json:"diseases,omitempty"`
+	Events   []ImportLocalDataEvent `json:"events"`
+
+	// Medications Опционально: переносимые курсы лекарств. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
+	Medications *[]ImportMedication  `json:"medications,omitempty"`
+	Pets        []ImportLocalDataPet `json:"pets"`
+	Profile     *GetProfileRequest   `json:"profile,omitempty"`
+
+	// Vaccinations Опционально: переносимые прививки. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
+	Vaccinations *[]ImportVaccination `json:"vaccinations,omitempty"`
+
+	// VetVisits Опционально: переносимые визиты к ветеринару. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
+	VetVisits *[]ImportVetVisit `json:"vet_visits,omitempty"`
 }
 
 // ImportLocalDataResponse defines model for ImportLocalDataResponse.
 type ImportLocalDataResponse struct {
+	// Allergies Сопоставление local_id -> серверный id для каждой перенесённой аллергии, в порядке allergies запроса. Используется клиентом для фонового переноса файлов аллергии.
+	Allergies         []ImportedAllergy `json:"allergies"`
+	AllergiesImported int               `json:"allergies_imported"`
+
+	// Diseases Сопоставление local_id -> серверный id для каждого перенесённого заболевания, в порядке diseases запроса. Используется клиентом для фонового переноса файлов заболевания.
+	Diseases         []ImportedDisease `json:"diseases"`
+	DiseasesImported int               `json:"diseases_imported"`
+
 	// Events Сопоставление local_id -> серверный id для каждого перенесённого события, в порядке events запроса. Используется клиентом для фонового переноса файлов события (см. «Файлы события — Frontend (dataSource=local)»).
 	Events         []ImportedEvent `json:"events"`
 	EventsImported int             `json:"events_imported"`
+
+	// Medications Сопоставление local_id -> серверный id для каждого перенесённого курса лекарств, в порядке medications запроса. Используется клиентом для фонового переноса файлов курса.
+	Medications         []ImportedMedication `json:"medications"`
+	MedicationsImported int                  `json:"medications_imported"`
 
 	// Pets Сопоставление local_id -> серверный id для каждого перенесённого питомца, в порядке pets запроса. Используется клиентом для фонового переноса фотографий (см. «Фотография питомца — Frontend (dataSource=local)»).
 	Pets            []ImportedPet `json:"pets"`
 	PetsImported    int           `json:"pets_imported"`
 	ProfileImported bool          `json:"profile_imported"`
+
+	// Vaccinations Сопоставление local_id -> серверный id для каждой перенесённой прививки, в порядке vaccinations запроса. Используется клиентом для фонового переноса файлов прививки.
+	Vaccinations         []ImportedVaccination `json:"vaccinations"`
+	VaccinationsImported int                   `json:"vaccinations_imported"`
+
+	// VetVisits Сопоставление local_id -> серверный id для каждого перенесённого визита к ветеринару, в порядке vet_visits запроса. Используется клиентом для фонового переноса файлов визита.
+	VetVisits         []ImportedVetVisit `json:"vet_visits"`
+	VetVisitsImported int                `json:"vet_visits_imported"`
+}
+
+// ImportMedication defines model for ImportMedication.
+type ImportMedication struct {
+	Dosage string `json:"dosage"`
+
+	// EventLocalIds local_id уже переданных в этом же запросе local-событий приёма (events[].local_id), для связывания без пересчёта расписания на сервере.
+	EventLocalIds *[]string `json:"event_local_ids,omitempty"`
+	EventTime     *string   `json:"event_time"`
+
+	// LocalId Клиентский UUID курса лекарств в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
+	LocalId         string  `json:"local_id"`
+	Name            string  `json:"name"`
+	Note            *string `json:"note"`
+	PeriodicityDays int     `json:"periodicity_days"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId  string             `json:"pet_local_id"`
+	RepeatCount int                `json:"repeat_count"`
+	StartDate   openapi_types.Date `json:"start_date"`
+}
+
+// ImportVaccination defines model for ImportVaccination.
+type ImportVaccination struct {
+	AddEventOnAdministered *bool              `json:"add_event_on_administered,omitempty"`
+	AddEventOnNext         *bool              `json:"add_event_on_next,omitempty"`
+	AdministeredDate       openapi_types.Date `json:"administered_date"`
+
+	// AdministeredEventLocalId local_id связанного local-события из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки.
+	AdministeredEventLocalId *string `json:"administered_event_local_id"`
+	EventTime                *string `json:"event_time"`
+
+	// LocalId Клиентский UUID прививки в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
+	LocalId  string              `json:"local_id"`
+	Name     string              `json:"name"`
+	NextDate *openapi_types.Date `json:"next_date"`
+
+	// NextEventLocalId local_id связанного local-события-напоминания из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем next_event_id прививки.
+	NextEventLocalId *string `json:"next_event_local_id"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId string `json:"pet_local_id"`
+}
+
+// ImportVetVisit defines model for ImportVetVisit.
+type ImportVetVisit struct {
+	Clinic *string `json:"clinic"`
+
+	// LocalId Клиентский UUID визита к ветеринару в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
+	LocalId string  `json:"local_id"`
+	Note    *string `json:"note"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId string             `json:"pet_local_id"`
+	Reason     string             `json:"reason"`
+	VisitDate  openapi_types.Date `json:"visit_date"`
+}
+
+// ImportedAllergy defines model for ImportedAllergy.
+type ImportedAllergy struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
+}
+
+// ImportedDisease defines model for ImportedDisease.
+type ImportedDisease struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
 }
 
 // ImportedEvent defines model for ImportedEvent.
 type ImportedEvent struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
+}
+
+// ImportedMedication defines model for ImportedMedication.
+type ImportedMedication struct {
 	Id      openapi_types.UUID `json:"id"`
 	LocalId string             `json:"local_id"`
 }
@@ -683,11 +1015,26 @@ type ImportedPet struct {
 	LocalId string             `json:"local_id"`
 }
 
+// ImportedVaccination defines model for ImportedVaccination.
+type ImportedVaccination struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
+}
+
+// ImportedVetVisit defines model for ImportedVetVisit.
+type ImportedVetVisit struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
+}
+
 // ItemsArrayActivitiesModel defines model for ItemsArrayActivitiesModel.
 type ItemsArrayActivitiesModel struct {
 	Date   openapi_types.Date `json:"date"`
 	Events []GetEventResponse `json:"events"`
 }
+
+// PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
+type PetBodyConditionEnum string
 
 // PetIconEnum defines model for PetIconEnum.
 type PetIconEnum string
@@ -701,7 +1048,7 @@ type PostFilesUploadUrlRequest struct {
 	Filename *string            `json:"filename,omitempty"`
 	OwnerId  openapi_types.UUID `json:"owner_id"`
 
-	// OwnerType Тип владельца файла из реестра типов владельцев, например pet_photo
+	// OwnerType Тип владельца файла из реестра типов владельцев, например pet_photo, event_file, vaccination_file, disease_file, vet_visit_file, allergy_file, medication_file
 	OwnerType string `json:"owner_type"`
 }
 
@@ -715,6 +1062,23 @@ type PostFilesUploadUrlResponse struct {
 
 	// UploadUrl Presigned PUT URL для прямой загрузки в S3-совместимое хранилище
 	UploadUrl string `json:"upload_url"`
+}
+
+// UpdateAllergyRequest defines model for UpdateAllergyRequest.
+type UpdateAllergyRequest struct {
+	Allergen     *string              `json:"allergen,omitempty"`
+	DetectedDate *openapi_types.Date  `json:"detected_date"`
+	Note         *string              `json:"note"`
+	Reaction     *string              `json:"reaction"`
+	Severity     *AllergySeverityEnum `json:"severity,omitempty"`
+}
+
+// UpdateDiseaseRequest defines model for UpdateDiseaseRequest.
+type UpdateDiseaseRequest struct {
+	DiagnosedDate *openapi_types.Date `json:"diagnosed_date,omitempty"`
+	Name          *string             `json:"name,omitempty"`
+	Note          *string             `json:"note"`
+	Status        *DiseaseStatusEnum  `json:"status,omitempty"`
 }
 
 // UpdateEventRequest defines model for UpdateEventRequest.
@@ -741,20 +1105,52 @@ type UpdateEventRequest struct {
 	Value *EventValue `json:"value,omitempty"`
 }
 
+// UpdateMedicationRequest defines model for UpdateMedicationRequest.
+type UpdateMedicationRequest struct {
+	Dosage          *string             `json:"dosage,omitempty"`
+	EventTime       *string             `json:"event_time"`
+	Name            *string             `json:"name,omitempty"`
+	Note            *string             `json:"note"`
+	PeriodicityDays *int                `json:"periodicity_days,omitempty"`
+	RepeatCount     *int                `json:"repeat_count,omitempty"`
+	StartDate       *openapi_types.Date `json:"start_date,omitempty"`
+}
+
 // UpdatePetProfileRequest defines model for UpdatePetProfileRequest.
 type UpdatePetProfileRequest struct {
-	BirthDate  *openapi_types.Date  `json:"birth_date,omitempty"`
-	Breed      *string              `json:"breed,omitempty"`
-	Color      *string              `json:"color,omitempty"`
-	Gender     *GetGenderEnum       `json:"gender,omitempty"`
-	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
-	Name       *string              `json:"name,omitempty"`
-	Notes      *string              `json:"notes,omitempty"`
-	Species    *string              `json:"species,omitempty"`
-	Sterilized *bool                `json:"sterilized,omitempty"`
+	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
+
+	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
+	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
+	Breed         *string               `json:"breed,omitempty"`
+	Color         *string               `json:"color,omitempty"`
+	Gender        *GetGenderEnum        `json:"gender,omitempty"`
+	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
+	Name          *string               `json:"name,omitempty"`
+	Notes         *string               `json:"notes,omitempty"`
+	Species       *string               `json:"species,omitempty"`
+	Sterilized    *bool                 `json:"sterilized,omitempty"`
 
 	// Weight Вес питомца в кг (0.001–400), опционально. Отсутствие ключа и явный null равнозначны — событие weight не создаётся. При передаче не-null числа сервер создаёт новое событие типа weight; существующие события не изменяются.
 	Weight *float32 `json:"weight"`
+}
+
+// UpdateVaccinationRequest defines model for UpdateVaccinationRequest.
+type UpdateVaccinationRequest struct {
+	AddEventOnAdministered *bool               `json:"add_event_on_administered,omitempty"`
+	AddEventOnNext         *bool               `json:"add_event_on_next,omitempty"`
+	AdministeredDate       *openapi_types.Date `json:"administered_date,omitempty"`
+	EventTime              *string             `json:"event_time"`
+	Name                   *string             `json:"name,omitempty"`
+	NextDate               *openapi_types.Date `json:"next_date"`
+}
+
+// UpdateVetVisitRequest defines model for UpdateVetVisitRequest.
+type UpdateVetVisitRequest struct {
+	Clinic    *string             `json:"clinic"`
+	Note      *string             `json:"note"`
+	Reason    *string             `json:"reason,omitempty"`
+	VisitDate *openapi_types.Date `json:"visit_date,omitempty"`
 }
 
 // IdempotencyKey defines model for IdempotencyKey.
@@ -813,6 +1209,36 @@ type PostPetParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// GetPetAllergiesParams defines parameters for GetPetAllergies.
+type GetPetAllergiesParams struct {
+	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Смещение для пагинации. По умолчанию 0.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// PostAllergyParams defines parameters for PostAllergy.
+type PostAllergyParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetPetDiseasesParams defines parameters for GetPetDiseases.
+type GetPetDiseasesParams struct {
+	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Смещение для пагинации. По умолчанию 0.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// PostDiseaseParams defines parameters for PostDisease.
+type PostDiseaseParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // GetPetEventsParams defines parameters for GetPetEvents.
 type GetPetEventsParams struct {
 	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
@@ -821,6 +1247,54 @@ type GetPetEventsParams struct {
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
+
+// GetPetMedicationsParams defines parameters for GetPetMedications.
+type GetPetMedicationsParams struct {
+	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Смещение для пагинации. По умолчанию 0.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// PostMedicationParams defines parameters for PostMedication.
+type PostMedicationParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetPetVaccinationsParams defines parameters for GetPetVaccinations.
+type GetPetVaccinationsParams struct {
+	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Смещение для пагинации. По умолчанию 0.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// PostVaccinationParams defines parameters for PostVaccination.
+type PostVaccinationParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetPetVetVisitsParams defines parameters for GetPetVetVisits.
+type GetPetVetVisitsParams struct {
+	// Limit Максимум записей в ответе. По умолчанию 50, значения больше 200 молча ограничиваются до 200.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset Смещение для пагинации. По умолчанию 0.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// PostVetVisitParams defines parameters for PostVetVisit.
+type PostVetVisitParams struct {
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// PatchAllergyJSONRequestBody defines body for PatchAllergy for application/json ContentType.
+type PatchAllergyJSONRequestBody = UpdateAllergyRequest
 
 // PostGuestJSONRequestBody defines body for PostGuest for application/json ContentType.
 type PostGuestJSONRequestBody = GetGuestRequest
@@ -837,6 +1311,9 @@ type PostRefreshJSONRequestBody = GetRefreshRequest
 // PostRegisterJSONRequestBody defines body for PostRegister for application/json ContentType.
 type PostRegisterJSONRequestBody = GetLoginRequest
 
+// PatchDiseaseJSONRequestBody defines body for PatchDisease for application/json ContentType.
+type PatchDiseaseJSONRequestBody = UpdateDiseaseRequest
+
 // PostEventJSONRequestBody defines body for PostEvent for application/json ContentType.
 type PostEventJSONRequestBody = GetEventRequest
 
@@ -849,14 +1326,38 @@ type PostFilesUploadUrlJSONRequestBody = PostFilesUploadUrlRequest
 // PostImportLocalDataJSONRequestBody defines body for PostImportLocalData for application/json ContentType.
 type PostImportLocalDataJSONRequestBody = ImportLocalDataRequest
 
+// PatchMedicationJSONRequestBody defines body for PatchMedication for application/json ContentType.
+type PatchMedicationJSONRequestBody = UpdateMedicationRequest
+
 // PostPetJSONRequestBody defines body for PostPet for application/json ContentType.
 type PostPetJSONRequestBody = GetPetProfileRequest
 
 // PutPetJSONRequestBody defines body for PutPet for application/json ContentType.
 type PutPetJSONRequestBody = UpdatePetProfileRequest
 
+// PostAllergyJSONRequestBody defines body for PostAllergy for application/json ContentType.
+type PostAllergyJSONRequestBody = GetAllergyRequest
+
+// PostDiseaseJSONRequestBody defines body for PostDisease for application/json ContentType.
+type PostDiseaseJSONRequestBody = GetDiseaseRequest
+
+// PostMedicationJSONRequestBody defines body for PostMedication for application/json ContentType.
+type PostMedicationJSONRequestBody = GetMedicationRequest
+
+// PostVaccinationJSONRequestBody defines body for PostVaccination for application/json ContentType.
+type PostVaccinationJSONRequestBody = GetVaccinationRequest
+
+// PostVetVisitJSONRequestBody defines body for PostVetVisit for application/json ContentType.
+type PostVetVisitJSONRequestBody = GetVetVisitRequest
+
 // PostProfileJSONRequestBody defines body for PostProfile for application/json ContentType.
 type PostProfileJSONRequestBody = GetProfileRequest
 
 // PutProfileJSONRequestBody defines body for PutProfile for application/json ContentType.
 type PutProfileJSONRequestBody = GetProfileUpdateRequest
+
+// PatchVaccinationJSONRequestBody defines body for PatchVaccination for application/json ContentType.
+type PatchVaccinationJSONRequestBody = UpdateVaccinationRequest
+
+// PatchVetVisitJSONRequestBody defines body for PatchVetVisit for application/json ContentType.
+type PatchVetVisitJSONRequestBody = UpdateVetVisitRequest

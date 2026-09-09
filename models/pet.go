@@ -136,6 +136,9 @@ type CreatePetRequest struct {
 	// поле питомца. При передаче сервер создаёт событие типа weight со
 	// значением amount=weight (см. «Вес питомца — Backend»).
 	Weight *float64 `json:"weight,omitempty"`
+	// BodyCondition — кондиция тела питомца (PetBodyConditionEnum), опционально
+	// (см. «Ведпаспорт — Backend»). Хранится как поле pet.body_condition.
+	BodyCondition *string `json:"body_condition,omitempty"`
 }
 
 type PetItem struct {
@@ -188,21 +191,25 @@ type PetIdResponse struct {
 	// date_time события типа weight; null, если таких событий нет. Не
 	// хранится как отдельное поле питомца (см. «Вес питомца — Backend»).
 	Weight *float64 `json:"weight"`
+	// BodyCondition — кондиция тела питомца (PetBodyConditionEnum); null, если
+	// не задана (см. «Ведпаспорт — Backend»).
+	BodyCondition *string `json:"body_condition,omitempty"`
 }
 
 type PetIdDB struct {
-	ID         uuid.UUID
-	Name       string
-	Gender     sql.NullString
-	Species    string
-	BirthDate  sql.NullTime
-	Color      sql.NullString
-	Sterilized sql.NullBool
-	Habitation sql.NullString
-	Notes      sql.NullString
-	DeletedAt  sql.NullTime
-	Breed      sql.NullString
-	Icon       sql.NullString
+	ID            uuid.UUID
+	Name          string
+	Gender        sql.NullString
+	Species       string
+	BirthDate     sql.NullTime
+	Color         sql.NullString
+	Sterilized    sql.NullBool
+	Habitation    sql.NullString
+	Notes         sql.NullString
+	DeletedAt     sql.NullTime
+	Breed         sql.NullString
+	Icon          sql.NullString
+	BodyCondition sql.NullString
 }
 
 // UpdatePetRequest — тело запроса PUT /pet/{id}.
@@ -223,4 +230,8 @@ type UpdatePetRequest struct {
 	// создаётся. Очистки веса через этот эндпоинт нет — только передача
 	// нового числа создаёт новое событие weight (см. «Вес питомца — Backend»).
 	Weight *float64 `json:"weight,omitempty"`
+	// BodyCondition — кондиция тела питомца (PetBodyConditionEnum), nullable:
+	// передача пустой строки "" очищает поле (то же соглашение, что и у
+	// UpdateEventRequest.Notes), передача значения — обновляет его.
+	BodyCondition *string `json:"body_condition,omitempty"`
 }

@@ -156,6 +156,28 @@ func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ветпаспорт: /pet/{id}/vaccinations|diseases|vet-visits|allergies|medications
+	// (см. handlers/vetpassport.go) — те же GET (список)/POST (создание), что
+	// и /pet/{id}/events, но для 5 новых pet_id-scoped сущностей.
+	if len(segments) == 2 {
+		if handler, known := petChildResourceHandlers[segments[1]]; known {
+			petID, err := uuid.Parse(segments[0])
+			if err != nil {
+				writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
+				return
+			}
+			switch r.Method {
+			case http.MethodGet:
+				handler.list(w, r, petID)
+			case http.MethodPost:
+				handler.create(w, r, petID)
+			default:
+				writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
+			}
+			return
+		}
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		GetPetHandler(w, r)
@@ -234,6 +256,11 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Weight != nil && !isValidWeight(*req.Weight) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле weight должно быть в диапазоне 0.001–400")
+		return
+	}
+
+	if req.BodyCondition != nil && !models.IsValidBodyCondition(*req.BodyCondition) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение body_condition")
 		return
 	}
 
@@ -441,6 +468,11 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Weight != nil && !isValidWeight(*req.Weight) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле weight должно быть в диапазоне 0.001–400")
+		return
+	}
+
+	if req.BodyCondition != nil && *req.BodyCondition != "" && !models.IsValidBodyCondition(*req.BodyCondition) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение body_condition")
 		return
 	}
 

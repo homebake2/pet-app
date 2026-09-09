@@ -18,22 +18,26 @@ type ImportLocalDataPet struct {
 	Notes      *string `json:"notes,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
 	Icon       *string `json:"icon,omitempty"`
+	// BodyCondition — кондиция тела питомца, опционально (см. «Ведпаспорт —
+	// Backend», паритет сущностей при переносе).
+	BodyCondition *string `json:"body_condition,omitempty"`
 }
 
 // ToCreatePetRequest конвертирует элемент pets[] в тот же тип запроса, что
 // принимает POST /pet, чтобы переиспользовать вставку без дублирования кода.
 func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 	return CreatePetRequest{
-		Name:       p.Name,
-		Gender:     p.Gender,
-		Species:    p.Species,
-		BirthDate:  p.BirthDate,
-		Color:      p.Color,
-		Sterilized: p.Sterilized,
-		Habitation: p.Habitation,
-		Notes:      p.Notes,
-		Breed:      p.Breed,
-		Icon:       p.Icon,
+		Name:          p.Name,
+		Gender:        p.Gender,
+		Species:       p.Species,
+		BirthDate:     p.BirthDate,
+		Color:         p.Color,
+		Sterilized:    p.Sterilized,
+		Habitation:    p.Habitation,
+		Notes:         p.Notes,
+		Breed:         p.Breed,
+		Icon:          p.Icon,
+		BodyCondition: p.BodyCondition,
 	}
 }
 
@@ -90,10 +94,163 @@ func (p ImportLocalDataProfile) ToProfile(userID string) Profile {
 // умышленно без `omitempty`/указателя: отсутствие ключа и JSON null
 // декодируются в nil-срез одинаково, и оба случая должны быть отклонены
 // валидацией хендлера (поля обязательны, хоть и могут быть пустым массивом).
+// Vaccinations/Diseases/VetVisits/Allergies/Medications — опциональные
+// массивы ветпаспорта (см. "Ведпаспорт — Backend"); отсутствие/null
+// трактуются как "нечего переносить", в отличие от pets/events.
 type ImportLocalDataRequest struct {
-	Profile *ImportLocalDataProfile `json:"profile"`
-	Pets    []ImportLocalDataPet    `json:"pets"`
-	Events  []ImportLocalDataEvent  `json:"events"`
+	Profile      *ImportLocalDataProfile `json:"profile"`
+	Pets         []ImportLocalDataPet    `json:"pets"`
+	Events       []ImportLocalDataEvent  `json:"events"`
+	Vaccinations []ImportVaccination     `json:"vaccinations,omitempty"`
+	Diseases     []ImportDisease         `json:"diseases,omitempty"`
+	VetVisits    []ImportVetVisit        `json:"vet_visits,omitempty"`
+	Allergies    []ImportAllergy         `json:"allergies,omitempty"`
+	Medications  []ImportMedication      `json:"medications,omitempty"`
+}
+
+// ImportVaccination — элемент vaccinations[] в теле запроса POST /import/local-data.
+type ImportVaccination struct {
+	LocalID                  string  `json:"local_id"`
+	PetLocalID               string  `json:"pet_local_id"`
+	Name                     string  `json:"name"`
+	AdministeredDate         string  `json:"administered_date"`
+	NextDate                 *string `json:"next_date,omitempty"`
+	AddEventOnAdministered   *bool   `json:"add_event_on_administered,omitempty"`
+	AddEventOnNext           *bool   `json:"add_event_on_next,omitempty"`
+	EventTime                *string `json:"event_time,omitempty"`
+	AdministeredEventLocalID *string `json:"administered_event_local_id,omitempty"`
+	NextEventLocalID         *string `json:"next_event_local_id,omitempty"`
+}
+
+// ToCreateVaccinationRequest конвертирует элемент vaccinations[] в тот же
+// тип запроса, что принимает POST /pet/{id}/vaccinations.
+func (v ImportVaccination) ToCreateVaccinationRequest() CreateVaccinationRequest {
+	return CreateVaccinationRequest{
+		Name:                   v.Name,
+		AdministeredDate:       v.AdministeredDate,
+		NextDate:               v.NextDate,
+		AddEventOnAdministered: v.AddEventOnAdministered,
+		AddEventOnNext:         v.AddEventOnNext,
+		EventTime:              v.EventTime,
+	}
+}
+
+// ImportDisease — элемент diseases[] в теле запроса POST /import/local-data.
+type ImportDisease struct {
+	LocalID       string  `json:"local_id"`
+	PetLocalID    string  `json:"pet_local_id"`
+	Name          string  `json:"name"`
+	DiagnosedDate string  `json:"diagnosed_date"`
+	Status        string  `json:"status"`
+	Note          *string `json:"note,omitempty"`
+}
+
+func (d ImportDisease) ToCreateDiseaseRequest() CreateDiseaseRequest {
+	return CreateDiseaseRequest{
+		Name:          d.Name,
+		DiagnosedDate: d.DiagnosedDate,
+		Status:        d.Status,
+		Note:          d.Note,
+	}
+}
+
+// ImportVetVisit — элемент vet_visits[] в теле запроса POST /import/local-data.
+type ImportVetVisit struct {
+	LocalID    string  `json:"local_id"`
+	PetLocalID string  `json:"pet_local_id"`
+	VisitDate  string  `json:"visit_date"`
+	Reason     string  `json:"reason"`
+	Clinic     *string `json:"clinic,omitempty"`
+	Note       *string `json:"note,omitempty"`
+}
+
+func (v ImportVetVisit) ToCreateVetVisitRequest() CreateVetVisitRequest {
+	return CreateVetVisitRequest{
+		VisitDate: v.VisitDate,
+		Reason:    v.Reason,
+		Clinic:    v.Clinic,
+		Note:      v.Note,
+	}
+}
+
+// ImportAllergy — элемент allergies[] в теле запроса POST /import/local-data.
+type ImportAllergy struct {
+	LocalID      string  `json:"local_id"`
+	PetLocalID   string  `json:"pet_local_id"`
+	Allergen     string  `json:"allergen"`
+	Reaction     *string `json:"reaction,omitempty"`
+	DetectedDate *string `json:"detected_date,omitempty"`
+	Severity     string  `json:"severity"`
+	Note         *string `json:"note,omitempty"`
+}
+
+func (a ImportAllergy) ToCreateAllergyRequest() CreateAllergyRequest {
+	return CreateAllergyRequest{
+		Allergen:     a.Allergen,
+		Reaction:     a.Reaction,
+		DetectedDate: a.DetectedDate,
+		Severity:     a.Severity,
+		Note:         a.Note,
+	}
+}
+
+// ImportMedication — элемент medications[] в теле запроса POST /import/local-data.
+// EventLocalIDs здесь намеренно не используется сервером для генерации
+// расписания приёмов при переносе (сервер не пересчитывает event_ids на
+// импорте — см. "Ведпаспорт — Backend": клиент вызывает
+// POST /medications/{id}/events отдельно после переноса, аналогично тому,
+// как файлы переносятся отдельным фоновым шагом).
+type ImportMedication struct {
+	LocalID         string   `json:"local_id"`
+	PetLocalID      string   `json:"pet_local_id"`
+	Name            string   `json:"name"`
+	Dosage          string   `json:"dosage"`
+	PeriodicityDays int      `json:"periodicity_days"`
+	StartDate       string   `json:"start_date"`
+	RepeatCount     int      `json:"repeat_count"`
+	EventTime       *string  `json:"event_time,omitempty"`
+	Note            *string  `json:"note,omitempty"`
+	EventLocalIDs   []string `json:"event_local_ids,omitempty"`
+}
+
+func (m ImportMedication) ToCreateMedicationRequest() CreateMedicationRequest {
+	return CreateMedicationRequest{
+		Name:            m.Name,
+		Dosage:          m.Dosage,
+		PeriodicityDays: m.PeriodicityDays,
+		StartDate:       m.StartDate,
+		RepeatCount:     m.RepeatCount,
+		EventTime:       m.EventTime,
+		Note:            m.Note,
+	}
+}
+
+// ImportedVaccination/ImportedDisease/ImportedVetVisit/ImportedAllergy/ImportedMedication
+// — сопоставления local_id -> серверный id для соответствующих сущностей
+// ветпаспорта в ответе ImportLocalDataResponse, симметрично ImportedPet.
+type ImportedVaccination struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
+type ImportedDisease struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
+type ImportedVetVisit struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
+type ImportedAllergy struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
+type ImportedMedication struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
 }
 
 // ImportedPet — элемент поля pets ответа ImportLocalDataResponse: сопоставление
@@ -118,9 +275,19 @@ type ImportedEvent struct {
 
 // ImportLocalDataResponse — тело ответа 200 OK POST /import/local-data.
 type ImportLocalDataResponse struct {
-	PetsImported    int             `json:"pets_imported"`
-	EventsImported  int             `json:"events_imported"`
-	ProfileImported bool            `json:"profile_imported"`
-	Pets            []ImportedPet   `json:"pets"`
-	Events          []ImportedEvent `json:"events"`
+	PetsImported         int                   `json:"pets_imported"`
+	EventsImported       int                   `json:"events_imported"`
+	ProfileImported      bool                  `json:"profile_imported"`
+	Pets                 []ImportedPet         `json:"pets"`
+	Events               []ImportedEvent       `json:"events"`
+	VaccinationsImported int                   `json:"vaccinations_imported"`
+	DiseasesImported     int                   `json:"diseases_imported"`
+	VetVisitsImported    int                   `json:"vet_visits_imported"`
+	AllergiesImported    int                   `json:"allergies_imported"`
+	MedicationsImported  int                   `json:"medications_imported"`
+	Vaccinations         []ImportedVaccination `json:"vaccinations"`
+	Diseases             []ImportedDisease     `json:"diseases"`
+	VetVisits            []ImportedVetVisit    `json:"vet_visits"`
+	Allergies            []ImportedAllergy     `json:"allergies"`
+	Medications          []ImportedMedication  `json:"medications"`
 }

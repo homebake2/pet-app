@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS medication;
+DROP TABLE IF EXISTS allergy;
+DROP TABLE IF EXISTS vet_visit;
+DROP TABLE IF EXISTS disease;
+DROP TABLE IF EXISTS vaccination;
+
+ALTER TABLE pet
+  DROP COLUMN body_condition;

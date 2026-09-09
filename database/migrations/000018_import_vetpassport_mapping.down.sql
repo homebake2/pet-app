@@ -1,0 +1,11 @@
+ALTER TABLE import_local_data_idempotency_key
+  DROP COLUMN vaccinations_imported,
+  DROP COLUMN diseases_imported,
+  DROP COLUMN vet_visits_imported,
+  DROP COLUMN allergies_imported,
+  DROP COLUMN medications_imported,
+  DROP COLUMN vaccinations_mapping,
+  DROP COLUMN diseases_mapping,
+  DROP COLUMN vet_visits_mapping,
+  DROP COLUMN allergies_mapping,
+  DROP COLUMN medications_mapping;

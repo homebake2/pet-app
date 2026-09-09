@@ -57,6 +57,10 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 		return "Поле birth_date питомца не может быть раньше, чем 500 лет назад"
 	}
 
+	if pet.BodyCondition != nil && !models.IsValidBodyCondition(*pet.BodyCondition) {
+		return "Некорректное значение body_condition у питомца"
+	}
+
 	return ""
 }
 
@@ -128,6 +132,59 @@ func validateImportProfile(profile models.ImportLocalDataProfile) string {
 	}
 
 	return ""
+}
+
+// validateImportVaccination провалидирует один элемент vaccinations[] теми
+// же правилами, что и POST /pet/{id}/vaccinations, плюс обязательность
+// local_id/pet_local_id (см. "Ведпаспорт — Backend").
+func validateImportVaccination(v models.ImportVaccination) string {
+	if strings.TrimSpace(v.LocalID) == "" {
+		return "Поле local_id обязательно для каждой прививки"
+	}
+	if strings.TrimSpace(v.PetLocalID) == "" {
+		return "Поле pet_local_id обязательно для каждой прививки"
+	}
+	return validateCreateVaccinationRequest(v.ToCreateVaccinationRequest())
+}
+
+func validateImportDisease(d models.ImportDisease) string {
+	if strings.TrimSpace(d.LocalID) == "" {
+		return "Поле local_id обязательно для каждого заболевания"
+	}
+	if strings.TrimSpace(d.PetLocalID) == "" {
+		return "Поле pet_local_id обязательно для каждого заболевания"
+	}
+	return validateCreateDiseaseRequest(d.ToCreateDiseaseRequest())
+}
+
+func validateImportVetVisit(v models.ImportVetVisit) string {
+	if strings.TrimSpace(v.LocalID) == "" {
+		return "Поле local_id обязательно для каждого визита к ветеринару"
+	}
+	if strings.TrimSpace(v.PetLocalID) == "" {
+		return "Поле pet_local_id обязательно для каждого визита к ветеринару"
+	}
+	return validateCreateVetVisitRequest(v.ToCreateVetVisitRequest())
+}
+
+func validateImportAllergy(a models.ImportAllergy) string {
+	if strings.TrimSpace(a.LocalID) == "" {
+		return "Поле local_id обязательно для каждой аллергии"
+	}
+	if strings.TrimSpace(a.PetLocalID) == "" {
+		return "Поле pet_local_id обязательно для каждой аллергии"
+	}
+	return validateCreateAllergyRequest(a.ToCreateAllergyRequest())
+}
+
+func validateImportMedication(m models.ImportMedication) string {
+	if strings.TrimSpace(m.LocalID) == "" {
+		return "Поле local_id обязательно для каждого курса лекарств"
+	}
+	if strings.TrimSpace(m.PetLocalID) == "" {
+		return "Поле pet_local_id обязательно для каждого курса лекарств"
+	}
+	return validateCreateMedicationRequest(m.ToCreateMedicationRequest())
 }
 
 // ImportLocalDataHandler обрабатывает POST /import/local-data — единый
@@ -216,6 +273,95 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
+	}
+
+	// Ведпаспорт: vaccinations/diseases/vet_visits/allergies/medications —
+	// опциональные массивы, каждый со своим local_id (уникальным в пределах
+	// своего массива) и pet_local_id, обязанным совпадать с одним из
+	// pets[].local_id этого же запроса (см. "Ведпаспорт — Backend").
+	vaccinationLocalIDs := make(map[string]bool, len(req.Vaccinations))
+	for _, v := range req.Vaccinations {
+		if msg := validateImportVaccination(v); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		if !localIDs[v.PetLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id прививки не совпадает ни с одним local_id питомцев запроса")
+			return
+		}
+		if vaccinationLocalIDs[v.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id прививок должно быть уникальным в пределах запроса")
+			return
+		}
+		vaccinationLocalIDs[v.LocalID] = true
+	}
+
+	diseaseLocalIDs := make(map[string]bool, len(req.Diseases))
+	for _, d := range req.Diseases {
+		if msg := validateImportDisease(d); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		if !localIDs[d.PetLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id заболевания не совпадает ни с одним local_id питомцев запроса")
+			return
+		}
+		if diseaseLocalIDs[d.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id заболеваний должно быть уникальным в пределах запроса")
+			return
+		}
+		diseaseLocalIDs[d.LocalID] = true
+	}
+
+	vetVisitLocalIDs := make(map[string]bool, len(req.VetVisits))
+	for _, v := range req.VetVisits {
+		if msg := validateImportVetVisit(v); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		if !localIDs[v.PetLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id визита не совпадает ни с одним local_id питомцев запроса")
+			return
+		}
+		if vetVisitLocalIDs[v.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id визитов должно быть уникальным в пределах запроса")
+			return
+		}
+		vetVisitLocalIDs[v.LocalID] = true
+	}
+
+	allergyLocalIDs := make(map[string]bool, len(req.Allergies))
+	for _, a := range req.Allergies {
+		if msg := validateImportAllergy(a); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		if !localIDs[a.PetLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id аллергии не совпадает ни с одним local_id питомцев запроса")
+			return
+		}
+		if allergyLocalIDs[a.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id аллергий должно быть уникальным в пределах запроса")
+			return
+		}
+		allergyLocalIDs[a.LocalID] = true
+	}
+
+	medicationLocalIDs := make(map[string]bool, len(req.Medications))
+	for _, m := range req.Medications {
+		if msg := validateImportMedication(m); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		if !localIDs[m.PetLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id курса лекарств не совпадает ни с одним local_id питомцев запроса")
+			return
+		}
+		if medicationLocalIDs[m.LocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id курсов лекарств должно быть уникальным в пределах запроса")
+			return
+		}
+		medicationLocalIDs[m.LocalID] = true
 	}
 
 	result, err := database.ImportLocalData(userID, req)
