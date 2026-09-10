@@ -1296,6 +1296,9 @@ type GetPetEventsParams struct {
 
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Search Полнотекстовый фильтр без учёта регистра по notes и по свободнотекстовому подполю значения события (other.label, medication.name). Пустая строка или отсутствие параметра — фильтр не применяется.
+	Search *string `form:"search,omitempty" json:"search,omitempty"`
 }
 
 // GetPetMedicationsParams defines parameters for GetPetMedications.

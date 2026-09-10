@@ -374,18 +374,35 @@ func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet
 	return events, nil
 }
 
+// escapeLikePattern экранирует спецсимволы LIKE/ILIKE (%, _ и сам escape-
+// символ \) в пользовательском вводе, чтобы его можно было безопасно
+// подставить в шаблон 'ESCAPE '\''\'''\''' — иначе значения search вроде "50%"
+// или "a_b" трактовались бы как wildcard-маски, а не как буквальная подстрока.
+func escapeLikePattern(s string) string {
+	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return replacer.Replace(s)
+}
+
 // GetEventsByPetID - получить события питомца, отсортированные по date_time
-// по убыванию (сначала последние), с пагинацией limit/offset.
-func GetEventsByPetID(petID uuid.UUID, limit, offset int) ([]models.EventDB, error) {
+// по убыванию (сначала последние), с пагинацией limit/offset и опциональным
+// полнотекстовым фильтром search (см. "/pet/{id}/events" в open-api/spec.json):
+// при непустом search в выборку попадают только события, у которых notes,
+// либо (для типов с собственным свободнотекстовым подполем) value->>'label'
+// (тип other) или value->>'name' (тип medication) содержат search
+// (регистронезависимо). Пустая строка/её отсутствие — фильтр не применяется.
+func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]models.EventDB, error) {
 	query := `
 	SELECT id, pet_id, date_time, type, notes, value
 	FROM event
 	WHERE pet_id = $1
 	AND deleted_at IS NULL
+	` + petEventsSearchClause(search, 4) + `
 	ORDER BY date_time DESC
 	LIMIT $2 OFFSET $3
 	`
-	rows, err := DB.Query(query, petID, limit, offset)
+	args := petEventsQueryArgs(petID, limit, offset, search)
+
+	rows, err := DB.Query(query, args...)
 	if err != nil {
 		log.Println("GetEventsByPetID error:", err)
 		return nil, err
@@ -406,4 +423,57 @@ func GetEventsByPetID(petID uuid.UUID, limit, offset int) ([]models.EventDB, err
 	}
 
 	return events, nil
+}
+
+// CountEventsByPetID возвращает общее количество неудалённых событий
+// питомца, подходящих под тот же search-фильтр, что и GetEventsByPetID, без
+// учёта limit/offset — используется для поля total в ответе
+// GET /pet/{id}/events.
+func CountEventsByPetID(petID uuid.UUID, search string) (int, error) {
+	query := `
+	SELECT COUNT(*)
+	FROM event
+	WHERE pet_id = $1
+	AND deleted_at IS NULL
+	` + petEventsSearchClause(search, 2)
+
+	args := []any{petID}
+	if search != "" {
+		args = append(args, "%"+escapeLikePattern(search)+"%")
+	}
+
+	var total int
+	if err := DB.QueryRow(query, args...).Scan(&total); err != nil {
+		log.Println("CountEventsByPetID error:", err)
+		return 0, err
+	}
+
+	return total, nil
+}
+
+// petEventsSearchClause возвращает WHERE-условие для search-фильтра
+// GET /pet/{id}/events. placeholderIdx — позиционный номер плейсхолдера
+// параметра search в конкретном запросе (GetEventsByPetID передаёт search
+// последним, за pet_id/limit/offset, поэтому 4; CountEventsByPetID передаёт
+// его сразу за pet_id, поэтому 2 — см. petEventsQueryArgs и вызовы выше).
+func petEventsSearchClause(search string, placeholderIdx int) string {
+	if search == "" {
+		return ""
+	}
+	placeholder := fmt.Sprintf("$%d", placeholderIdx)
+	return `AND (
+		notes ILIKE ` + placeholder + ` ESCAPE '\' OR
+		value ->> 'label' ILIKE ` + placeholder + ` ESCAPE '\' OR
+		value ->> 'name' ILIKE ` + placeholder + ` ESCAPE '\'
+	)`
+}
+
+// petEventsQueryArgs строит позиционные аргументы для GetEventsByPetID в
+// соответствии с petEventsSearchClause (search, если непустой, всегда $4).
+func petEventsQueryArgs(petID uuid.UUID, limit, offset int, search string) []any {
+	args := []any{petID, limit, offset}
+	if search != "" {
+		args = append(args, "%"+escapeLikePattern(search)+"%")
+	}
+	return args
 }

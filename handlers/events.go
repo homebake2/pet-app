@@ -197,6 +197,7 @@ type PetEventItem struct {
 // PetEventsResponse - тело ответа GET /pet/{id}/events.
 type PetEventsResponse struct {
 	Items []PetEventItem `json:"items"`
+	Total int            `json:"total"`
 }
 
 const (
@@ -235,8 +236,11 @@ func parsePetEventsPaging(r *http.Request) (limit, offset int, ok bool) {
 }
 
 // GET /pet/{id}/events возвращает плоский список событий питомца (сортировка
-// date_time DESC, пагинация limit/offset) — задел на будущий сценарий вида
-// «вся история питомца». На момент написания клиентом не используется.
+// date_time DESC, пагинация limit/offset, опциональный полнотекстовый фильтр
+// search) вместе с total — общим количеством подходящих под search событий
+// без учёта limit/offset. Используется превью-блоком событий на карточке
+// питомца и экраном полного списка событий с бесконечной пагинацией и
+// поиском.
 func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -256,9 +260,17 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		return
 	}
 
-	eventsDB, err := database.GetEventsByPetID(petID, limit, offset)
+	search := r.URL.Query().Get("search")
+
+	eventsDB, err := database.GetEventsByPetID(petID, limit, offset, search)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
+		return
+	}
+
+	total, err := database.CountEventsByPetID(petID, search)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества событий")
 		return
 	}
 
@@ -288,7 +300,7 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		})
 	}
 
-	writeJSON(w, http.StatusOK, PetEventsResponse{Items: items})
+	writeJSON(w, http.StatusOK, PetEventsResponse{Items: items, Total: total})
 }
 
 // EventIDResponseHandler обрабатывает /events/{id}: получение, частичное

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -721,6 +722,8 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
@@ -730,6 +733,7 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	var resp PetEventsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Empty(t, resp.Items)
+	assert.Equal(t, 0, resp.Total)
 }
 
 func TestPetByIDHandler_EventsWrongMethod(t *testing.T) {
@@ -787,6 +791,9 @@ func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 50, 0).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
@@ -807,6 +814,9 @@ func TestGetPetEventsHandler_LimitClampedTo200(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 200, 5).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?limit=1000&offset=5", nil, true)
@@ -834,4 +844,64 @@ func TestGetPetEventsHandler_NonIntegerOffsetRejected(t *testing.T) {
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?offset=abc", nil, true)
 	PetByIDHandler(w, r)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// TestGetPetEventsHandler_SearchFiltersAndReturnsTotal проверяет, что при
+// непустом search в обе SQL-выборки (список и COUNT) подставляется
+// дополнительное WHERE-условие по notes/value->>'label'/value->>'name' и что
+// total в ответе берётся из результата COUNT-запроса, а не из длины items.
+func TestGetPetEventsHandler_SearchFiltersAndReturnsTotal(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon, body_condition\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG", nil,
+		))
+	expectNoWeightEvent(mock)
+	mock.ExpectQuery(`(?s)SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+AND \(\s*notes ILIKE \$4.*value ->> 'label' ILIKE \$4.*value ->> 'name' ILIKE \$4.*\)\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+		WithArgs(sqlmock.AnyArg(), 50, 0, "%вакцина%").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
+			AddRow(uuid.New(), testPetID, time.Now(), "other", sql.NullString{String: "вакцина от бешенства", Valid: true}, []byte(`{"label":"вакцина"}`)))
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+AND \(\s*notes ILIKE \$2.*value ->> 'label' ILIKE \$2.*value ->> 'name' ILIKE \$2.*\)`).
+		WithArgs(sqlmock.AnyArg(), "%вакцина%").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?search=%D0%B2%D0%B0%D0%BA%D1%86%D0%B8%D0%BD%D0%B0", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp PetEventsResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Len(t, resp.Items, 1)
+	assert.Equal(t, 7, resp.Total)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// TestGetPetEventsHandler_EmptySearchOmitsFilter проверяет, что пустая
+// строка search (?search=) трактуется как отсутствие фильтра — тот же SQL,
+// что и без параметра вовсе.
+func TestGetPetEventsHandler_EmptySearchOmitsFilter(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, icon, body_condition\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, "DOG", nil,
+		))
+	expectNoWeightEvent(mock)
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+		WithArgs(sqlmock.AnyArg(), 50, 0).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?search=", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
