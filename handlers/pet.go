@@ -116,7 +116,7 @@ func isBirthDateNotTooOld(birthDate string) bool {
 func createPetWeightEvent(petID uuid.UUID, weight float64) {
 	req := models.CreateEventRequest{
 		PetID: petID.String(),
-		Date:  time.Now().UTC().Format(time.RFC3339),
+		Date:  time.Now().UTC().Format(time.RFC3339Nano),
 		Type:  "weight",
 		Value: json.RawMessage(fmt.Sprintf(`{"amount":%s}`, strconv.FormatFloat(weight, 'f', -1, 64))),
 	}
