@@ -1707,6 +1707,52 @@
       },
       "parameters": []
     },
+    "/activities/nearest": {
+      "get": {
+        "summary": "/activities/nearest",
+        "description": "Одно, самое ближайшее по времени будущее событие среди всех питомцев пользователя (date_time >= now()), без ограничения по дате и без привязки к конкретному питомцу. Если такого события нет — item равен null.",
+        "tags": [
+          "activities-controller"
+        ],
+        "operationId": "get-activities-nearest",
+        "x-stoplight": {
+          "id": "f11e001fnear"
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetActivitiesNearestResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
     "/pet/{id}/vaccinations": {
       "parameters": [
         {
@@ -4978,6 +5024,29 @@
             },
             "x-stoplight": {
               "id": "f11e0018day"
+            }
+          }
+        }
+      },
+      "GetActivitiesNearestResponse": {
+        "title": "GetActivitiesNearestResponse",
+        "x-stoplight": {
+          "id": "f11e0016near"
+        },
+        "type": "object",
+        "required": [
+          "item"
+        ],
+        "properties": {
+          "item": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ActivitiesDayEventItem"
+              }
+            ],
+            "x-stoplight": {
+              "id": "f11e0017near"
             }
           }
         }

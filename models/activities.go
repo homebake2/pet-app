@@ -59,3 +59,10 @@ type ActivitiesDayResponse struct {
 	Date  string                   `json:"date"`
 	Items []ActivitiesDayEventItem `json:"items"`
 }
+
+// ActivitiesNearestResponse — тело ответа GET /activities/nearest. Item равен
+// nil, если у пользователя нет ни одного предстоящего события (не ошибка) —
+// см. «Просмотр календаря — Backend», раздел D.
+type ActivitiesNearestResponse struct {
+	Item *ActivitiesDayEventItem `json:"item"`
+}

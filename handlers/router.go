@@ -23,6 +23,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/activities", GetActivitiesHandler)
 	mux.HandleFunc("/activities/calendar", GetActivitiesCalendarHandler)
 	mux.HandleFunc("/activities/day", GetActivitiesDayHandler)
+	mux.HandleFunc("/activities/nearest", GetActivitiesNearestHandler)
 	mux.HandleFunc("/import/local-data", ImportLocalDataHandler)
 	// Ведпаспорт (медкарта питомца, см. handlers/vetpassport.go): списки/
 	// создание живут в PetByIDHandler (/pet/{id}/vaccinations и т.п., через

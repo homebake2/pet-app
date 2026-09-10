@@ -131,3 +131,56 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 		Items: items,
 	})
 }
+
+// GetActivitiesNearestHandler обрабатывает GET /activities/nearest — одно
+// ближайшее предстоящее событие (date_time >= now()) среди всех не мягко
+// удалённых питомцев пользователя, без ограничения по дате и без привязки к
+// конкретному питомцу (см. "Просмотр календаря — Backend", раздел D).
+// Параметр pet_id не принимается и не возвращает 404 — пользователь без
+// предстоящих событий получает 200 с item: null.
+func GetActivitiesNearestHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
+		return
+	}
+
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	eventWithPet, err := database.GetNearestUpcomingEvent(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения события")
+		return
+	}
+
+	if eventWithPet == nil {
+		writeJSON(w, http.StatusOK, models.ActivitiesNearestResponse{Item: nil})
+		return
+	}
+
+	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, []uuid.UUID{eventWithPet.Event.ID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов событий")
+		return
+	}
+
+	var notes *string
+	if eventWithPet.Event.Notes.Valid {
+		notes = &eventWithPet.Event.Notes.String
+	}
+
+	item := models.ActivitiesDayEventItem{
+		ID:         eventWithPet.Event.ID.String(),
+		Date:       eventWithPet.Event.Date.UTC().Format(time.RFC3339),
+		Type:       eventWithPet.Event.Type,
+		Notes:      notes,
+		Value:      eventWithPet.Event.Value,
+		FilesCount: filesCounts[eventWithPet.Event.ID],
+		PetID:      eventWithPet.Event.PetID.String(),
+		PetName:    eventWithPet.PetName,
+	}
+
+	writeJSON(w, http.StatusOK, models.ActivitiesNearestResponse{Item: &item})
+}

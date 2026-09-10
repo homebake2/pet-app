@@ -156,3 +156,72 @@ func TestGetActivitiesDayHandler_EmptyResultNo404(t *testing.T) {
 	assert.Empty(t, resp.Items)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+// --- GET /activities/nearest ---
+
+func TestGetActivitiesNearestHandler_MethodNotAllowed(t *testing.T) {
+	w := httptest.NewRecorder()
+	GetActivitiesNearestHandler(w, doRequest(http.MethodPost, "/activities/nearest", nil))
+	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+}
+
+func TestGetActivitiesNearestHandler_Unauthorized(t *testing.T) {
+	w := httptest.NewRecorder()
+	GetActivitiesNearestHandler(w, doRequest(http.MethodGet, "/activities/nearest", nil))
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestGetActivitiesNearestHandler_Success(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	eventID := "44444444-4444-4444-4444-444444444444"
+	eventDate := time.Date(2030, 1, 1, 10, 0, 0, 0, time.UTC)
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+ORDER BY e\.date_time ASC, e\.id ASC\s+LIMIT 1`).
+		WithArgs(testUserID, sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
+			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), "Rex"))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 1))
+
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodGet, "/activities/nearest", nil, true)
+	GetActivitiesNearestHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Item *struct {
+			ID         string `json:"id"`
+			FilesCount int    `json:"files_count"`
+			PetID      string `json:"pet_id"`
+			PetName    string `json:"pet_name"`
+			Type       string `json:"type"`
+		} `json:"item"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.Item)
+	assert.Equal(t, eventID, resp.Item.ID)
+	assert.Equal(t, 1, resp.Item.FilesCount)
+	assert.Equal(t, testPetID, resp.Item.PetID)
+	assert.Equal(t, "Rex", resp.Item.PetName)
+	assert.Equal(t, "weight", resp.Item.Type)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetActivitiesNearestHandler_NoUpcomingEventReturnsNullItem(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}))
+
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodGet, "/activities/nearest", nil, true)
+	GetActivitiesNearestHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp struct {
+		Item *json.RawMessage `json:"item"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Nil(t, resp.Item)
+	require.NoError(t, mock.ExpectationsWereMet())
+}

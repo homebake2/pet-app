@@ -374,6 +374,38 @@ func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet
 	return events, nil
 }
 
+// GetNearestUpcomingEvent возвращает одно неудалённое событие всех неудалённых
+// питомцев userID с наименьшим date_time среди тех, у кого date_time >=
+// текущий момент (UTC), с детерминированным тай-брейком по наименьшему id при
+// равном date_time — см. «Просмотр календаря — Backend», GET
+// /activities/nearest. Возвращает (nil, nil), если предстоящих событий нет
+// (это не ошибка).
+func GetNearestUpcomingEvent(userID string) (*EventWithPet, error) {
+	query := `
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	FROM event e
+	JOIN pet p ON e.pet_id = p.id
+	WHERE p.user_id = $1
+	AND p.deleted_at IS NULL
+	AND e.deleted_at IS NULL
+	AND e.date_time >= $2
+	ORDER BY e.date_time ASC, e.id ASC
+	LIMIT 1
+	`
+	var e EventWithPet
+	err := DB.QueryRow(query, userID, time.Now().UTC()).Scan(
+		&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.PetName,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		log.Println("GetNearestUpcomingEvent error:", err)
+		return nil, err
+	}
+	return &e, nil
+}
+
 // escapeLikePattern экранирует спецсимволы LIKE/ILIKE (%, _ и сам escape-
 // символ \) в пользовательском вводе, чтобы его можно было безопасно
 // подставить в шаблон 'ESCAPE '\''\'''\''' — иначе значения search вроде "50%"

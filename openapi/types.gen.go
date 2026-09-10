@@ -419,6 +419,11 @@ type GetActivitiesDayResponse struct {
 	Items []ActivitiesDayEventItem `json:"items"`
 }
 
+// GetActivitiesNearestResponse defines model for GetActivitiesNearestResponse.
+type GetActivitiesNearestResponse struct {
+	Item *ActivitiesDayEventItem `json:"item"`
+}
+
 // GetActivitiesResponse defines model for GetActivitiesResponse.
 type GetActivitiesResponse struct {
 	Items   []ItemsArrayActivitiesModel `json:"items"`
