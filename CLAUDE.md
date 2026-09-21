@@ -60,6 +60,10 @@ Full details in `docs/deploy.md`. Summary: Render (Go web service, auto-deploy o
 - `LoginHandler` does not verify passwords.
 - Passwords are stored in plaintext in `users.password`.
 
+## Comments must not reference resources outside the repository
+
+Never write a code comment that points at a file, folder, or resource outside this repository — a local scratch directory, a temp path, or anything else not checked in here. Such references go stale immediately for anyone (or any future session) reading the code without that resource. Explain the *why* inline, or point at another file that's actually in this repo, instead of citing an external path.
+
 ## Other notes
 
 - `testevents/` is a scratch/experiment `main.go`, unrelated to the service — not part of the build.
