@@ -109,7 +109,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GetLoginResponse"
+                  "$ref": "#/components/schemas/GetRefreshResponse"
                 }
               }
             }
@@ -3447,7 +3447,8 @@
         "type": "object",
         "required": [
           "access_token",
-          "refresh_token"
+          "refresh_token",
+          "pets_count"
         ],
         "properties": {
           "access_token": {
@@ -3461,6 +3462,27 @@
             "x-stoplight": {
               "id": "xku9ccsd4c35p"
             }
+          },
+          "pets_count": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Количество не мягко удалённых питомцев пользователя"
+          }
+        }
+      },
+      "GetRefreshResponse": {
+        "title": "GetRefreshResponse",
+        "type": "object",
+        "required": [
+          "access_token",
+          "refresh_token"
+        ],
+        "properties": {
+          "access_token": {
+            "type": "string"
+          },
+          "refresh_token": {
+            "type": "string"
           }
         }
       },

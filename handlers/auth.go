@@ -109,9 +109,17 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	petsCount, err := database.CountPetsByUserID(userId.String())
+	if err != nil {
+		log.Printf("Ошибка подсчёта питомцев пользователя: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, models.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		PetsCount:    petsCount,
 	})
 }
 
@@ -329,7 +337,7 @@ func RefreshTokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, models.AuthResponse{
+	writeJSON(w, http.StatusOK, models.RefreshResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	})
@@ -395,9 +403,17 @@ func GuestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	petsCount, err := database.CountPetsByUserID(userId.String())
+	if err != nil {
+		log.Printf("Ошибка подсчёта питомцев гостевого пользователя: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, models.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
+		PetsCount:    petsCount,
 	})
 }
 

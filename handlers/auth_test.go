@@ -42,6 +42,15 @@ func expectRegistrationAllowed(mock sqlmock.Sqlmock, count int) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
 }
 
+// expectPetsCount мокает CountPetsByUserID — запрос количества не мягко
+// удалённых питомцев пользователя, выполняемый login/register/guest перед
+// финальным ответом.
+func expectPetsCount(mock sqlmock.Sqlmock, userID string, count int) {
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
+}
+
 func TestRegisterHandler_MethodNotAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	RegisterHandler(w, doRequest(http.MethodGet, "/auth/register", nil))
@@ -130,6 +139,7 @@ func TestRegisterHandler_CreatesNewUserWithHashedPassword(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, newID, 0)
 
 	w := httptest.NewRecorder()
 	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "password"}))
@@ -139,6 +149,8 @@ func TestRegisterHandler_CreatesNewUserWithHashedPassword(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp.AccessToken)
 	assert.NotEmpty(t, resp.RefreshToken)
+	// Новый пользователь только что создан — питомцев у него ещё нет.
+	assert.Equal(t, 0, resp.PetsCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -151,11 +163,38 @@ func TestRegisterHandler_NormalizesLoginTrimAndCase(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, userID, 3)
 
 	w := httptest.NewRecorder()
 	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "  User  ", Password: "password"}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.AuthResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 3, resp.PetsCount)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ошибка БД при подсчёте питомцев после успешного логина должна вернуть 500
+// и не отдавать токены клиенту (fail closed).
+func TestRegisterHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+		WithArgs(userID).
+		WillReturnError(assertError)
+
+	w := httptest.NewRecorder()
+	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.NotContains(t, w.Body.String(), "access_token")
+	assert.NotContains(t, w.Body.String(), "refresh_token")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -212,6 +251,7 @@ func TestRegisterHandler_ConcurrentRegistrationUniqueViolationFallsBackToLogin(t
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, userID, 0)
 
 	w := httptest.NewRecorder()
 	RegisterHandler(w, doRequest(http.MethodPost, "/auth/register", models.User{Login: "john", Password: "password"}))
@@ -251,6 +291,7 @@ func TestLoginHandler_AutoRegistersUnknownUser(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, newID, 0)
 
 	w := httptest.NewRecorder()
 	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
@@ -308,11 +349,38 @@ func TestLoginHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, userID, 2)
 
 	w := httptest.NewRecorder()
 	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.AuthResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 2, resp.PetsCount)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ошибка БД при подсчёте питомцев после успешного логина должна вернуть 500
+// и не отдавать токены клиенту.
+func TestLoginHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+		WithArgs(userID).
+		WillReturnError(assertError)
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.NotContains(t, w.Body.String(), "access_token")
+	assert.NotContains(t, w.Body.String(), "refresh_token")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -372,6 +440,13 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 	RefreshTokenHandler(w, doRequest(http.MethodPost, "/auth/refresh", map[string]string{"refresh_token": token}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	// /auth/refresh не считает и не возвращает pets_count — контракт
+	// GetRefreshResponse не включает это поле.
+	assert.NotContains(t, w.Body.String(), "pets_count")
+	var resp models.RefreshResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.NotEmpty(t, resp.AccessToken)
+	assert.NotEmpty(t, resp.RefreshToken)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -463,6 +538,7 @@ func TestGuestHandler_CreatesNewGuestUser(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, newID, 0)
 
 	w := httptest.NewRecorder()
 	GuestHandler(w, doRequest(http.MethodPost, "/auth/guest", openapi.GetGuestRequest{DeviceId: "device-1"}))
@@ -472,6 +548,7 @@ func TestGuestHandler_CreatesNewGuestUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.NotEmpty(t, resp.AccessToken)
 	assert.NotEmpty(t, resp.RefreshToken)
+	assert.Equal(t, 0, resp.PetsCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -486,11 +563,15 @@ func TestGuestHandler_ReusesExistingGuestUser(t *testing.T) {
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WithArgs(sqlmock.AnyArg(), existingID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, existingID, 5)
 
 	w := httptest.NewRecorder()
 	GuestHandler(w, doRequest(http.MethodPost, "/auth/guest", openapi.GetGuestRequest{DeviceId: "device-1"}))
 
 	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.AuthResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 5, resp.PetsCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -503,5 +584,29 @@ func TestGuestHandler_LookupDBError(t *testing.T) {
 	w := httptest.NewRecorder()
 	GuestHandler(w, doRequest(http.MethodPost, "/auth/guest", openapi.GetGuestRequest{DeviceId: "device-1"}))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ошибка БД при подсчёте питомцев гостя должна вернуть 500 и не отдавать
+// токены клиенту.
+func TestGuestHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
+	mock := setupMockDB(t)
+	existingID := "22222222-2222-2222-2222-222222222222"
+	mock.ExpectQuery(`SELECT id, login FROM users WHERE guest_device_id=\$1`).
+		WithArgs("device-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "login"}).AddRow(existingID, "guest_abc123"))
+	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
+		WithArgs(sqlmock.AnyArg(), existingID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+		WithArgs(existingID).
+		WillReturnError(assertError)
+
+	w := httptest.NewRecorder()
+	GuestHandler(w, doRequest(http.MethodPost, "/auth/guest", openapi.GetGuestRequest{DeviceId: "device-1"}))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.NotContains(t, w.Body.String(), "access_token")
+	assert.NotContains(t, w.Body.String(), "refresh_token")
 	require.NoError(t, mock.ExpectationsWereMet())
 }

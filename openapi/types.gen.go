@@ -604,7 +604,10 @@ type GetLoginRequest struct {
 
 // GetLoginResponse defines model for GetLoginResponse.
 type GetLoginResponse struct {
-	AccessToken  string `json:"access_token"`
+	AccessToken string `json:"access_token"`
+
+	// PetsCount Количество не мягко удалённых питомцев пользователя
+	PetsCount    int    `json:"pets_count"`
 	RefreshToken string `json:"refresh_token"`
 }
 
@@ -747,6 +750,12 @@ type GetProfileUpdateRequest struct {
 
 // GetRefreshRequest defines model for GetRefreshRequest.
 type GetRefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// GetRefreshResponse defines model for GetRefreshResponse.
+type GetRefreshResponse struct {
+	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
 }
 

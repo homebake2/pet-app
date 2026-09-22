@@ -492,6 +492,20 @@ func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 	return &petDB, nil
 }
 
+// CountPetsByUserID возвращает количество не мягко удалённых питомцев
+// пользователя — используется полем `pets_count` в ответах login/register/
+// guest (см. GetLoginResponse).
+func CountPetsByUserID(userID string) (int, error) {
+	var count int
+	err := DB.QueryRow(`
+		SELECT COUNT(*) FROM pet WHERE user_id = $1 AND deleted_at IS NULL
+	`, userID).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
 // GetPetNameByID - получить имя питомца по ID
 func GetPetNameByID(petID uuid.UUID) (string, error) {
 	query := `SELECT name FROM pet WHERE id = $1`
