@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"myauthservice/eventreg"
 	"time"
@@ -38,6 +39,25 @@ func isValidWeight(weight float64) bool {
 
 func validateNotesLength(notes *string) bool {
 	return notes == nil || len(*notes) <= maxEventFieldLen
+}
+
+// petIconOrDefault возвращает pet.icon питомца для проверки применимости
+// типа события; при отсутствии значения в БД используется дефолт "OTHER" —
+// то же соглашение, что и в GetPetIdDBByIDAndUserID/GetPetById (см.
+// models.PetIdResponse.Icon).
+func petIconOrDefault(icon sql.NullString) string {
+	if icon.Valid && icon.String != "" {
+		return icon.String
+	}
+	return "OTHER"
+}
+
+// isTypeApplicableToPet проверяет применимость типа события eventType к
+// виду питомца (см. «Модель значения события и реестр метрик», раздел
+// «Применимость типа события к виду питомца»). Общая функция для POST
+// /events и PATCH /events/{id} — правило одно и то же для обоих эндпоинтов.
+func isTypeApplicableToPet(eventType string, petIcon sql.NullString) bool {
+	return eventreg.IsApplicableToIcon(eventType, petIconOrDefault(petIcon))
 }
 
 func parseEventDate(date string) (time.Time, error) {

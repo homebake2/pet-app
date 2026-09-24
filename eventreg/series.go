@@ -41,7 +41,7 @@ func SeriesFor(eventType string) []Series {
 				Type:        spec.Type,
 				Metric:      metric.Key,
 				Unit:        metric.Unit,
-				ValueKind:   spec.ValueKind,
+				ValueKind:   spec.MetricValueKind(metric),
 				Aggregation: metric.Aggregation,
 				Field:       metric.Field,
 			}

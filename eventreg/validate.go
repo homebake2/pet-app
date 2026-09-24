@@ -3,6 +3,7 @@ package eventreg
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -73,6 +74,21 @@ func ValidateValue(eventType string, raw json.RawMessage) string {
 		}
 	}
 
+	// AtLeastOneOf (water_quality): пустое value без единого показателя не
+	// несёт факта — хотя бы одно из перечисленных полей обязано присутствовать.
+	if len(spec.AtLeastOneOf) > 0 {
+		anyPresent := false
+		for _, name := range spec.AtLeastOneOf {
+			if _, present := fields[name]; present {
+				anyPresent = true
+				break
+			}
+		}
+		if !anyPresent {
+			return fmt.Sprintf("Для type=%s должно быть передано хотя бы одно из полей: %s", eventType, strings.Join(spec.AtLeastOneOf, ", "))
+		}
+	}
+
 	return ""
 }
 
@@ -85,6 +101,9 @@ func validateField(eventType string, field Field, raw json.RawMessage) string {
 		}
 		if number < field.Min || number > field.Max {
 			return fmt.Sprintf("Поле value.%s для type=%s должно быть в диапазоне %s–%s", field.Name, eventType, formatBound(field.Min), formatBound(field.Max))
+		}
+		if field.Integer && number != math.Trunc(number) {
+			return fmt.Sprintf("Поле value.%s для type=%s должно быть целым числом", field.Name, eventType)
 		}
 		return ""
 	case FieldString:

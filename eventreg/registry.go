@@ -52,6 +52,11 @@ type Field struct {
 	Min float64
 	Max float64
 
+	// Integer=true требует, чтобы числовое поле (FieldNumber) было целым —
+	// egg_laying.count — количество отложенных яиц, штучная величина, что
+	// закреплено в open-api/spec.json как type: integer.
+	Integer bool
+
 	// Границы длины строкового поля (FieldString), в символах.
 	MinLen int
 	MaxLen int
@@ -68,11 +73,18 @@ type Field struct {
 // Metric описывает одну метрику типа события для графиков.
 // Field — поле внутри value, по которому считается метрика; пустое значение
 // означает метрику «количество событий» (medication, категориальные типы).
+//
+// ValueKind — характер именно этой метрики; заполняется только когда он
+// отличается от TypeSpec.ValueKind (water_quality: temperature_c/ph/
+// ammonia_ppm — measure, changed_volume_ml — quantity, см. правило «ValueKind
+// может быть задан на уровне отдельной метрики» реестра метрик). Пустое
+// значение означает «как у типа целиком».
 type Metric struct {
 	Key         string
 	Field       string
 	Unit        string
 	Aggregation Aggregation
+	ValueKind   ValueKind
 }
 
 // TypeSpec — запись реестра для одного типа события.
@@ -91,6 +103,19 @@ type TypeSpec struct {
 	// SplitAsUnit=true означает, что значение SplitField является единицей
 	// измерения серии (feeding.unit), а не её категорией.
 	SplitAsUnit bool
+
+	// AtLeastOneOf — имена опциональных полей value, из которых хотя бы одно
+	// обязано быть передано (water_quality: пустое value без единого
+	// показателя не несёт факта). Пусто, если у типа такого правила нет.
+	AtLeastOneOf []string
+
+	// ApplicableIcons — множество значений pet.icon, для которых этот тип
+	// события применим (см. «Применимость типа события к виду питомца»).
+	// nil означает «применим ко всем видам справочника» (отметка «все» в
+	// таблице применимости). Иконка OTHER применима к любому типу
+	// независимо от содержимого этого списка — проверяется отдельно в
+	// IsApplicableToIcon.
+	ApplicableIcons []string
 }
 
 // Field возвращает описание поля value по имени.
@@ -122,6 +147,66 @@ func (s TypeSpec) Aggregatable() bool {
 	return s.ValueKind != KindLabel
 }
 
+// MetricValueKind возвращает value_kind конкретной метрики: собственный,
+// если он задан в реестре отдельно от типа (water_quality), иначе — value_kind
+// типа целиком.
+func (s TypeSpec) MetricValueKind(m Metric) ValueKind {
+	if m.ValueKind != "" {
+		return m.ValueKind
+	}
+	return s.ValueKind
+}
+
+// allIcons — полный справочник видов питомца (см. «Питомцы — Вид (species /
+// icon)»), 31 значение. Используется для построения применимости «все, кроме
+// …» без переписывания списка целиком под каждое исключение.
+var allIcons = []string{
+	"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "PARROT", "CANARY", "FISH",
+	"TURTLE", "RAT", "MOUSE", "FERRET", "HEDGEHOG", "CHINCHILLA", "MINI_PIG",
+	"MINI_GOAT", "CHICKEN", "DUCK", "PIGEON", "IGUANA", "GECKO", "BEARDED_AGAMA",
+	"SNAKE", "PYTHON", "FROG", "AXOLOTL", "TARANTULA", "HERMIT_CRAB", "ANT_FARM",
+	"SNAIL", "OTHER",
+}
+
+// allIconsExcept возвращает применимость вида «все, кроме …» из таблицы
+// применимости — полный справочник видов минус перечисленные исключения.
+func allIconsExcept(excluded ...string) []string {
+	skip := make(map[string]bool, len(excluded))
+	for _, icon := range excluded {
+		skip[icon] = true
+	}
+	out := make([]string, 0, len(allIcons))
+	for _, icon := range allIcons {
+		if !skip[icon] {
+			out = append(out, icon)
+		}
+	}
+	return out
+}
+
+// IsApplicableToIcon сообщает, применим ли тип события eventType к виду
+// питомца icon (см. «Применимость типа события к виду питомца»). Тип
+// без записи в реестре не применим ни к одному виду. OTHER (неопределённый
+// вид) применим ко всем типам без исключения.
+func IsApplicableToIcon(eventType, icon string) bool {
+	spec, ok := Spec(eventType)
+	if !ok {
+		return false
+	}
+	if icon == "OTHER" {
+		return true
+	}
+	if spec.ApplicableIcons == nil {
+		return true
+	}
+	for _, applicable := range spec.ApplicableIcons {
+		if applicable == icon {
+			return true
+		}
+	}
+	return false
+}
+
 // Словари вложенных enum значения события (см. «Справочник значений»).
 var (
 	temperatureKinds   = []string{"body", "environment"}
@@ -132,6 +217,9 @@ var (
 	hygieneProcedures  = []string{"bath", "brushing", "teeth", "nails", "beak", "ears", "shedding", "antiparasitic", "enclosure", "water_change", "other"}
 	moodStates         = []string{"calm", "playful", "lethargic", "anxious", "aggressive", "hiding"}
 	excretionStatuses  = []string{"normal", "abnormal"}
+	moltingStatuses    = []string{"started", "stuck", "completed"}
+	eggLayingStatuses  = []string{"normal", "abnormal"}
+	heatCyclePhases    = []string{"started", "ended"}
 )
 
 // Единицы измерения метрик. Единица типа фиксирована конвенцией, кроме
@@ -142,19 +230,62 @@ const (
 	unitMl      = "ml"
 	unitMinutes = "min"
 	unitMeters  = "m"
+	unitPh      = "pH"
+	unitPpm     = "ppm"
+	unitPieces  = "pcs"
+)
+
+// Применимость к видам питомца (pet.icon) для типов, где применимость
+// задана как узкий явный список видов, а не «все, кроме …» (см.
+// «Применимость типа события к виду питомца»).
+var (
+	urineIcons = []string{
+		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET",
+		"HEDGEHOG", "CHINCHILLA", "MINI_PIG", "MINI_GOAT", "OTHER",
+	}
+	vomitIcons = []string{
+		"DOG", "CAT", "FERRET", "HEDGEHOG", "MINI_PIG", "PARROT", "CANARY",
+		"CHICKEN", "DUCK", "PIGEON", "TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA",
+		"SNAKE", "PYTHON", "FROG", "OTHER",
+	}
+	moltingIcons = []string{
+		"TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON", "FROG",
+		"AXOLOTL", "TARANTULA", "HERMIT_CRAB", "CHINCHILLA", "FERRET", "PARROT",
+		"CANARY", "CHICKEN", "DUCK", "PIGEON", "OTHER",
+	}
+	eggLayingIcons = []string{
+		"PARROT", "CANARY", "CHICKEN", "DUCK", "PIGEON", "TURTLE", "IGUANA",
+		"GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON", "FROG", "OTHER",
+	}
+	waterQualityIcons = []string{"FISH", "AXOLOTL", "FROG", "TURTLE", "OTHER"}
+	heatCycleIcons    = []string{"DOG", "CAT", "RABBIT", "MINI_GOAT", "OTHER"}
+
+	// coldBloodedExclusion — виды, для которых нерелевантны замер температуры
+	// тела, сон в человеческом смысле и наблюдаемое настроение по общему
+	// словарю (см. таблицу применимости: temperature, sleep, mood).
+	coldBloodedExclusion = []string{
+		"FISH", "TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON",
+		"FROG", "AXOLOTL", "TARANTULA", "HERMIT_CRAB", "ANT_FARM", "SNAIL",
+	}
+	waterExclusion      = []string{"FISH", "AXOLOTL", "FROG", "TARANTULA", "ANT_FARM"}
+	activityExclusion   = []string{"ANT_FARM", "SNAIL"}
+	defecationExclusion = []string{"FISH", "AXOLOTL", "ANT_FARM", "SNAIL"}
+	diarrheaExclusion   = []string{"FISH", "AXOLOTL", "FROG", "ANT_FARM", "SNAIL"}
 )
 
 // excretionSpec собирает одинаковую по форме запись реестра для типов
-// urine/defecation/vomit/diarrhea — они отличаются только значением type.
-func excretionSpec(eventType string) TypeSpec {
+// urine/defecation/vomit/diarrhea — они отличаются только значением type и
+// применимостью к видам питомца.
+func excretionSpec(eventType string, applicableIcons []string) TypeSpec {
 	return TypeSpec{
 		Type:      eventType,
 		ValueKind: KindCategory,
 		Fields: []Field{
 			{Name: "status", Type: FieldEnum, Required: true, Enum: excretionStatuses},
 		},
-		Metrics:    []Metric{{Key: "count", Aggregation: AggCount}},
-		SplitField: "status",
+		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:      "status",
+		ApplicableIcons: applicableIcons,
 	}
 }
 
@@ -172,6 +303,7 @@ var specs = []TypeSpec{
 			{Key: "amount_avg", Field: "amount", Unit: unitKg, Aggregation: AggAvg},
 			{Key: "amount_last", Field: "amount", Unit: unitKg, Aggregation: AggLast},
 		},
+		// weight — применим ко всем видам справочника (ApplicableIcons: nil).
 	},
 	{
 		Type:      "temperature",
@@ -184,7 +316,8 @@ var specs = []TypeSpec{
 			{Key: "amount_avg", Field: "amount", Unit: unitCelsius, Aggregation: AggAvg},
 			{Key: "amount_last", Field: "amount", Unit: unitCelsius, Aggregation: AggLast},
 		},
-		SplitField: "kind",
+		SplitField:      "kind",
+		ApplicableIcons: allIconsExcept(coldBloodedExclusion...),
 	},
 	{
 		Type:      "feeding",
@@ -209,6 +342,7 @@ var specs = []TypeSpec{
 		Metrics: []Metric{
 			{Key: "amount_sum", Field: "amount", Unit: unitMl, Aggregation: AggSum},
 		},
+		ApplicableIcons: allIconsExcept(waterExclusion...),
 	},
 	{
 		Type:      "activity",
@@ -222,6 +356,7 @@ var specs = []TypeSpec{
 			{Key: "duration_min_sum", Field: "duration_min", Unit: unitMinutes, Aggregation: AggSum},
 			{Key: "distance_m_sum", Field: "distance_m", Unit: unitMeters, Aggregation: AggSum},
 		},
+		ApplicableIcons: allIconsExcept(activityExclusion...),
 	},
 	{
 		Type:      "sleep",
@@ -232,6 +367,7 @@ var specs = []TypeSpec{
 		Metrics: []Metric{
 			{Key: "duration_min_sum", Field: "duration_min", Unit: unitMinutes, Aggregation: AggSum},
 		},
+		ApplicableIcons: allIconsExcept(coldBloodedExclusion...),
 	},
 	{
 		Type:      "medication",
@@ -244,6 +380,7 @@ var specs = []TypeSpec{
 		// Доза относится к конкретному препарату и его единице, поэтому
 		// medication сворачивается в количество приёмов, а не в сумму доз.
 		Metrics: []Metric{{Key: "count", Aggregation: AggCount}},
+		// medication — применим ко всем видам справочника (ApplicableIcons: nil).
 	},
 	{
 		Type:      "hygiene",
@@ -253,6 +390,7 @@ var specs = []TypeSpec{
 		},
 		Metrics:    []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField: "procedure",
+		// hygiene — применим ко всем видам справочника (ApplicableIcons: nil).
 	},
 	{
 		Type:      "mood",
@@ -260,19 +398,82 @@ var specs = []TypeSpec{
 		Fields: []Field{
 			{Name: "state", Type: FieldEnum, Required: true, Enum: moodStates},
 		},
-		Metrics:    []Metric{{Key: "count", Aggregation: AggCount}},
-		SplitField: "state",
+		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:      "state",
+		ApplicableIcons: allIconsExcept(coldBloodedExclusion...),
 	},
-	excretionSpec("urine"),
-	excretionSpec("defecation"),
-	excretionSpec("vomit"),
-	excretionSpec("diarrhea"),
+	excretionSpec("urine", urineIcons),
+	excretionSpec("defecation", allIconsExcept(defecationExclusion...)),
+	excretionSpec("vomit", vomitIcons),
+	excretionSpec("diarrhea", allIconsExcept(diarrheaExclusion...)),
 	{
 		Type:      "other",
 		ValueKind: KindLabel,
 		Fields: []Field{
 			{Name: "label", Type: FieldString, Required: true, MinLen: 1, MaxLen: 50},
 		},
+		// other — применим ко всем видам справочника (ApplicableIcons: nil).
+	},
+	{
+		Type:      "molting",
+		ValueKind: KindCategory,
+		Fields: []Field{
+			{Name: "status", Type: FieldEnum, Required: true, Enum: moltingStatuses},
+		},
+		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:      "status",
+		ApplicableIcons: moltingIcons,
+	},
+	{
+		Type:      "egg_laying",
+		ValueKind: KindQuantity,
+		Fields: []Field{
+			{Name: "count", Type: FieldNumber, Required: true, Min: 1, Max: 200, Integer: true},
+			// status — категориальный факт о кладке, но не зарегистрирован как
+			// метрика (см. реестр метрик, правило «необязательное поле формы
+			// value, не входящее в реестр метрик, не агрегируется»).
+			{Name: "status", Type: FieldEnum, Enum: eggLayingStatuses},
+		},
+		Metrics: []Metric{
+			{Key: "count_sum", Field: "count", Unit: unitPieces, Aggregation: AggSum},
+		},
+		ApplicableIcons: eggLayingIcons,
+	},
+	{
+		Type: "water_quality",
+		// ValueKind типа целиком: смешанный, у большинства метрик — measure;
+		// changed_volume_ml переопределяет ValueKind на уровне метрики (см.
+		// Metric.ValueKind).
+		ValueKind: KindMeasure,
+		Fields: []Field{
+			{Name: "temperature_c", Type: FieldNumber, Min: 0, Max: 40},
+			{Name: "ph", Type: FieldNumber, Min: 0, Max: 14},
+			{Name: "ammonia_ppm", Type: FieldNumber, Min: 0, Max: 10},
+			{Name: "changed_volume_ml", Type: FieldNumber, Min: 0, Max: 200000},
+		},
+		Metrics: []Metric{
+			{Key: "temperature_c_avg", Field: "temperature_c", Unit: unitCelsius, Aggregation: AggAvg},
+			{Key: "temperature_c_last", Field: "temperature_c", Unit: unitCelsius, Aggregation: AggLast},
+			{Key: "ph_avg", Field: "ph", Unit: unitPh, Aggregation: AggAvg},
+			{Key: "ph_last", Field: "ph", Unit: unitPh, Aggregation: AggLast},
+			{Key: "ammonia_ppm_avg", Field: "ammonia_ppm", Unit: unitPpm, Aggregation: AggAvg},
+			{Key: "ammonia_ppm_last", Field: "ammonia_ppm", Unit: unitPpm, Aggregation: AggLast},
+			{Key: "changed_volume_ml_sum", Field: "changed_volume_ml", Unit: unitMl, Aggregation: AggSum, ValueKind: KindQuantity},
+		},
+		// Хотя бы одно из четырёх полей обязано быть передано — пустое value
+		// без единого показателя не несёт факта.
+		AtLeastOneOf:    []string{"temperature_c", "ph", "ammonia_ppm", "changed_volume_ml"},
+		ApplicableIcons: waterQualityIcons,
+	},
+	{
+		Type:      "heat_cycle",
+		ValueKind: KindCategory,
+		Fields: []Field{
+			{Name: "phase", Type: FieldEnum, Required: true, Enum: heatCyclePhases},
+		},
+		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:      "phase",
+		ApplicableIcons: heatCycleIcons,
 	},
 }
 

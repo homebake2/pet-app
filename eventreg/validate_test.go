@@ -33,6 +33,19 @@ func TestValidateValue_Valid(t *testing.T) {
 		{"other", `{"label":"хромота"}`},
 		// null в необязательном поле трактуется как отсутствие поля.
 		{"activity", `{"duration_min":30,"kind":"walk","distance_m":null}`},
+		{"molting", `{"status":"started"}`},
+		{"molting", `{"status":"stuck"}`},
+		{"molting", `{"status":"completed"}`},
+		{"egg_laying", `{"count":1}`},
+		{"egg_laying", `{"count":200}`},
+		{"egg_laying", `{"count":3,"status":"abnormal"}`},
+		{"water_quality", `{"temperature_c":25}`},
+		{"water_quality", `{"ph":7}`},
+		{"water_quality", `{"ammonia_ppm":0}`},
+		{"water_quality", `{"changed_volume_ml":20000}`},
+		{"water_quality", `{"temperature_c":25,"ph":7,"ammonia_ppm":0.5,"changed_volume_ml":5000}`},
+		{"heat_cycle", `{"phase":"started"}`},
+		{"heat_cycle", `{"phase":"ended"}`},
 	}
 
 	for _, c := range cases {
@@ -75,6 +88,21 @@ func TestValidateValue_Invalid(t *testing.T) {
 		{"other пустой label", "other", `{"label":""}`},
 		{"other длинный label", "other", `{"label":"` + strings.Repeat("x", 51) + `"}`},
 		{"обязательное поле как null", "weight", `{"amount":null}`},
+		{"molting без status", "molting", `{}`},
+		{"molting с чужим status", "molting", `{"status":"active"}`},
+		{"egg_laying без count", "egg_laying", `{"status":"normal"}`},
+		{"egg_laying count ниже диапазона", "egg_laying", `{"count":0}`},
+		{"egg_laying count выше диапазона", "egg_laying", `{"count":201}`},
+		{"egg_laying с чужим status", "egg_laying", `{"count":1,"status":"complicated"}`},
+		{"egg_laying count не целое", "egg_laying", `{"count":1.5}`},
+		{"water_quality пустое value", "water_quality", `{}`},
+		{"water_quality temperature_c вне диапазона", "water_quality", `{"temperature_c":40.1}`},
+		{"water_quality ph вне диапазона", "water_quality", `{"ph":14.1}`},
+		{"water_quality ammonia_ppm вне диапазона", "water_quality", `{"ammonia_ppm":10.1}`},
+		{"water_quality changed_volume_ml вне диапазона", "water_quality", `{"changed_volume_ml":200001}`},
+		{"water_quality лишнее поле", "water_quality", `{"ph":7,"salinity":1}`},
+		{"heat_cycle без phase", "heat_cycle", `{}`},
+		{"heat_cycle с чужой phase", "heat_cycle", `{"phase":"peak"}`},
 	}
 
 	for _, c := range cases {

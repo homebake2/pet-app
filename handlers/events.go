@@ -438,6 +438,11 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !isTypeApplicableToPet(req.Type, petDB.Icon) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип события "+req.Type+" неприменим к виду питомца")
+		return
+	}
+
 	if idempotencyKey != "" {
 		if existing, existingPetID, existingPetName, err := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey); err == nil {
 			writeEventResponse(w, r, http.StatusCreated, existing, existingPetID, existingPetName)
@@ -634,6 +639,11 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Type != nil && !eventreg.IsValidType(*req.Type) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение type")
+		return
+	}
+
+	if req.Type != nil && !isTypeApplicableToPet(*req.Type, petDB.Icon) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип события "+*req.Type+" неприменим к виду питомца")
 		return
 	}
 

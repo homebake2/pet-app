@@ -23,6 +23,10 @@ func TestRegistryCoversOpenAPIEventTypes(t *testing.T) {
 		openapi.GetEventEnumVomit,
 		openapi.GetEventEnumDiarrhea,
 		openapi.GetEventEnumOther,
+		openapi.GetEventEnumMolting,
+		openapi.GetEventEnumEggLaying,
+		openapi.GetEventEnumWaterQuality,
+		openapi.GetEventEnumHeatCycle,
 	}
 
 	if len(specTypes) != len(Types()) {
@@ -45,7 +49,7 @@ func TestRegistryCoversOpenAPIEventTypes(t *testing.T) {
 }
 
 func TestIsValidType(t *testing.T) {
-	valid := []string{"weight", "temperature", "feeding", "water", "activity", "sleep", "medication", "hygiene", "mood", "urine", "defecation", "vomit", "diarrhea", "other"}
+	valid := []string{"weight", "temperature", "feeding", "water", "activity", "sleep", "medication", "hygiene", "mood", "urine", "defecation", "vomit", "diarrhea", "other", "molting", "egg_laying", "water_quality", "heat_cycle"}
 	for _, v := range valid {
 		if !IsValidType(v) {
 			t.Errorf("ожидался валидный тип события %q", v)
@@ -132,5 +136,69 @@ func TestSeriesForSplitsIncomparableValues(t *testing.T) {
 
 	if SeriesFor("other") != nil {
 		t.Fatal("по типу other серии не строятся")
+	}
+}
+
+// water_quality: смешанный value_kind — measure-метрики (среднее и
+// последнее) соседствуют с quantity-метрикой (сумма), заданной на уровне
+// самой метрики, а не всего типа.
+func TestSeriesForWaterQualityMixedValueKind(t *testing.T) {
+	series := SeriesFor("water_quality")
+	byMetric := map[string]Series{}
+	for _, s := range series {
+		byMetric[s.Metric] = s
+	}
+
+	measureMetrics := []string{"temperature_c_avg", "temperature_c_last", "ph_avg", "ph_last", "ammonia_ppm_avg", "ammonia_ppm_last"}
+	for _, key := range measureMetrics {
+		s, ok := byMetric[key]
+		if !ok {
+			t.Fatalf("не построена серия %s", key)
+		}
+		if s.ValueKind != KindMeasure {
+			t.Errorf("value_kind серии %s = %q, ожидался measure", key, s.ValueKind)
+		}
+	}
+
+	volume, ok := byMetric["changed_volume_ml_sum"]
+	if !ok {
+		t.Fatal("не построена серия changed_volume_ml_sum")
+	}
+	if volume.ValueKind != KindQuantity {
+		t.Errorf("value_kind серии changed_volume_ml_sum = %q, ожидался quantity", volume.ValueKind)
+	}
+	if volume.Aggregation != AggSum {
+		t.Errorf("агрегация changed_volume_ml_sum = %q, ожидалась sum", volume.Aggregation)
+	}
+}
+
+// Применимость типа события к виду питомца — таблица «Применимость типа
+// события к виду питомца». OTHER применим ко всем типам без исключения.
+func TestIsApplicableToIcon(t *testing.T) {
+	cases := []struct {
+		eventType string
+		icon      string
+		want      bool
+	}{
+		{"weight", "SNAIL", true},
+		{"heat_cycle", "FISH", false},
+		{"heat_cycle", "DOG", true},
+		{"heat_cycle", "OTHER", true},
+		{"urine", "PARROT", false},
+		{"urine", "DOG", true},
+		{"molting", "SNAKE", true},
+		{"molting", "DOG", false},
+		{"egg_laying", "CHICKEN", true},
+		{"egg_laying", "DOG", false},
+		{"water_quality", "FISH", true},
+		{"water_quality", "DOG", false},
+		{"temperature", "FISH", false},
+		{"temperature", "DOG", true},
+		{"unknown_type", "DOG", false},
+	}
+	for _, c := range cases {
+		if got := IsApplicableToIcon(c.eventType, c.icon); got != c.want {
+			t.Errorf("IsApplicableToIcon(%q, %q) = %v, ожидалось %v", c.eventType, c.icon, got, c.want)
+		}
 	}
 }

@@ -48,6 +48,12 @@ const (
 	EventActivityKindEnumWalk      EventActivityKindEnum = "walk"
 )
 
+// Defines values for EventEggLayingStatusEnum.
+const (
+	EventEggLayingStatusEnumAbnormal EventEggLayingStatusEnum = "abnormal"
+	EventEggLayingStatusEnumNormal   EventEggLayingStatusEnum = "normal"
+)
+
 // Defines values for EventExcretionStatusEnum.
 const (
 	EventExcretionStatusEnumAbnormal EventExcretionStatusEnum = "abnormal"
@@ -78,6 +84,12 @@ const (
 	EventFeedingUnitEnumPortion EventFeedingUnitEnum = "portion"
 )
 
+// Defines values for EventHeatCyclePhaseEnum.
+const (
+	EventHeatCyclePhaseEnumEnded   EventHeatCyclePhaseEnum = "ended"
+	EventHeatCyclePhaseEnumStarted EventHeatCyclePhaseEnum = "started"
+)
+
 // Defines values for EventHygieneProcedureEnum.
 const (
 	EventHygieneProcedureEnumAntiparasitic EventHygieneProcedureEnum = "antiparasitic"
@@ -102,6 +114,13 @@ const (
 	EventMedicationDoseUnitEnumMg      EventMedicationDoseUnitEnum = "mg"
 	EventMedicationDoseUnitEnumMl      EventMedicationDoseUnitEnum = "ml"
 	EventMedicationDoseUnitEnumTablet  EventMedicationDoseUnitEnum = "tablet"
+)
+
+// Defines values for EventMoltingStatusEnum.
+const (
+	EventMoltingStatusEnumCompleted EventMoltingStatusEnum = "completed"
+	EventMoltingStatusEnumStarted   EventMoltingStatusEnum = "started"
+	EventMoltingStatusEnumStuck     EventMoltingStatusEnum = "stuck"
 )
 
 // Defines values for EventMoodStateEnum.
@@ -144,20 +163,24 @@ const (
 
 // Defines values for GetEventEnum.
 const (
-	GetEventEnumActivity    GetEventEnum = "activity"
-	GetEventEnumDefecation  GetEventEnum = "defecation"
-	GetEventEnumDiarrhea    GetEventEnum = "diarrhea"
-	GetEventEnumFeeding     GetEventEnum = "feeding"
-	GetEventEnumHygiene     GetEventEnum = "hygiene"
-	GetEventEnumMedication  GetEventEnum = "medication"
-	GetEventEnumMood        GetEventEnum = "mood"
-	GetEventEnumOther       GetEventEnum = "other"
-	GetEventEnumSleep       GetEventEnum = "sleep"
-	GetEventEnumTemperature GetEventEnum = "temperature"
-	GetEventEnumUrine       GetEventEnum = "urine"
-	GetEventEnumVomit       GetEventEnum = "vomit"
-	GetEventEnumWater       GetEventEnum = "water"
-	GetEventEnumWeight      GetEventEnum = "weight"
+	GetEventEnumActivity     GetEventEnum = "activity"
+	GetEventEnumDefecation   GetEventEnum = "defecation"
+	GetEventEnumDiarrhea     GetEventEnum = "diarrhea"
+	GetEventEnumEggLaying    GetEventEnum = "egg_laying"
+	GetEventEnumFeeding      GetEventEnum = "feeding"
+	GetEventEnumHeatCycle    GetEventEnum = "heat_cycle"
+	GetEventEnumHygiene      GetEventEnum = "hygiene"
+	GetEventEnumMedication   GetEventEnum = "medication"
+	GetEventEnumMolting      GetEventEnum = "molting"
+	GetEventEnumMood         GetEventEnum = "mood"
+	GetEventEnumOther        GetEventEnum = "other"
+	GetEventEnumSleep        GetEventEnum = "sleep"
+	GetEventEnumTemperature  GetEventEnum = "temperature"
+	GetEventEnumUrine        GetEventEnum = "urine"
+	GetEventEnumVomit        GetEventEnum = "vomit"
+	GetEventEnumWater        GetEventEnum = "water"
+	GetEventEnumWaterQuality GetEventEnum = "water_quality"
+	GetEventEnumWeight       GetEventEnum = "weight"
 )
 
 // Defines values for GetGenderEnum.
@@ -184,11 +207,11 @@ const (
 
 // Defines values for PetBodyConditionEnum.
 const (
-	PetBodyConditionEnumNormal      PetBodyConditionEnum = "normal"
-	PetBodyConditionEnumObese       PetBodyConditionEnum = "obese"
-	PetBodyConditionEnumOverweight  PetBodyConditionEnum = "overweight"
-	PetBodyConditionEnumThin        PetBodyConditionEnum = "thin"
-	PetBodyConditionEnumUnderweight PetBodyConditionEnum = "underweight"
+	Normal      PetBodyConditionEnum = "normal"
+	Obese       PetBodyConditionEnum = "obese"
+	Overweight  PetBodyConditionEnum = "overweight"
+	Thin        PetBodyConditionEnum = "thin"
+	Underweight PetBodyConditionEnum = "underweight"
 )
 
 // Defines values for PetIconEnum.
@@ -260,8 +283,14 @@ type ActivitiesDayEventItem struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -276,6 +305,9 @@ type ErrorCodeEnum string
 
 // EventActivityKindEnum Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума.
 type EventActivityKindEnum string
+
+// EventEggLayingStatusEnum Статус кладки (value.status при type=egg_laying). abnormal — осложнённая кладка (в т.ч. застрявшее яйцо).
+type EventEggLayingStatusEnum string
 
 // EventExcretionStatusEnum Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).
 type EventExcretionStatusEnum string
@@ -298,11 +330,17 @@ type EventFile struct {
 	Url string `json:"url"`
 }
 
+// EventHeatCyclePhaseEnum Фаза течки (value.phase при type=heat_cycle).
+type EventHeatCyclePhaseEnum string
+
 // EventHygieneProcedureEnum Процедура гигиены (value.procedure при type=hygiene).
 type EventHygieneProcedureEnum string
 
 // EventMedicationDoseUnitEnum Единица дозы лекарства (value.dose_unit при type=medication).
 type EventMedicationDoseUnitEnum string
+
+// EventMoltingStatusEnum Статус линьки (value.status при type=molting). started — линька началась; completed — линька завершена без осложнений; stuck — застрявшая (неполная) линька.
+type EventMoltingStatusEnum string
 
 // EventMoodStateEnum Состояние питомца (value.state при type=mood).
 type EventMoodStateEnum string
@@ -365,11 +403,26 @@ type EventTemperatureKindEnum string
 // * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 // * hygiene — procedure
 // * mood — state
-// * urine, defecation, vomit, diarrhea — status
+// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 // * other — label (1–50)
+// * molting — status (EventMoltingStatusEnum)
+// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+//
+// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 type EventValue struct {
+	// AmmoniaPpm Концентрация аммиака в воде, ppm (type=water_quality, опционально).
+	AmmoniaPpm *float32 `json:"ammonia_ppm,omitempty"`
+
 	// Amount Числовая величина: weight (кг), temperature (°C), feeding (в единице unit), water (мл).
 	Amount *float32 `json:"amount,omitempty"`
+
+	// ChangedVolumeMl Объём подменённой воды в мл (type=water_quality, опционально).
+	ChangedVolumeMl *float32 `json:"changed_volume_ml,omitempty"`
+
+	// Count Количество штук, например яиц в кладке (type=egg_laying).
+	Count *int `json:"count,omitempty"`
 
 	// DistanceM Дистанция в метрах (type=activity, опционально).
 	DistanceM *float32 `json:"distance_m,omitempty"`
@@ -395,14 +448,23 @@ type EventValue struct {
 	// Name Название препарата (type=medication).
 	Name *string `json:"name,omitempty"`
 
+	// Ph Водородный показатель воды (type=water_quality, опционально).
+	Ph *float32 `json:"ph,omitempty"`
+
+	// Phase Фаза течки (value.phase при type=heat_cycle).
+	Phase *EventHeatCyclePhaseEnum `json:"phase,omitempty"`
+
 	// Procedure Процедура гигиены (value.procedure при type=hygiene).
 	Procedure *EventHygieneProcedureEnum `json:"procedure,omitempty"`
 
 	// State Состояние питомца (value.state при type=mood).
 	State *EventMoodStateEnum `json:"state,omitempty"`
 
-	// Status Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).
-	Status *EventExcretionStatusEnum `json:"status,omitempty"`
+	// Status Статус: при type=urine|defecation|vomit|diarrhea — значение EventExcretionStatusEnum, при type=molting — значение EventMoltingStatusEnum, при type=egg_laying (опционально) — значение EventEggLayingStatusEnum.
+	Status *string `json:"status,omitempty"`
+
+	// TemperatureC Температура воды в °C (type=water_quality, опционально).
+	TemperatureC *float32 `json:"temperature_c,omitempty"`
 
 	// Unit Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).
 	Unit *EventFeedingUnitEnum `json:"unit,omitempty"`
@@ -523,8 +585,14 @@ type GetEventIdResponseRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -547,8 +615,14 @@ type GetEventRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -574,8 +648,14 @@ type GetEventResponse struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -893,8 +973,14 @@ type ImportLocalDataEvent struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -1157,8 +1243,14 @@ type UpdateEventRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
 	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value *EventValue `json:"value,omitempty"`
 }
 

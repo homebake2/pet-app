@@ -331,6 +331,54 @@ func TestCreateEventHandler_PetDeleted(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
+// Проверка применимости type к виду питомца выполняется сервером
+// независимо от клиента (см. «Модель значения события и реестр метрик»,
+// раздел «Применимость типа события к виду питомца»): heat_cycle неприменим
+// к FISH.
+func TestCreateEventHandler_TypeNotApplicableToPetIcon(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Nemo", nil, "fish", nil, nil, false, nil, nil, nil, nil, "FISH", nil,
+		))
+
+	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "heat_cycle", Value: eventValue(`{"phase":"started"}`)}
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPost, "/events", body, true)
+	CreateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// water_quality применим только к FISH/AXOLOTL/FROG/TURTLE/OTHER — с
+// подходящим видом запрос проходит.
+func TestCreateEventHandler_TypeApplicableToPetIcon_Success(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Nemo", nil, "fish", nil, nil, false, nil, nil, nil, nil, "FISH", nil,
+		))
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
+	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
+			AddRow(eventID, testPetID, time.Now(), "water_quality", nil, []byte(`{"ph":7}`), "Nemo"))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns))
+
+	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "water_quality", Value: eventValue(`{"ph":7}`)}
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPost, "/events", body, true)
+	CreateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestCreateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -557,6 +605,65 @@ func TestUpdateEventHandler_ValueInvalidForCurrentType(t *testing.T) {
 	UpdateEventHandler(w, r)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// PATCH проверяет применимость нового type к виду питомца события (то же
+// правило, что и на создании) — при смене type на неприменимый к виду
+// питомца сервер отклоняет запрос с 400, даже если value для этого типа
+// само по себе валидно.
+func TestUpdateEventHandler_TypeNotApplicableToPetIcon(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
+			AddRow(eventID, testPetID, time.Now(), "weight", nil, []byte(`{"amount":5}`)))
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Nemo", nil, "fish", nil, nil, false, nil, nil, nil, nil, "FISH", nil,
+		))
+
+	newType := "heat_cycle"
+	newValue := eventValuePtr(`{"phase":"started"}`)
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID, Type: &newType, Value: newValue}, true)
+	UpdateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Применимость проверяется только когда type присутствует в теле запроса —
+// как и валидация формы value (см. «Редактирование события — Backend», п.
+// 12). Если type не меняется, событие с типом, уже неприменимым к виду
+// питомца (данные могли предшествовать ужесточению правила применимости),
+// по-прежнему редактируется без ошибки применимости.
+func TestUpdateEventHandler_TypeUnchangedApplicabilityNotChecked(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	eventID := "44444444-4444-4444-4444-444444444444"
+	// Событие типа heat_cycle у питомца FISH — не может возникнуть при
+	// текущих правилах, но могло быть создано до их ужесточения.
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
+			AddRow(eventID, testPetID, time.Now(), "heat_cycle", nil, []byte(`{"phase":"started"}`)))
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
+			testPetID, "Nemo", nil, "fish", nil, nil, false, nil, nil, nil, nil, "FISH", nil,
+		))
+	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
+
+	newNotes := "заметка"
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID, Notes: &newNotes}, true)
+	UpdateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestUpdateEventHandler_Success(t *testing.T) {

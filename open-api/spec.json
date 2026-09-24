@@ -3676,7 +3676,11 @@
           "defecation",
           "vomit",
           "diarrhea",
-          "other"
+          "other",
+          "molting",
+          "egg_laying",
+          "water_quality",
+          "heat_cycle"
         ],
         "type": "string"
       },
@@ -4579,10 +4583,38 @@
           "abnormal"
         ]
       },
+      "EventMoltingStatusEnum": {
+        "title": "EventMoltingStatusEnum",
+        "type": "string",
+        "description": "Статус линьки (value.status при type=molting). started — линька началась; completed — линька завершена без осложнений; stuck — застрявшая (неполная) линька.",
+        "enum": [
+          "started",
+          "stuck",
+          "completed"
+        ]
+      },
+      "EventEggLayingStatusEnum": {
+        "title": "EventEggLayingStatusEnum",
+        "type": "string",
+        "description": "Статус кладки (value.status при type=egg_laying). abnormal — осложнённая кладка (в т.ч. застрявшее яйцо).",
+        "enum": [
+          "normal",
+          "abnormal"
+        ]
+      },
+      "EventHeatCyclePhaseEnum": {
+        "title": "EventHeatCyclePhaseEnum",
+        "type": "string",
+        "description": "Фаза течки (value.phase при type=heat_cycle).",
+        "enum": [
+          "started",
+          "ended"
+        ]
+      },
       "EventValue": {
         "title": "EventValue",
         "type": "object",
-        "description": "Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.\n\nСостав по типам:\n* weight — amount (кг, 0.001–400)\n* temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)\n* feeding — amount (0.01–5000), unit, food\n* water — amount (мл, 0.1–5000)\n* activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)\n* sleep — duration_min (1–1440)\n* medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально\n* hygiene — procedure\n* mood — state\n* urine, defecation, vomit, diarrhea — status\n* other — label (1–50)",
+        "description": "Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.\n\nСостав по типам:\n* weight — amount (кг, 0.001–400)\n* temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)\n* feeding — amount (0.01–5000), unit, food\n* water — amount (мл, 0.1–5000)\n* activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)\n* sleep — duration_min (1–1440)\n* medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально\n* hygiene — procedure\n* mood — state\n* urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)\n* other — label (1–50)\n* molting — status (EventMoltingStatusEnum)\n* egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)\n* water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно\n* heat_cycle — phase (EventHeatCyclePhaseEnum)\n\nПоле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.",
         "additionalProperties": false,
         "properties": {
           "amount": {
@@ -4627,13 +4659,47 @@
             "$ref": "#/components/schemas/EventMoodStateEnum"
           },
           "status": {
-            "$ref": "#/components/schemas/EventExcretionStatusEnum"
+            "type": "string",
+            "description": "Статус: при type=urine|defecation|vomit|diarrhea — значение EventExcretionStatusEnum, при type=molting — значение EventMoltingStatusEnum, при type=egg_laying (опционально) — значение EventEggLayingStatusEnum."
           },
           "label": {
             "type": "string",
             "minLength": 1,
             "maxLength": 50,
             "description": "Краткое обозначение события (type=other); подробности — в notes."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "Количество штук, например яиц в кладке (type=egg_laying)."
+          },
+          "temperature_c": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 40,
+            "description": "Температура воды в °C (type=water_quality, опционально)."
+          },
+          "ph": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 14,
+            "description": "Водородный показатель воды (type=water_quality, опционально)."
+          },
+          "ammonia_ppm": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Концентрация аммиака в воде, ppm (type=water_quality, опционально)."
+          },
+          "changed_volume_ml": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 200000,
+            "description": "Объём подменённой воды в мл (type=water_quality, опционально)."
+          },
+          "phase": {
+            "$ref": "#/components/schemas/EventHeatCyclePhaseEnum"
           }
         }
       },
