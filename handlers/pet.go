@@ -229,11 +229,6 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Icon != nil && !models.IsValidIcon(*req.Icon) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение icon")
-		return
-	}
-
 	if req.Gender != nil && !models.IsValidGender(*req.Gender) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение gender")
 		return
@@ -341,18 +336,11 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 	petIDs := make([]uuid.UUID, 0, len(pets))
 
 	for _, pet := range pets {
-		icon := "OTHER"
-
-		if pet.Icon.Valid && pet.Icon.String != "" {
-			icon = pet.Icon.String
-		}
-
 		response.Items = append(response.Items, models.PetItem{
 			ID:      pet.ID.String(),
 			Name:    pet.Name,
 			Breed:   pet.Breed.String,
 			Species: pet.Species,
-			Icon:    icon,
 		})
 		petIDs = append(petIDs, pet.ID)
 	}
@@ -438,11 +426,6 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Species != nil && strings.TrimSpace(*req.Species) == "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле species не может быть пустым")
-		return
-	}
-
-	if req.Icon != nil && !models.IsValidIcon(*req.Icon) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение icon")
 		return
 	}
 

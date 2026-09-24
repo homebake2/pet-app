@@ -214,41 +214,6 @@ const (
 	Underweight PetBodyConditionEnum = "underweight"
 )
 
-// Defines values for PetIconEnum.
-const (
-	ANTFARM      PetIconEnum = "ANT_FARM"
-	AXOLOTL      PetIconEnum = "AXOLOTL"
-	BEARDEDAGAMA PetIconEnum = "BEARDED_AGAMA"
-	CANARY       PetIconEnum = "CANARY"
-	CAT          PetIconEnum = "CAT"
-	CHICKEN      PetIconEnum = "CHICKEN"
-	CHINCHILLA   PetIconEnum = "CHINCHILLA"
-	DOG          PetIconEnum = "DOG"
-	DUCK         PetIconEnum = "DUCK"
-	FERRET       PetIconEnum = "FERRET"
-	FISH         PetIconEnum = "FISH"
-	FROG         PetIconEnum = "FROG"
-	GECKO        PetIconEnum = "GECKO"
-	GUINEAPIG    PetIconEnum = "GUINEA_PIG"
-	HAMSTER      PetIconEnum = "HAMSTER"
-	HEDGEHOG     PetIconEnum = "HEDGEHOG"
-	HERMITCRAB   PetIconEnum = "HERMIT_CRAB"
-	IGUANA       PetIconEnum = "IGUANA"
-	MINIGOAT     PetIconEnum = "MINI_GOAT"
-	MINIPIG      PetIconEnum = "MINI_PIG"
-	MOUSE        PetIconEnum = "MOUSE"
-	OTHER        PetIconEnum = "OTHER"
-	PARROT       PetIconEnum = "PARROT"
-	PIGEON       PetIconEnum = "PIGEON"
-	PYTHON       PetIconEnum = "PYTHON"
-	RABBIT       PetIconEnum = "RABBIT"
-	RAT          PetIconEnum = "RAT"
-	SNAIL        PetIconEnum = "SNAIL"
-	SNAKE        PetIconEnum = "SNAKE"
-	TARANTULA    PetIconEnum = "TARANTULA"
-	TURTLE       PetIconEnum = "TURTLE"
-)
-
 // Defines values for LanguageCode.
 const (
 	En LanguageCode = "en"
@@ -792,7 +757,6 @@ type GetPetProfileResponse struct {
 	Color         *string               `json:"color"`
 	Gender        *GetGenderEnum        `json:"gender,omitempty"`
 	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
-	Icon          PetIconEnum           `json:"icon"`
 	Id            openapi_types.UUID    `json:"id"`
 	IsDeleted     *bool                 `json:"is_deleted,omitempty"`
 	Name          string                `json:"name"`
@@ -847,7 +811,6 @@ type GetShortInfoAllPetResponse struct {
 // GetShortInfoPetResponse defines model for GetShortInfoPetResponse.
 type GetShortInfoPetResponse struct {
 	Breed string             `json:"breed"`
-	Icon  PetIconEnum        `json:"icon"`
 	Id    openapi_types.UUID `json:"id"`
 	Name  string             `json:"name"`
 
@@ -1178,9 +1141,6 @@ type MedicationTimeSlot struct {
 
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
-
-// PetIconEnum defines model for PetIconEnum.
-type PetIconEnum string
 
 // PostFilesUploadUrlRequest defines model for PostFilesUploadUrlRequest.
 type PostFilesUploadUrlRequest struct {

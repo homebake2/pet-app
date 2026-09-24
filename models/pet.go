@@ -62,7 +62,12 @@ type EventDB struct {
 	DeletedAt sql.NullTime
 }
 
-var allowedIcons = map[string]bool{
+// knownSpeciesValues — закрытый набор значений species, распознаваемых для
+// целей применимости типа события к виду питомца (см. eventreg). Поле
+// species само по себе остаётся свободным текстом при создании/обновлении
+// питомца — этот набор используется только справочно (раньше был закрытым
+// перечислением поля icon, которое было удалено из API целиком).
+var knownSpeciesValues = map[string]bool{
 	"DOG":           true,
 	"CAT":           true,
 	"HAMSTER":       true,
@@ -96,8 +101,12 @@ var allowedIcons = map[string]bool{
 	"OTHER":         true,
 }
 
-func IsValidIcon(icon string) bool {
-	return allowedIcons[icon]
+// IsKnownSpeciesValue сообщает, входит ли значение species в закрытый
+// справочник видов, используемый для проверки применимости типа события
+// (см. eventreg.IsApplicableToSpecies). Не является ограничением на
+// произвольный ввод поля species при создании/обновлении питомца.
+func IsKnownSpeciesValue(species string) bool {
+	return knownSpeciesValues[species]
 }
 
 var allowedGenders = map[string]bool{
@@ -131,7 +140,6 @@ type CreatePetRequest struct {
 	Habitation *string `json:"habitation,omitempty"` // enum: indoor, outside, both
 	Notes      *string `json:"notes,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
-	Icon       *string `json:"icon,omitempty"` // enum: DOG, CAT, HAMSTER, GUINEA_PIG, RABBIT, PARROT, CANARY, FISH, TURTLE, RAT, MOUSE, FERRET, HEDGEHOG, CHINCHILLA, MINI_PIG, MINI_GOAT, CHICKEN, DUCK, PIGEON, IGUANA, GECKO, BEARDED_AGAMA, SNAKE, PYTHON, FROG, AXOLOTL, TARANTULA, HERMIT_CRAB, ANT_FARM, SNAIL, OTHER
 	// Weight — вес питомца в кг (0.001–400), опционально; НЕ сохраняется как
 	// поле питомца. При передаче сервер создаёт событие типа weight со
 	// значением amount=weight (см. «Вес питомца — Backend»).
@@ -146,7 +154,6 @@ type PetItem struct {
 	Name    string `json:"name"`
 	Breed   string `json:"breed"`
 	Species string `json:"species"`
-	Icon    string `json:"icon"`
 	// PhotoURL — presigned GET URL на текущую фотографию питомца (owner_type
 	// = "pet_photo" в generic-механизме файлов сущностей); null, если
 	// фотографии нет. См. «Фотография питомца — Backend».
@@ -162,7 +169,6 @@ type PetDB struct {
 	Name    string         `db:"name"`
 	Breed   sql.NullString `db:"breed"`
 	Species string         `db:"species"`
-	Icon    sql.NullString `db:"icon"`
 }
 
 type PetIdResponse struct {
@@ -177,9 +183,6 @@ type PetIdResponse struct {
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  bool    `json:"is_deleted"`
 	Breed      *string `json:"breed,omitempty"`
-	// Icon обязателен по спеке (GetPetProfileResponse.icon) — всегда заполняется,
-	// при отсутствии значения в БД используется дефолт "OTHER" (см. database.GetPetByIDAndProfileID).
-	Icon string `json:"icon"`
 	// PhotoURL — presigned GET URL на текущую фотографию питомца; null, если
 	// фотографии нет. PhotoFileID — id соответствующей строки file, нужен
 	// клиенту для DELETE /files/{file_id}. Оба вычисляются на чтении join'ом
@@ -208,7 +211,6 @@ type PetIdDB struct {
 	Notes         sql.NullString
 	DeletedAt     sql.NullTime
 	Breed         sql.NullString
-	Icon          sql.NullString
 	BodyCondition sql.NullString
 }
 
@@ -224,7 +226,6 @@ type UpdatePetRequest struct {
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  *bool   `json:"is_deleted,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
-	Icon       *string `json:"icon,omitempty"`
 	// Weight — вес питомца в кг (0.001–400), опционально и nullable.
 	// Отсутствие ключа и явный null равнозначны: событие weight не
 	// создаётся. Очистки веса через этот эндпоинт нет — только передача

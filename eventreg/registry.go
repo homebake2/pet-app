@@ -109,13 +109,14 @@ type TypeSpec struct {
 	// показателя не несёт факта). Пусто, если у типа такого правила нет.
 	AtLeastOneOf []string
 
-	// ApplicableIcons — множество значений pet.icon, для которых этот тип
-	// события применим (см. «Применимость типа события к виду питомца»).
-	// nil означает «применим ко всем видам справочника» (отметка «все» в
-	// таблице применимости). Иконка OTHER применима к любому типу
-	// независимо от содержимого этого списка — проверяется отдельно в
-	// IsApplicableToIcon.
-	ApplicableIcons []string
+	// ApplicableSpecies — множество значений pet.species (из закрытого
+	// справочника видов), для которых этот тип события применим (см.
+	// «Применимость типа события к виду питомца»). nil означает «применим ко
+	// всем видам справочника» (отметка «все» в таблице применимости).
+	// Значение OTHER (species вне справочника или неопределён) применимо к
+	// любому типу независимо от содержимого этого списка — проверяется
+	// отдельно в IsApplicableToSpecies.
+	ApplicableSpecies []string
 }
 
 // Field возвращает описание поля value по имени.
@@ -157,10 +158,10 @@ func (s TypeSpec) MetricValueKind(m Metric) ValueKind {
 	return s.ValueKind
 }
 
-// allIcons — полный справочник видов питомца (см. «Питомцы — Вид (species /
-// icon)»), 31 значение. Используется для построения применимости «все, кроме
-// …» без переписывания списка целиком под каждое исключение.
-var allIcons = []string{
+// allSpecies — полный справочник видов питомца (см. «Питомцы — Вид
+// (species)»), 31 значение. Используется для построения применимости «все,
+// кроме …» без переписывания списка целиком под каждое исключение.
+var allSpecies = []string{
 	"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "PARROT", "CANARY", "FISH",
 	"TURTLE", "RAT", "MOUSE", "FERRET", "HEDGEHOG", "CHINCHILLA", "MINI_PIG",
 	"MINI_GOAT", "CHICKEN", "DUCK", "PIGEON", "IGUANA", "GECKO", "BEARDED_AGAMA",
@@ -168,39 +169,39 @@ var allIcons = []string{
 	"SNAIL", "OTHER",
 }
 
-// allIconsExcept возвращает применимость вида «все, кроме …» из таблицы
+// allSpeciesExcept возвращает применимость вида «все, кроме …» из таблицы
 // применимости — полный справочник видов минус перечисленные исключения.
-func allIconsExcept(excluded ...string) []string {
+func allSpeciesExcept(excluded ...string) []string {
 	skip := make(map[string]bool, len(excluded))
-	for _, icon := range excluded {
-		skip[icon] = true
+	for _, species := range excluded {
+		skip[species] = true
 	}
-	out := make([]string, 0, len(allIcons))
-	for _, icon := range allIcons {
-		if !skip[icon] {
-			out = append(out, icon)
+	out := make([]string, 0, len(allSpecies))
+	for _, species := range allSpecies {
+		if !skip[species] {
+			out = append(out, species)
 		}
 	}
 	return out
 }
 
-// IsApplicableToIcon сообщает, применим ли тип события eventType к виду
-// питомца icon (см. «Применимость типа события к виду питомца»). Тип
-// без записи в реестре не применим ни к одному виду. OTHER (неопределённый
-// вид) применим ко всем типам без исключения.
-func IsApplicableToIcon(eventType, icon string) bool {
+// IsApplicableToSpecies сообщает, применим ли тип события eventType к виду
+// питомца species (см. «Применимость типа события к виду питомца»). Тип
+// без записи в реестре не применим ни к одному виду. OTHER (species вне
+// справочника или неопределён) применим ко всем типам без исключения.
+func IsApplicableToSpecies(eventType, species string) bool {
 	spec, ok := Spec(eventType)
 	if !ok {
 		return false
 	}
-	if icon == "OTHER" {
+	if species == "OTHER" {
 		return true
 	}
-	if spec.ApplicableIcons == nil {
+	if spec.ApplicableSpecies == nil {
 		return true
 	}
-	for _, applicable := range spec.ApplicableIcons {
-		if applicable == icon {
+	for _, applicable := range spec.ApplicableSpecies {
+		if applicable == species {
 			return true
 		}
 	}
@@ -235,30 +236,30 @@ const (
 	unitPieces  = "pcs"
 )
 
-// Применимость к видам питомца (pet.icon) для типов, где применимость
+// Применимость к видам питомца (pet.species) для типов, где применимость
 // задана как узкий явный список видов, а не «все, кроме …» (см.
 // «Применимость типа события к виду питомца»).
 var (
-	urineIcons = []string{
+	urineSpecies = []string{
 		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET",
 		"HEDGEHOG", "CHINCHILLA", "MINI_PIG", "MINI_GOAT", "OTHER",
 	}
-	vomitIcons = []string{
+	vomitSpecies = []string{
 		"DOG", "CAT", "FERRET", "HEDGEHOG", "MINI_PIG", "PARROT", "CANARY",
 		"CHICKEN", "DUCK", "PIGEON", "TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA",
 		"SNAKE", "PYTHON", "FROG", "OTHER",
 	}
-	moltingIcons = []string{
+	moltingSpecies = []string{
 		"TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON", "FROG",
 		"AXOLOTL", "TARANTULA", "HERMIT_CRAB", "CHINCHILLA", "FERRET", "PARROT",
 		"CANARY", "CHICKEN", "DUCK", "PIGEON", "OTHER",
 	}
-	eggLayingIcons = []string{
+	eggLayingSpecies = []string{
 		"PARROT", "CANARY", "CHICKEN", "DUCK", "PIGEON", "TURTLE", "IGUANA",
 		"GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON", "FROG", "OTHER",
 	}
-	waterQualityIcons = []string{"FISH", "AXOLOTL", "FROG", "TURTLE", "OTHER"}
-	heatCycleIcons    = []string{"DOG", "CAT", "RABBIT", "MINI_GOAT", "OTHER"}
+	waterQualitySpecies = []string{"FISH", "AXOLOTL", "FROG", "TURTLE", "OTHER"}
+	heatCycleSpecies    = []string{"DOG", "CAT", "RABBIT", "MINI_GOAT", "OTHER"}
 
 	// coldBloodedExclusion — виды, для которых нерелевантны замер температуры
 	// тела, сон в человеческом смысле и наблюдаемое настроение по общему
@@ -276,7 +277,7 @@ var (
 // excretionSpec собирает одинаковую по форме запись реестра для типов
 // urine/defecation/vomit/diarrhea — они отличаются только значением type и
 // применимостью к видам питомца.
-func excretionSpec(eventType string, applicableIcons []string) TypeSpec {
+func excretionSpec(eventType string, applicableSpecies []string) TypeSpec {
 	return TypeSpec{
 		Type:      eventType,
 		ValueKind: KindCategory,
@@ -285,7 +286,7 @@ func excretionSpec(eventType string, applicableIcons []string) TypeSpec {
 		},
 		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField:      "status",
-		ApplicableIcons: applicableIcons,
+		ApplicableSpecies: applicableSpecies,
 	}
 }
 
@@ -303,7 +304,7 @@ var specs = []TypeSpec{
 			{Key: "amount_avg", Field: "amount", Unit: unitKg, Aggregation: AggAvg},
 			{Key: "amount_last", Field: "amount", Unit: unitKg, Aggregation: AggLast},
 		},
-		// weight — применим ко всем видам справочника (ApplicableIcons: nil).
+		// weight — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
 		Type:      "temperature",
@@ -317,7 +318,7 @@ var specs = []TypeSpec{
 			{Key: "amount_last", Field: "amount", Unit: unitCelsius, Aggregation: AggLast},
 		},
 		SplitField:      "kind",
-		ApplicableIcons: allIconsExcept(coldBloodedExclusion...),
+		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
 	{
 		Type:      "feeding",
@@ -342,7 +343,7 @@ var specs = []TypeSpec{
 		Metrics: []Metric{
 			{Key: "amount_sum", Field: "amount", Unit: unitMl, Aggregation: AggSum},
 		},
-		ApplicableIcons: allIconsExcept(waterExclusion...),
+		ApplicableSpecies: allSpeciesExcept(waterExclusion...),
 	},
 	{
 		Type:      "activity",
@@ -356,7 +357,7 @@ var specs = []TypeSpec{
 			{Key: "duration_min_sum", Field: "duration_min", Unit: unitMinutes, Aggregation: AggSum},
 			{Key: "distance_m_sum", Field: "distance_m", Unit: unitMeters, Aggregation: AggSum},
 		},
-		ApplicableIcons: allIconsExcept(activityExclusion...),
+		ApplicableSpecies: allSpeciesExcept(activityExclusion...),
 	},
 	{
 		Type:      "sleep",
@@ -367,7 +368,7 @@ var specs = []TypeSpec{
 		Metrics: []Metric{
 			{Key: "duration_min_sum", Field: "duration_min", Unit: unitMinutes, Aggregation: AggSum},
 		},
-		ApplicableIcons: allIconsExcept(coldBloodedExclusion...),
+		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
 	{
 		Type:      "medication",
@@ -380,7 +381,7 @@ var specs = []TypeSpec{
 		// Доза относится к конкретному препарату и его единице, поэтому
 		// medication сворачивается в количество приёмов, а не в сумму доз.
 		Metrics: []Metric{{Key: "count", Aggregation: AggCount}},
-		// medication — применим ко всем видам справочника (ApplicableIcons: nil).
+		// medication — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
 		Type:      "hygiene",
@@ -390,7 +391,7 @@ var specs = []TypeSpec{
 		},
 		Metrics:    []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField: "procedure",
-		// hygiene — применим ко всем видам справочника (ApplicableIcons: nil).
+		// hygiene — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
 		Type:      "mood",
@@ -400,19 +401,19 @@ var specs = []TypeSpec{
 		},
 		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField:      "state",
-		ApplicableIcons: allIconsExcept(coldBloodedExclusion...),
+		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
-	excretionSpec("urine", urineIcons),
-	excretionSpec("defecation", allIconsExcept(defecationExclusion...)),
-	excretionSpec("vomit", vomitIcons),
-	excretionSpec("diarrhea", allIconsExcept(diarrheaExclusion...)),
+	excretionSpec("urine", urineSpecies),
+	excretionSpec("defecation", allSpeciesExcept(defecationExclusion...)),
+	excretionSpec("vomit", vomitSpecies),
+	excretionSpec("diarrhea", allSpeciesExcept(diarrheaExclusion...)),
 	{
 		Type:      "other",
 		ValueKind: KindLabel,
 		Fields: []Field{
 			{Name: "label", Type: FieldString, Required: true, MinLen: 1, MaxLen: 50},
 		},
-		// other — применим ко всем видам справочника (ApplicableIcons: nil).
+		// other — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
 		Type:      "molting",
@@ -422,7 +423,7 @@ var specs = []TypeSpec{
 		},
 		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField:      "status",
-		ApplicableIcons: moltingIcons,
+		ApplicableSpecies: moltingSpecies,
 	},
 	{
 		Type:      "egg_laying",
@@ -437,7 +438,7 @@ var specs = []TypeSpec{
 		Metrics: []Metric{
 			{Key: "count_sum", Field: "count", Unit: unitPieces, Aggregation: AggSum},
 		},
-		ApplicableIcons: eggLayingIcons,
+		ApplicableSpecies: eggLayingSpecies,
 	},
 	{
 		Type: "water_quality",
@@ -463,7 +464,7 @@ var specs = []TypeSpec{
 		// Хотя бы одно из четырёх полей обязано быть передано — пустое value
 		// без единого показателя не несёт факта.
 		AtLeastOneOf:    []string{"temperature_c", "ph", "ammonia_ppm", "changed_volume_ml"},
-		ApplicableIcons: waterQualityIcons,
+		ApplicableSpecies: waterQualitySpecies,
 	},
 	{
 		Type:      "heat_cycle",
@@ -473,7 +474,7 @@ var specs = []TypeSpec{
 		},
 		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField:      "phase",
-		ApplicableIcons: heatCycleIcons,
+		ApplicableSpecies: heatCycleSpecies,
 	},
 }
 

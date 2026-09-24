@@ -438,7 +438,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !isTypeApplicableToPet(req.Type, petDB.Icon) {
+	if !isTypeApplicableToPet(req.Type, petDB.Species) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип события "+req.Type+" неприменим к виду питомца")
 		return
 	}
@@ -642,7 +642,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Type != nil && !isTypeApplicableToPet(*req.Type, petDB.Icon) {
+	if req.Type != nil && !isTypeApplicableToPet(*req.Type, petDB.Species) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип события "+*req.Type+" неприменим к виду питомца")
 		return
 	}

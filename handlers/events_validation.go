@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"myauthservice/eventreg"
+	"myauthservice/models"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,13 +41,14 @@ func validateNotesLength(notes *string) bool {
 	return notes == nil || len(*notes) <= maxEventFieldLen
 }
 
-// petIconOrDefault возвращает pet.icon питомца для проверки применимости
-// типа события; при отсутствии значения в БД используется дефолт "OTHER" —
-// то же соглашение, что и в GetPetIdDBByIDAndUserID/GetPetById (см.
-// models.PetIdResponse.Icon).
-func petIconOrDefault(icon sql.NullString) string {
-	if icon.Valid && icon.String != "" {
-		return icon.String
+// petSpeciesOrDefault возвращает pet.species питомца для проверки
+// применимости типа события; если species не входит в закрытый справочник
+// видов (см. models.IsKnownSpeciesValue) — используется дефолт "OTHER",
+// применимый ко всем типам, то же соглашение, что раньше действовало для
+// pet.icon.
+func petSpeciesOrDefault(species string) string {
+	if models.IsKnownSpeciesValue(species) {
+		return species
 	}
 	return "OTHER"
 }
@@ -56,8 +57,8 @@ func petIconOrDefault(icon sql.NullString) string {
 // виду питомца (см. «Модель значения события и реестр метрик», раздел
 // «Применимость типа события к виду питомца»). Общая функция для POST
 // /events и PATCH /events/{id} — правило одно и то же для обоих эндпоинтов.
-func isTypeApplicableToPet(eventType string, petIcon sql.NullString) bool {
-	return eventreg.IsApplicableToIcon(eventType, petIconOrDefault(petIcon))
+func isTypeApplicableToPet(eventType string, petSpecies string) bool {
+	return eventreg.IsApplicableToSpecies(eventType, petSpeciesOrDefault(petSpecies))
 }
 
 func parseEventDate(date string) (time.Time, error) {

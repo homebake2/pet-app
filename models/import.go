@@ -17,7 +17,6 @@ type ImportLocalDataPet struct {
 	Habitation *string `json:"habitation,omitempty"`
 	Notes      *string `json:"notes,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
-	Icon       *string `json:"icon,omitempty"`
 	// BodyCondition — кондиция тела питомца, опционально (см. «Ведпаспорт —
 	// Backend», паритет сущностей при переносе).
 	BodyCondition *string `json:"body_condition,omitempty"`
@@ -36,7 +35,6 @@ func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 		Habitation:    p.Habitation,
 		Notes:         p.Notes,
 		Breed:         p.Breed,
-		Icon:          p.Icon,
 		BodyCondition: p.BodyCondition,
 	}
 }

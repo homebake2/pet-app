@@ -37,10 +37,6 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 		return "Поле color питомца превышает допустимую длину"
 	}
 
-	if pet.Icon != nil && !models.IsValidIcon(*pet.Icon) {
-		return "Некорректное значение icon у питомца"
-	}
-
 	if pet.Gender != nil && !models.IsValidGender(*pet.Gender) {
 		return "Некорректное значение gender у питомца"
 	}

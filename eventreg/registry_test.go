@@ -174,10 +174,10 @@ func TestSeriesForWaterQualityMixedValueKind(t *testing.T) {
 
 // Применимость типа события к виду питомца — таблица «Применимость типа
 // события к виду питомца». OTHER применим ко всем типам без исключения.
-func TestIsApplicableToIcon(t *testing.T) {
+func TestIsApplicableToSpecies(t *testing.T) {
 	cases := []struct {
 		eventType string
-		icon      string
+		species   string
 		want      bool
 	}{
 		{"weight", "SNAIL", true},
@@ -197,8 +197,8 @@ func TestIsApplicableToIcon(t *testing.T) {
 		{"unknown_type", "DOG", false},
 	}
 	for _, c := range cases {
-		if got := IsApplicableToIcon(c.eventType, c.icon); got != c.want {
-			t.Errorf("IsApplicableToIcon(%q, %q) = %v, ожидалось %v", c.eventType, c.icon, got, c.want)
+		if got := IsApplicableToSpecies(c.eventType, c.species); got != c.want {
+			t.Errorf("IsApplicableToSpecies(%q, %q) = %v, ожидалось %v", c.eventType, c.species, got, c.want)
 		}
 	}
 }

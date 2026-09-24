@@ -3168,8 +3168,7 @@
         "required": [
           "id",
           "name",
-          "species",
-          "icon"
+          "species"
         ],
         "properties": {
           "id": {
@@ -3236,13 +3235,6 @@
             "x-stoplight": {
               "id": "b29ija62yatih"
             }
-          },
-          "icon": {
-            "$ref": "#/components/schemas/PetIconEnum",
-            "x-stoplight": {
-              "id": "haojphtomr3j9"
-            },
-            "nullable": true
           },
           "habitation": {
             "$ref": "#/components/schemas/GetHabilitationEnum",
@@ -3763,8 +3755,7 @@
           "id",
           "name",
           "breed",
-          "species",
-          "icon"
+          "species"
         ],
         "properties": {
           "id": {
@@ -3790,12 +3781,6 @@
             "type": "string",
             "x-stoplight": {
               "id": "vqg1av50893iu"
-            }
-          },
-          "icon": {
-            "$ref": "#/components/schemas/PetIconEnum",
-            "x-stoplight": {
-              "id": "5qkx712hq6syj"
             }
           },
           "photo_url": {
@@ -4086,46 +4071,6 @@
             }
           }
         }
-      },
-      "PetIconEnum": {
-        "title": "PetIconEnum",
-        "x-stoplight": {
-          "id": "t30dpm2g95s9h"
-        },
-        "enum": [
-          "DOG",
-          "CAT",
-          "HAMSTER",
-          "GUINEA_PIG",
-          "RABBIT",
-          "PARROT",
-          "CANARY",
-          "FISH",
-          "TURTLE",
-          "RAT",
-          "MOUSE",
-          "FERRET",
-          "HEDGEHOG",
-          "CHINCHILLA",
-          "MINI_PIG",
-          "MINI_GOAT",
-          "CHICKEN",
-          "DUCK",
-          "PIGEON",
-          "IGUANA",
-          "GECKO",
-          "BEARDED_AGAMA",
-          "SNAKE",
-          "PYTHON",
-          "FROG",
-          "AXOLOTL",
-          "TARANTULA",
-          "HERMIT_CRAB",
-          "ANT_FARM",
-          "SNAIL",
-          "OTHER"
-        ],
-        "type": "string"
       },
       "UpdateEventRequest": {
         "title": "UpdateEventRequest",

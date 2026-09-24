@@ -24,9 +24,9 @@ func InsertPet(userID string, req models.CreatePetRequest) (uuid.UUID, error) {
 func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) (uuid.UUID, error) {
 	query := `
         INSERT INTO pet (
-            user_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, icon, deleted_at, body_condition
+            user_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, deleted_at, body_condition
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
         ) RETURNING id
     `
 
@@ -62,13 +62,6 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 		habitat = sql.NullString{Valid: false}
 	}
 
-	var icon sql.NullString
-	if req.Icon != nil {
-		icon = sql.NullString{String: *req.Icon, Valid: true}
-	} else {
-		icon = sql.NullString{Valid: false}
-	}
-
 	deletedAt := sql.NullTime{Valid: false}
 
 	var bodyCondition sql.NullString
@@ -80,7 +73,7 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 
 	var newID uuid.UUID
 
-	err := exec.QueryRow(query, userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, icon, deletedAt, bodyCondition).Scan(&newID)
+	err := exec.QueryRow(query, userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, deletedAt, bodyCondition).Scan(&newID)
 	if err != nil {
 		log.Println("InsertPet error:", err)
 		return uuid.Nil, err
@@ -144,7 +137,7 @@ func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 	var pets []models.PetDB
 
 	rows, err := DB.Query(`
-	SELECT id, name, breed, species, icon
+	SELECT id, name, breed, species
 	FROM pet
 	WHERE user_id = $1
 	  AND deleted_at IS NULL
@@ -157,7 +150,7 @@ func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 
 	for rows.Next() {
 		var pet models.PetDB
-		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Breed, &pet.Species, &pet.Icon); err != nil {
+		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Breed, &pet.Species); err != nil {
 			return nil, err
 		}
 		pets = append(pets, pet)
@@ -175,7 +168,7 @@ func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
-	       habitation, notes, deleted_at, breed, icon, body_condition
+	       habitation, notes, deleted_at, breed, body_condition
 	FROM pet
 	WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
 	`
@@ -194,7 +187,6 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 		&petDB.Notes,
 		&petDB.DeletedAt,
 		&petDB.Breed,
-		&petDB.Icon,
 		&petDB.BodyCondition,
 	)
 
@@ -233,11 +225,6 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 
 	if petDB.Breed.Valid {
 		pet.Breed = &petDB.Breed.String
-	}
-
-	pet.Icon = "OTHER"
-	if petDB.Icon.Valid && petDB.Icon.String != "" {
-		pet.Icon = petDB.Icon.String
 	}
 
 	if petDB.BodyCondition.Valid {
@@ -334,10 +321,6 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 		add("breed", *req.Breed)
 	}
 
-	if req.Icon != nil {
-		add("icon", *req.Icon)
-	}
-
 	if req.BodyCondition != nil {
 		if *req.BodyCondition == "" {
 			add("body_condition", sql.NullString{Valid: false})
@@ -403,7 +386,7 @@ func DeletePet(petID uuid.UUID, userID string) error {
 func GetPetIdDBByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdDB, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
-	       habitation, notes, deleted_at, breed, icon, body_condition
+	       habitation, notes, deleted_at, breed, body_condition
 	FROM pet
 	WHERE id = $1 AND user_id = $2
 	`
@@ -422,7 +405,6 @@ func GetPetIdDBByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdDB, e
 		&petDB.Notes,
 		&petDB.DeletedAt,
 		&petDB.Breed,
-		&petDB.Icon,
 		&petDB.BodyCondition,
 	)
 
@@ -463,7 +445,7 @@ func CheckPetOwnership(petID uuid.UUID, userID string) (bool, error) {
 func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
-	       habitation, notes, deleted_at, breed, icon, body_condition
+	       habitation, notes, deleted_at, breed, body_condition
 	FROM pet
 	WHERE id = $1
 	`
@@ -481,7 +463,6 @@ func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 		&petDB.Notes,
 		&petDB.DeletedAt,
 		&petDB.Breed,
-		&petDB.Icon,
 		&petDB.BodyCondition,
 	)
 
