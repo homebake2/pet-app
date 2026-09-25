@@ -29,10 +29,9 @@ func timeParse(s string) time.Time {
 // resolvePetForVetPassportCreate) reporting an existing, non-deleted pet
 // owned by testUserID.
 func expectPetOwnedForCreate(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, body_condition\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2`).
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 }
 
 func expectPetBelongsToUser(mock sqlmock.Sqlmock, belongs bool) {
@@ -87,7 +86,7 @@ func TestCreateVaccinationHandler_ValidationError(t *testing.T) {
 func TestCreateVaccinationHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, body_condition\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2`).
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -104,10 +103,9 @@ func TestCreateVaccinationHandler_PetNotOwned(t *testing.T) {
 func TestGetPetVaccinationsHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized, habitation, notes, deleted_at, breed, body_condition\s+FROM pet\s+WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_event_id, deleted_at\s+FROM vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "name", "administered_date", "next_date", "administered_event_id", "next_event_id", "deleted_at"}))

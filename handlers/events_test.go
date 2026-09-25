@@ -235,8 +235,7 @@ func TestCreateEventHandler_ValidValueForType(t *testing.T) {
 			expectTokensValid(mock, testUserID)
 			mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 				WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-					testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-				))
+					testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 			eventID := "44444444-4444-4444-4444-444444444444"
 			mock.ExpectQuery(`INSERT INTO event`).
 				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
@@ -278,8 +277,7 @@ func TestCreateEventHandler_IdempotencyKey_ReturnsExisting(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	existingEventID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name\s+FROM event e\s+JOIN pet p ON e.pet_id = p.id\s+WHERE e.pet_id = \$1 AND e.idempotency_key = \$2`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
@@ -320,8 +318,7 @@ func TestCreateEventHandler_PetDeleted(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, time.Now(), nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, time.Now(), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "weight", Value: eventValue(`{"amount":5}`)}
 	w := httptest.NewRecorder()
@@ -340,8 +337,7 @@ func TestCreateEventHandler_TypeNotApplicableToPetSpecies(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "heat_cycle", Value: eventValue(`{"phase":"started"}`)}
 	w := httptest.NewRecorder()
@@ -359,8 +355,7 @@ func TestCreateEventHandler_TypeApplicableToPetSpecies_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`INSERT INTO event`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
@@ -388,8 +383,7 @@ func TestCreateEventHandler_UnknownSpeciesDefaultsToOtherApplicability(t *testin
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Барсик", nil, "необычный питомец", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Барсик", nil, "необычный питомец", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`INSERT INTO event`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
@@ -413,8 +407,7 @@ func TestCreateEventHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`INSERT INTO event`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
@@ -625,8 +618,7 @@ func TestUpdateEventHandler_ValueInvalidForCurrentType(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	newValue := eventValuePtr(`{"amount":500}`)
 	w := httptest.NewRecorder()
@@ -651,8 +643,7 @@ func TestUpdateEventHandler_TypeNotApplicableToPetSpecies(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	newType := "heat_cycle"
 	newValue := eventValuePtr(`{"phase":"started"}`)
@@ -682,8 +673,7 @@ func TestUpdateEventHandler_TypeUnchangedApplicabilityNotChecked(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	newNotes := "заметка"
@@ -706,8 +696,7 @@ func TestUpdateEventHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	newValue := eventValuePtr(`{"amount":6}`)
@@ -750,8 +739,7 @@ func TestCreateEventHandler_NotificationsEnabledFalseWithPastDate_Success(t *tes
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`INSERT INTO event`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
@@ -780,8 +768,7 @@ func TestCreateEventHandler_NotificationsEnabledTrueWithFutureDate_Success(t *te
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`INSERT INTO event`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
@@ -822,8 +809,7 @@ func TestUpdateEventHandler_MoveNotifiedEventToPastDate(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	pastDate := "2024-01-01T10:00:00Z"
 	w := httptest.NewRecorder()
@@ -847,8 +833,7 @@ func TestUpdateEventHandler_MoveNotifiedEventToPastDateWithExplicitDisable_Succe
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pastDate := "2024-01-01T10:00:00Z"
@@ -873,8 +858,7 @@ func TestUpdateEventHandler_EnableNotificationsOnPastEvent(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID, NotificationsEnabled: boolPtr(true)}, true)
@@ -898,8 +882,7 @@ func TestUpdateEventHandler_NotificationsCombinationNotRecheckedWhenNeitherField
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(
-			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil,
-		))
+			testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
 	newValue := eventValuePtr(`{"amount":6}`)

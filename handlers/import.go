@@ -57,6 +57,30 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 		return "Некорректное значение body_condition у питомца"
 	}
 
+	if pet.MicrochipNumber != nil && len(*pet.MicrochipNumber) > models.PetMicrochipNumberMaxLen {
+		return "Поле microchip_number питомца превышает допустимую длину"
+	}
+
+	if pet.RingNumber != nil && len(*pet.RingNumber) > models.PetRingNumberMaxLen {
+		return "Поле ring_number питомца превышает допустимую длину"
+	}
+
+	if pet.SizeCategory != nil && !models.IsValidSizeCategory(*pet.SizeCategory) {
+		return "Некорректное значение size_category у питомца"
+	}
+
+	if pet.WaterType != nil && !models.IsValidWaterType(*pet.WaterType) {
+		return "Некорректное значение water_type у питомца"
+	}
+
+	if pet.EnclosureVolumeL != nil && !isValidEnclosureVolumeL(*pet.EnclosureVolumeL) {
+		return "Поле enclosure_volume_l питомца должно быть в диапазоне 0.1–5000"
+	}
+
+	if pet.GroupSize != nil && !isValidGroupSize(*pet.GroupSize) {
+		return "Поле group_size питомца должно быть целым числом в диапазоне 1–10000"
+	}
+
 	return ""
 }
 

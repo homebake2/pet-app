@@ -214,6 +214,19 @@ const (
 	Underweight PetBodyConditionEnum = "underweight"
 )
 
+// Defines values for PetSizeCategoryEnum.
+const (
+	Large  PetSizeCategoryEnum = "large"
+	Medium PetSizeCategoryEnum = "medium"
+	Small  PetSizeCategoryEnum = "small"
+)
+
+// Defines values for PetWaterTypeEnum.
+const (
+	Freshwater PetWaterTypeEnum = "freshwater"
+	Saltwater  PetWaterTypeEnum = "saltwater"
+)
+
 // Defines values for LanguageCode.
 const (
 	En LanguageCode = "en"
@@ -751,12 +764,39 @@ type GetPetProfileRequest struct {
 	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
 	Breed         *string               `json:"breed,omitempty"`
 	Color         *string               `json:"color,omitempty"`
-	Gender        *GetGenderEnum        `json:"gender,omitempty"`
-	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
-	Name          string                `json:"name"`
-	Notes         *string               `json:"notes,omitempty"`
-	Species       string                `json:"species"`
-	Sterilized    *bool                 `json:"sterilized,omitempty"`
+
+	// EnclosureVolumeL Профильное поле группы видов «Водные и полуводные», опционально, 0.1–5000 (см. «Профильные поля питомца по видам»).
+	EnclosureVolumeL *float32       `json:"enclosure_volume_l,omitempty"`
+	Gender           *GetGenderEnum `json:"gender,omitempty"`
+
+	// GroupSize Профильное поле группы видов «Беспозвоночные», опционально, 1–10000 (см. «Профильные поля питомца по видам»).
+	GroupSize  *int                 `json:"group_size,omitempty"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+
+	// MicrochipNumber Профильное поле группы видов «Млекопитающие», опционально (см. «Профильные поля питомца по видам»).
+	MicrochipNumber *string `json:"microchip_number,omitempty"`
+
+	// Microchipped Профильное поле группы видов «Млекопитающие», опционально (см. «Профильные поля питомца по видам»).
+	Microchipped *bool   `json:"microchipped,omitempty"`
+	Name         string  `json:"name"`
+	Notes        *string `json:"notes,omitempty"`
+
+	// RingNumber Профильное поле группы видов «Птицы», опционально (см. «Профильные поля питомца по видам»).
+	RingNumber *string `json:"ring_number,omitempty"`
+
+	// Ringed Профильное поле группы видов «Птицы», опционально (см. «Профильные поля питомца по видам»).
+	Ringed *bool `json:"ringed,omitempty"`
+
+	// SizeCategory Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+	SizeCategory *PetSizeCategoryEnum `json:"size_category,omitempty"`
+	Species      string               `json:"species"`
+	Sterilized   *bool                `json:"sterilized,omitempty"`
+
+	// UvLampRequired Профильное поле группы видов «Террариумные рептилии», опционально (см. «Профильные поля питомца по видам»).
+	UvLampRequired *bool `json:"uv_lamp_required,omitempty"`
+
+	// WaterType Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
+	WaterType *PetWaterTypeEnum `json:"water_type,omitempty"`
 
 	// Weight Вес питомца в кг (0.001–400), опционально. Не сохраняется как поле питомца — при передаче сервер создаёт событие типа weight со значением amount=weight.
 	Weight *float32 `json:"weight,omitempty"`
@@ -770,20 +810,47 @@ type GetPetProfileResponse struct {
 	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
 	Breed         *string               `json:"breed,omitempty"`
 	Color         *string               `json:"color"`
-	Gender        *GetGenderEnum        `json:"gender,omitempty"`
-	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
-	Id            openapi_types.UUID    `json:"id"`
-	IsDeleted     *bool                 `json:"is_deleted,omitempty"`
-	Name          string                `json:"name"`
-	Notes         *string               `json:"notes"`
+
+	// EnclosureVolumeL Профильное поле группы видов «Водные и полуводные», 0.1–5000 (см. «Профильные поля питомца по видам»).
+	EnclosureVolumeL *float32       `json:"enclosure_volume_l"`
+	Gender           *GetGenderEnum `json:"gender,omitempty"`
+
+	// GroupSize Профильное поле группы видов «Беспозвоночные», 1–10000 (см. «Профильные поля питомца по видам»).
+	GroupSize  *int                 `json:"group_size"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+	Id         openapi_types.UUID   `json:"id"`
+	IsDeleted  *bool                `json:"is_deleted,omitempty"`
+
+	// MicrochipNumber Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+	MicrochipNumber *string `json:"microchip_number"`
+
+	// Microchipped Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+	Microchipped *bool   `json:"microchipped"`
+	Name         string  `json:"name"`
+	Notes        *string `json:"notes"`
 
 	// PhotoFileId id файла фотографии для DELETE /files/{file_id}; null если фотографии нет
 	PhotoFileId *openapi_types.UUID `json:"photo_file_id"`
 
 	// PhotoUrl Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет
-	PhotoUrl   *string `json:"photo_url"`
-	Species    string  `json:"species"`
-	Sterilized *bool   `json:"sterilized,omitempty"`
+	PhotoUrl *string `json:"photo_url"`
+
+	// RingNumber Профильное поле группы видов «Птицы» (см. «Профильные поля питомца по видам»).
+	RingNumber *string `json:"ring_number"`
+
+	// Ringed Профильное поле группы видов «Птицы» (см. «Профильные поля питомца по видам»).
+	Ringed *bool `json:"ringed"`
+
+	// SizeCategory Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+	SizeCategory *PetSizeCategoryEnum `json:"size_category,omitempty"`
+	Species      string               `json:"species"`
+	Sterilized   *bool                `json:"sterilized,omitempty"`
+
+	// UvLampRequired Профильное поле группы видов «Террариумные рептилии» (см. «Профильные поля питомца по видам»).
+	UvLampRequired *bool `json:"uv_lamp_required"`
+
+	// WaterType Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
+	WaterType *PetWaterTypeEnum `json:"water_type,omitempty"`
 
 	// Weight Текущий вес питомца в кг, вычисляется как amount последнего по date_time события типа weight; null если таких событий нет. Не хранится как отдельное поле питомца.
 	Weight *float32 `json:"weight"`
@@ -970,18 +1037,33 @@ type ImportLocalDataPet struct {
 	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
 
 	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
-	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
-	Breed         *string               `json:"breed,omitempty"`
-	Color         *string               `json:"color,omitempty"`
-	Gender        *GetGenderEnum        `json:"gender,omitempty"`
-	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
+	BodyCondition    *PetBodyConditionEnum `json:"body_condition,omitempty"`
+	Breed            *string               `json:"breed,omitempty"`
+	Color            *string               `json:"color,omitempty"`
+	EnclosureVolumeL *float32              `json:"enclosure_volume_l,omitempty"`
+	Gender           *GetGenderEnum        `json:"gender,omitempty"`
+	GroupSize        *int                  `json:"group_size,omitempty"`
+	Habitation       *GetHabilitationEnum  `json:"habitation,omitempty"`
 
 	// LocalId Клиентский UUID питомца в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса (для сопоставления с events[].pet_local_id), не сохраняется на сервере.
-	LocalId    string  `json:"local_id"`
-	Name       string  `json:"name"`
-	Notes      *string `json:"notes,omitempty"`
-	Species    string  `json:"species"`
-	Sterilized *bool   `json:"sterilized,omitempty"`
+	LocalId         string  `json:"local_id"`
+	MicrochipNumber *string `json:"microchip_number,omitempty"`
+
+	// Microchipped Профильное поле питомца по виду, опционально (см. «Профильные поля питомца по видам», паритет сущностей при переносе).
+	Microchipped *bool   `json:"microchipped,omitempty"`
+	Name         string  `json:"name"`
+	Notes        *string `json:"notes,omitempty"`
+	RingNumber   *string `json:"ring_number,omitempty"`
+	Ringed       *bool   `json:"ringed,omitempty"`
+
+	// SizeCategory Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+	SizeCategory   *PetSizeCategoryEnum `json:"size_category,omitempty"`
+	Species        string               `json:"species"`
+	Sterilized     *bool                `json:"sterilized,omitempty"`
+	UvLampRequired *bool                `json:"uv_lamp_required,omitempty"`
+
+	// WaterType Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
+	WaterType *PetWaterTypeEnum `json:"water_type,omitempty"`
 }
 
 // ImportLocalDataRequest defines model for ImportLocalDataRequest.
@@ -1160,6 +1242,12 @@ type MedicationTimeSlot struct {
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
 
+// PetSizeCategoryEnum Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+type PetSizeCategoryEnum string
+
+// PetWaterTypeEnum Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
+type PetWaterTypeEnum string
+
 // PostFilesUploadUrlRequest defines model for PostFilesUploadUrlRequest.
 type PostFilesUploadUrlRequest struct {
 	// ContentType MIME-тип файла, должен входить в список допустимых для данного owner_type
@@ -1261,12 +1349,39 @@ type UpdatePetProfileRequest struct {
 	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
 	Breed         *string               `json:"breed,omitempty"`
 	Color         *string               `json:"color,omitempty"`
-	Gender        *GetGenderEnum        `json:"gender,omitempty"`
-	Habitation    *GetHabilitationEnum  `json:"habitation,omitempty"`
-	Name          *string               `json:"name,omitempty"`
-	Notes         *string               `json:"notes,omitempty"`
-	Species       *string               `json:"species,omitempty"`
-	Sterilized    *bool                 `json:"sterilized,omitempty"`
+
+	// EnclosureVolumeL Профильное поле группы видов «Водные и полуводные», 0.1–5000. Отсутствие ключа не меняет значение, явный null очищает поле.
+	EnclosureVolumeL *float32       `json:"enclosure_volume_l"`
+	Gender           *GetGenderEnum `json:"gender,omitempty"`
+
+	// GroupSize Профильное поле группы видов «Беспозвоночные», 1–10000. Отсутствие ключа не меняет значение, явный null очищает поле.
+	GroupSize  *int                 `json:"group_size"`
+	Habitation *GetHabilitationEnum `json:"habitation,omitempty"`
+
+	// MicrochipNumber Профильное поле группы видов «Млекопитающие». Отсутствие ключа не меняет значение, пустая строка очищает поле (то же соглашение, что и body_condition).
+	MicrochipNumber *string `json:"microchip_number"`
+
+	// Microchipped Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам», «Редактирование питомца — Backend»). Отсутствие ключа не меняет значение.
+	Microchipped *bool   `json:"microchipped,omitempty"`
+	Name         *string `json:"name,omitempty"`
+	Notes        *string `json:"notes,omitempty"`
+
+	// RingNumber Профильное поле группы видов «Птицы». Отсутствие ключа не меняет значение, пустая строка очищает поле.
+	RingNumber *string `json:"ring_number"`
+
+	// Ringed Профильное поле группы видов «Птицы». Отсутствие ключа не меняет значение.
+	Ringed *bool `json:"ringed,omitempty"`
+
+	// SizeCategory Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).
+	SizeCategory *PetSizeCategoryEnum `json:"size_category,omitempty"`
+	Species      *string              `json:"species,omitempty"`
+	Sterilized   *bool                `json:"sterilized,omitempty"`
+
+	// UvLampRequired Профильное поле группы видов «Террариумные рептилии». Отсутствие ключа не меняет значение.
+	UvLampRequired *bool `json:"uv_lamp_required,omitempty"`
+
+	// WaterType Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
+	WaterType *PetWaterTypeEnum `json:"water_type,omitempty"`
 
 	// Weight Вес питомца в кг (0.001–400), опционально. Отсутствие ключа и явный null равнозначны — событие weight не создаётся. При передаче не-null числа сервер создаёт новое событие типа weight; существующие события не изменяются.
 	Weight *float32 `json:"weight"`

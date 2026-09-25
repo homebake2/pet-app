@@ -41,6 +41,18 @@ func validateNotesLength(notes *string) bool {
 	return notes == nil || len(*notes) <= maxEventFieldLen
 }
 
+// isValidEnclosureVolumeL проверяет диапазон профильного поля
+// enclosure_volume_l (см. «Профильные поля питомца по видам»).
+func isValidEnclosureVolumeL(volume float64) bool {
+	return volume >= models.PetEnclosureVolumeLMin && volume <= models.PetEnclosureVolumeLMax
+}
+
+// isValidGroupSize проверяет диапазон профильного поля group_size (см.
+// «Профильные поля питомца по видам»).
+func isValidGroupSize(groupSize int) bool {
+	return groupSize >= models.PetGroupSizeMin && groupSize <= models.PetGroupSizeMax
+}
+
 // petSpeciesOrDefault возвращает pet.species питомца для проверки
 // применимости типа события; если species не входит в закрытый справочник
 // видов (см. models.IsKnownSpeciesValue) — используется дефолт "OTHER",

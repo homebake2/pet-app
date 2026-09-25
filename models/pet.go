@@ -11,10 +11,21 @@ import (
 // Лимиты длины текстовых полей питомца при создании (POST /pet) и
 // обновлении (PUT /pet/{id}) — общие для обоих эндпоинтов.
 const (
-	PetNameMaxLen  = 100
-	PetNotesMaxLen = 1000
-	PetBreedMaxLen = 100
-	PetColorMaxLen = 100
+	PetNameMaxLen            = 100
+	PetNotesMaxLen           = 1000
+	PetBreedMaxLen           = 100
+	PetColorMaxLen           = 100
+	PetMicrochipNumberMaxLen = 50
+	PetRingNumberMaxLen      = 50
+)
+
+// Диапазоны значений профильных числовых полей питомца по видам (см.
+// «Профильные поля питомца по видам»).
+const (
+	PetEnclosureVolumeLMin = 0.1
+	PetEnclosureVolumeLMax = 5000
+	PetGroupSizeMin        = 1
+	PetGroupSizeMax        = 10000
 )
 
 // CreateEventRequest — тело запроса POST /events. Value — типизированный
@@ -143,6 +154,29 @@ func IsValidHabitation(habitation string) bool {
 	return allowedHabitations[habitation]
 }
 
+var allowedSizeCategories = map[string]bool{
+	"small":  true,
+	"medium": true,
+	"large":  true,
+}
+
+// IsValidSizeCategory проверяет значение профильного поля size_category
+// (см. «Профильные поля питомца по видам», «Справочник значений»).
+func IsValidSizeCategory(sizeCategory string) bool {
+	return allowedSizeCategories[sizeCategory]
+}
+
+var allowedWaterTypes = map[string]bool{
+	"freshwater": true,
+	"saltwater":  true,
+}
+
+// IsValidWaterType проверяет значение профильного поля water_type (см.
+// «Профильные поля питомца по видам», «Справочник значений»).
+func IsValidWaterType(waterType string) bool {
+	return allowedWaterTypes[waterType]
+}
+
 // CreatePetRequest — тело запроса POST /pet.
 type CreatePetRequest struct {
 	Name       string  `json:"name"`                 // обязательное
@@ -161,6 +195,19 @@ type CreatePetRequest struct {
 	// BodyCondition — кондиция тела питомца (PetBodyConditionEnum), опционально
 	// (см. «Ведпаспорт — Backend»). Хранится как поле pet.body_condition.
 	BodyCondition *string `json:"body_condition,omitempty"`
+
+	// Профильные поля питомца по видам — все опциональны для любого species,
+	// применимость к группе вида — только клиентское правило видимости формы
+	// (см. «Профильные поля питомца по видам»).
+	Microchipped     *bool    `json:"microchipped,omitempty"`
+	MicrochipNumber  *string  `json:"microchip_number,omitempty"`
+	SizeCategory     *string  `json:"size_category,omitempty"`
+	Ringed           *bool    `json:"ringed,omitempty"`
+	RingNumber       *string  `json:"ring_number,omitempty"`
+	UVLampRequired   *bool    `json:"uv_lamp_required,omitempty"`
+	WaterType        *string  `json:"water_type,omitempty"`
+	EnclosureVolumeL *float64 `json:"enclosure_volume_l,omitempty"`
+	GroupSize        *int     `json:"group_size,omitempty"`
 }
 
 type PetItem struct {
@@ -211,21 +258,42 @@ type PetIdResponse struct {
 	// BodyCondition — кондиция тела питомца (PetBodyConditionEnum); null, если
 	// не задана (см. «Ведпаспорт — Backend»).
 	BodyCondition *string `json:"body_condition,omitempty"`
+
+	// Профильные поля питомца по видам; null, если не заданы (см. «Профильные
+	// поля питомца по видам»).
+	Microchipped     *bool    `json:"microchipped,omitempty"`
+	MicrochipNumber  *string  `json:"microchip_number,omitempty"`
+	SizeCategory     *string  `json:"size_category,omitempty"`
+	Ringed           *bool    `json:"ringed,omitempty"`
+	RingNumber       *string  `json:"ring_number,omitempty"`
+	UVLampRequired   *bool    `json:"uv_lamp_required,omitempty"`
+	WaterType        *string  `json:"water_type,omitempty"`
+	EnclosureVolumeL *float64 `json:"enclosure_volume_l,omitempty"`
+	GroupSize        *int     `json:"group_size,omitempty"`
 }
 
 type PetIdDB struct {
-	ID            uuid.UUID
-	Name          string
-	Gender        sql.NullString
-	Species       string
-	BirthDate     sql.NullTime
-	Color         sql.NullString
-	Sterilized    sql.NullBool
-	Habitation    sql.NullString
-	Notes         sql.NullString
-	DeletedAt     sql.NullTime
-	Breed         sql.NullString
-	BodyCondition sql.NullString
+	ID               uuid.UUID
+	Name             string
+	Gender           sql.NullString
+	Species          string
+	BirthDate        sql.NullTime
+	Color            sql.NullString
+	Sterilized       sql.NullBool
+	Habitation       sql.NullString
+	Notes            sql.NullString
+	DeletedAt        sql.NullTime
+	Breed            sql.NullString
+	BodyCondition    sql.NullString
+	Microchipped     sql.NullBool
+	MicrochipNumber  sql.NullString
+	SizeCategory     sql.NullString
+	Ringed           sql.NullBool
+	RingNumber       sql.NullString
+	UVLampRequired   sql.NullBool
+	WaterType        sql.NullString
+	EnclosureVolumeL sql.NullFloat64
+	GroupSize        sql.NullInt64
 }
 
 // UpdatePetRequest — тело запроса PUT /pet/{id}.
@@ -249,4 +317,61 @@ type UpdatePetRequest struct {
 	// передача пустой строки "" очищает поле (то же соглашение, что и у
 	// UpdateEventRequest.Notes), передача значения — обновляет его.
 	BodyCondition *string `json:"body_condition,omitempty"`
+
+	// Профильные поля питомца по видам (см. «Профильные поля питомца по
+	// видам», «Редактирование питомца — Backend»). Булевы поля — обычные
+	// *bool (отсутствие ключа не меняет значение). Строковые поля
+	// (MicrochipNumber, RingNumber) следуют соглашению BodyCondition: пустая
+	// строка "" очищает поле.
+	Microchipped    *bool   `json:"microchipped,omitempty"`
+	MicrochipNumber *string `json:"microchip_number,omitempty"`
+	Ringed          *bool   `json:"ringed,omitempty"`
+	RingNumber      *string `json:"ring_number,omitempty"`
+	UVLampRequired  *bool   `json:"uv_lamp_required,omitempty"`
+
+	// SizeCategory, WaterType, EnclosureVolumeL, GroupSize — nullable
+	// enum/числовые поля, где "отсутствие ключа" и "явный null" должны
+	// различаться (отсутствие ключа не меняет значение, явный null очищает
+	// поле) — в отличие от BodyCondition, тип не позволяет использовать
+	// пустую строку как признак очистки. Значение по этим четырём полям
+	// заполняется при декодировании тела запроса как обычно (nil как для
+	// absent, так и для null); отдельно, до вызова database.UpdatePet,
+	// обработчик (см. handlers.UpdatePetHandler) разбирает тело запроса как
+	// map[string]json.RawMessage и заполняет соответствующий Clear*-флаг,
+	// если ключ присутствует и его значение — буквально "null". Флаги не
+	// участвуют в JSON (де)сериализации.
+	SizeCategory          *string  `json:"size_category,omitempty"`
+	ClearSizeCategory     bool     `json:"-"`
+	WaterType             *string  `json:"water_type,omitempty"`
+	ClearWaterType        bool     `json:"-"`
+	EnclosureVolumeL      *float64 `json:"enclosure_volume_l,omitempty"`
+	ClearEnclosureVolumeL bool     `json:"-"`
+	GroupSize             *int     `json:"group_size,omitempty"`
+	ClearGroupSize        bool     `json:"-"`
+}
+
+// ApplyExplicitNullClears разбирает сырое тело запроса PUT /pet/{id} и
+// заставляет Clear*-флаги для тех из четырёх nullable enum/числовых
+// профильных полей (size_category, water_type, enclosure_volume_l,
+// group_size), что присутствуют в теле запроса как явный JSON null —
+// в отличие от отсутствия ключа, которое не должно менять сохранённое
+// значение (см. «Редактирование питомца — Backend»). Вызывается один раз
+// сразу после json.Unmarshal(body, &req) с тем же телом запроса.
+func (r *UpdatePetRequest) ApplyExplicitNullClears(rawBody []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rawBody, &raw); err != nil {
+		return err
+	}
+
+	isExplicitNull := func(key string) bool {
+		value, present := raw[key]
+		return present && string(value) == "null"
+	}
+
+	r.ClearSizeCategory = isExplicitNull("size_category")
+	r.ClearWaterType = isExplicitNull("water_type")
+	r.ClearEnclosureVolumeL = isExplicitNull("enclosure_volume_l")
+	r.ClearGroupSize = isExplicitNull("group_size")
+
+	return nil
 }

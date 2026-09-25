@@ -20,6 +20,18 @@ type ImportLocalDataPet struct {
 	// BodyCondition — кондиция тела питомца, опционально (см. «Ведпаспорт —
 	// Backend», паритет сущностей при переносе).
 	BodyCondition *string `json:"body_condition,omitempty"`
+
+	// Профильные поля питомца по видам, опционально (см. «Профильные поля
+	// питомца по видам», паритет сущностей при переносе).
+	Microchipped     *bool    `json:"microchipped,omitempty"`
+	MicrochipNumber  *string  `json:"microchip_number,omitempty"`
+	SizeCategory     *string  `json:"size_category,omitempty"`
+	Ringed           *bool    `json:"ringed,omitempty"`
+	RingNumber       *string  `json:"ring_number,omitempty"`
+	UVLampRequired   *bool    `json:"uv_lamp_required,omitempty"`
+	WaterType        *string  `json:"water_type,omitempty"`
+	EnclosureVolumeL *float64 `json:"enclosure_volume_l,omitempty"`
+	GroupSize        *int     `json:"group_size,omitempty"`
 }
 
 // ToCreatePetRequest конвертирует элемент pets[] в тот же тип запроса, что
@@ -36,6 +48,16 @@ func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 		Notes:         p.Notes,
 		Breed:         p.Breed,
 		BodyCondition: p.BodyCondition,
+
+		Microchipped:     p.Microchipped,
+		MicrochipNumber:  p.MicrochipNumber,
+		SizeCategory:     p.SizeCategory,
+		Ringed:           p.Ringed,
+		RingNumber:       p.RingNumber,
+		UVLampRequired:   p.UVLampRequired,
+		WaterType:        p.WaterType,
+		EnclosureVolumeL: p.EnclosureVolumeL,
+		GroupSize:        p.GroupSize,
 	}
 }
 

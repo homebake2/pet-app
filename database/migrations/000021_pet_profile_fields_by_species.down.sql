@@ -1,0 +1,9 @@
+ALTER TABLE pet DROP COLUMN microchipped;
+ALTER TABLE pet DROP COLUMN microchip_number;
+ALTER TABLE pet DROP COLUMN size_category;
+ALTER TABLE pet DROP COLUMN ringed;
+ALTER TABLE pet DROP COLUMN ring_number;
+ALTER TABLE pet DROP COLUMN uv_lamp_required;
+ALTER TABLE pet DROP COLUMN water_type;
+ALTER TABLE pet DROP COLUMN enclosure_volume_l;
+ALTER TABLE pet DROP COLUMN group_size;

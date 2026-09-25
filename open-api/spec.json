@@ -3272,6 +3272,49 @@
           "body_condition": {
             "$ref": "#/components/schemas/PetBodyConditionEnum",
             "nullable": true
+          },
+          "microchipped": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»)."
+          },
+          "microchip_number": {
+            "type": "string",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»)."
+          },
+          "size_category": {
+            "$ref": "#/components/schemas/PetSizeCategoryEnum",
+            "nullable": true
+          },
+          "ringed": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Птицы» (см. «Профильные поля питомца по видам»)."
+          },
+          "ring_number": {
+            "type": "string",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Птицы» (см. «Профильные поля питомца по видам»)."
+          },
+          "uv_lamp_required": {
+            "type": "boolean",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Террариумные рептилии» (см. «Профильные поля питомца по видам»)."
+          },
+          "water_type": {
+            "$ref": "#/components/schemas/PetWaterTypeEnum",
+            "nullable": true
+          },
+          "enclosure_volume_l": {
+            "type": "number",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Водные и полуводные», 0.1–5000 (см. «Профильные поля питомца по видам»)."
+          },
+          "group_size": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Беспозвоночные», 1–10000 (см. «Профильные поля питомца по видам»)."
           }
         }
       },
@@ -3900,6 +3943,42 @@
           },
           "body_condition": {
             "$ref": "#/components/schemas/PetBodyConditionEnum"
+          },
+          "microchipped": {
+            "type": "boolean",
+            "description": "Профильное поле группы видов «Млекопитающие», опционально (см. «Профильные поля питомца по видам»)."
+          },
+          "microchip_number": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "Профильное поле группы видов «Млекопитающие», опционально (см. «Профильные поля питомца по видам»)."
+          },
+          "size_category": {
+            "$ref": "#/components/schemas/PetSizeCategoryEnum"
+          },
+          "ringed": {
+            "type": "boolean",
+            "description": "Профильное поле группы видов «Птицы», опционально (см. «Профильные поля питомца по видам»)."
+          },
+          "ring_number": {
+            "type": "string",
+            "maxLength": 50,
+            "description": "Профильное поле группы видов «Птицы», опционально (см. «Профильные поля питомца по видам»)."
+          },
+          "uv_lamp_required": {
+            "type": "boolean",
+            "description": "Профильное поле группы видов «Террариумные рептилии», опционально (см. «Профильные поля питомца по видам»)."
+          },
+          "water_type": {
+            "$ref": "#/components/schemas/PetWaterTypeEnum"
+          },
+          "enclosure_volume_l": {
+            "type": "number",
+            "description": "Профильное поле группы видов «Водные и полуводные», опционально, 0.1–5000 (см. «Профильные поля питомца по видам»)."
+          },
+          "group_size": {
+            "type": "integer",
+            "description": "Профильное поле группы видов «Беспозвоночные», опционально, 1–10000 (см. «Профильные поля питомца по видам»)."
           }
         }
       },
@@ -3976,6 +4055,50 @@
           "body_condition": {
             "$ref": "#/components/schemas/PetBodyConditionEnum",
             "nullable": true
+          },
+          "microchipped": {
+            "type": "boolean",
+            "description": "Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам», «Редактирование питомца — Backend»). Отсутствие ключа не меняет значение."
+          },
+          "microchip_number": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true,
+            "description": "Профильное поле группы видов «Млекопитающие». Отсутствие ключа не меняет значение, пустая строка очищает поле (то же соглашение, что и body_condition)."
+          },
+          "size_category": {
+            "$ref": "#/components/schemas/PetSizeCategoryEnum",
+            "nullable": true,
+            "description": "Отсутствие ключа не меняет значение, явный null очищает поле."
+          },
+          "ringed": {
+            "type": "boolean",
+            "description": "Профильное поле группы видов «Птицы». Отсутствие ключа не меняет значение."
+          },
+          "ring_number": {
+            "type": "string",
+            "maxLength": 50,
+            "nullable": true,
+            "description": "Профильное поле группы видов «Птицы». Отсутствие ключа не меняет значение, пустая строка очищает поле."
+          },
+          "uv_lamp_required": {
+            "type": "boolean",
+            "description": "Профильное поле группы видов «Террариумные рептилии». Отсутствие ключа не меняет значение."
+          },
+          "water_type": {
+            "$ref": "#/components/schemas/PetWaterTypeEnum",
+            "nullable": true,
+            "description": "Отсутствие ключа не меняет значение, явный null очищает поле."
+          },
+          "enclosure_volume_l": {
+            "type": "number",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Водные и полуводные», 0.1–5000. Отсутствие ключа не меняет значение, явный null очищает поле."
+          },
+          "group_size": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Профильное поле группы видов «Беспозвоночные», 1–10000. Отсутствие ключа не меняет значение, явный null очищает поле."
           }
         }
       },
@@ -4197,6 +4320,36 @@
             "$ref": "#/components/schemas/PetBodyConditionEnum",
             "nullable": true,
             "description": "Кондиция тела питомца, опционально (см. «Ведпаспорт — Backend», паритет сущностей при переносе)."
+          },
+          "microchipped": {
+            "type": "boolean",
+            "description": "Профильное поле питомца по виду, опционально (см. «Профильные поля питомца по видам», паритет сущностей при переносе)."
+          },
+          "microchip_number": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "size_category": {
+            "$ref": "#/components/schemas/PetSizeCategoryEnum"
+          },
+          "ringed": {
+            "type": "boolean"
+          },
+          "ring_number": {
+            "type": "string",
+            "maxLength": 50
+          },
+          "uv_lamp_required": {
+            "type": "boolean"
+          },
+          "water_type": {
+            "$ref": "#/components/schemas/PetWaterTypeEnum"
+          },
+          "enclosure_volume_l": {
+            "type": "number"
+          },
+          "group_size": {
+            "type": "integer"
           }
         }
       },
@@ -5154,6 +5307,25 @@
           "normal",
           "overweight",
           "obese"
+        ]
+      },
+      "PetSizeCategoryEnum": {
+        "title": "PetSizeCategoryEnum",
+        "type": "string",
+        "description": "Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).",
+        "enum": [
+          "small",
+          "medium",
+          "large"
+        ]
+      },
+      "PetWaterTypeEnum": {
+        "title": "PetWaterTypeEnum",
+        "type": "string",
+        "description": "Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).",
+        "enum": [
+          "freshwater",
+          "saltwater"
         ]
       },
       "DiseaseStatusEnum": {

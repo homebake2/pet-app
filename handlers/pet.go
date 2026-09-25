@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"myauthservice/database"
 	"myauthservice/models"
@@ -259,6 +260,36 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.MicrochipNumber != nil && len(*req.MicrochipNumber) > models.PetMicrochipNumberMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле microchip_number превышает допустимую длину")
+		return
+	}
+
+	if req.RingNumber != nil && len(*req.RingNumber) > models.PetRingNumberMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле ring_number превышает допустимую длину")
+		return
+	}
+
+	if req.SizeCategory != nil && !models.IsValidSizeCategory(*req.SizeCategory) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение size_category")
+		return
+	}
+
+	if req.WaterType != nil && !models.IsValidWaterType(*req.WaterType) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение water_type")
+		return
+	}
+
+	if req.EnclosureVolumeL != nil && !isValidEnclosureVolumeL(*req.EnclosureVolumeL) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле enclosure_volume_l должно быть в диапазоне 0.1–5000")
+		return
+	}
+
+	if req.GroupSize != nil && !isValidGroupSize(*req.GroupSize) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле group_size должно быть целым числом в диапазоне 1–10000")
+		return
+	}
+
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -393,8 +424,19 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный JSON")
+		return
+	}
+
 	var req models.UpdatePetRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(bodyBytes, &req); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный JSON")
+		return
+	}
+
+	if err := req.ApplyExplicitNullClears(bodyBytes); err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный JSON")
 		return
 	}
@@ -456,6 +498,36 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.BodyCondition != nil && *req.BodyCondition != "" && !models.IsValidBodyCondition(*req.BodyCondition) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение body_condition")
+		return
+	}
+
+	if req.MicrochipNumber != nil && len(*req.MicrochipNumber) > models.PetMicrochipNumberMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле microchip_number превышает допустимую длину")
+		return
+	}
+
+	if req.RingNumber != nil && len(*req.RingNumber) > models.PetRingNumberMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле ring_number превышает допустимую длину")
+		return
+	}
+
+	if req.SizeCategory != nil && !models.IsValidSizeCategory(*req.SizeCategory) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение size_category")
+		return
+	}
+
+	if req.WaterType != nil && !models.IsValidWaterType(*req.WaterType) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение water_type")
+		return
+	}
+
+	if req.EnclosureVolumeL != nil && !isValidEnclosureVolumeL(*req.EnclosureVolumeL) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле enclosure_volume_l должно быть в диапазоне 0.1–5000")
+		return
+	}
+
+	if req.GroupSize != nil && !isValidGroupSize(*req.GroupSize) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле group_size должно быть целым числом в диапазоне 1–10000")
 		return
 	}
 
