@@ -52,7 +52,7 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	counts, err := database.CountEventsByUserIDGroupedByDay(userID, fromDate, toDate)
+	aggregates, err := database.CountEventsByUserIDGroupedByDay(userID, fromDate, toDate)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта событий")
 		return
@@ -62,9 +62,11 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	currentDate := fromDate
 	for !currentDate.After(toDate) {
 		dateStr := currentDate.Format("2006-01-02")
+		agg := aggregates[dateStr]
 		items = append(items, models.ActivitiesCalendarItem{
-			Date:  dateStr,
-			Count: counts[dateStr],
+			Date:             dateStr,
+			Count:            agg.Count,
+			HasNotifications: agg.HasNotifications,
 		})
 		currentDate = currentDate.AddDate(0, 0, 1)
 	}
@@ -115,14 +117,15 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 			notes = &e.Event.Notes.String
 		}
 		items = append(items, models.ActivitiesDayEventItem{
-			ID:         e.Event.ID.String(),
-			Date:       e.Event.Date.UTC().Format(time.RFC3339),
-			Type:       e.Event.Type,
-			Notes:      notes,
-			Value:      e.Event.Value,
-			FilesCount: filesCounts[e.Event.ID],
-			PetID:      e.Event.PetID.String(),
-			PetName:    e.PetName,
+			ID:                   e.Event.ID.String(),
+			Date:                 e.Event.Date.UTC().Format(time.RFC3339),
+			Type:                 e.Event.Type,
+			Notes:                notes,
+			Value:                e.Event.Value,
+			FilesCount:           filesCounts[e.Event.ID],
+			PetID:                e.Event.PetID.String(),
+			PetName:              e.PetName,
+			NotificationsEnabled: e.Event.NotificationsEnabled,
 		})
 	}
 
@@ -172,14 +175,15 @@ func GetActivitiesNearestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	item := models.ActivitiesDayEventItem{
-		ID:         eventWithPet.Event.ID.String(),
-		Date:       eventWithPet.Event.Date.UTC().Format(time.RFC3339),
-		Type:       eventWithPet.Event.Type,
-		Notes:      notes,
-		Value:      eventWithPet.Event.Value,
-		FilesCount: filesCounts[eventWithPet.Event.ID],
-		PetID:      eventWithPet.Event.PetID.String(),
-		PetName:    eventWithPet.PetName,
+		ID:                   eventWithPet.Event.ID.String(),
+		Date:                 eventWithPet.Event.Date.UTC().Format(time.RFC3339),
+		Type:                 eventWithPet.Event.Type,
+		Notes:                notes,
+		Value:                eventWithPet.Event.Value,
+		FilesCount:           filesCounts[eventWithPet.Event.ID],
+		PetID:                eventWithPet.Event.PetID.String(),
+		PetName:              eventWithPet.PetName,
+		NotificationsEnabled: eventWithPet.Event.NotificationsEnabled,
 	}
 
 	writeJSON(w, http.StatusOK, models.ActivitiesNearestResponse{Item: &item})

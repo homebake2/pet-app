@@ -25,9 +25,9 @@ func InsertEvent(petID uuid.UUID, req models.CreateEventRequest, idempotencyKey 
 func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
 	query := `
         INSERT INTO event (
-            pet_id, date_time, type, notes, value, idempotency_key
+            pet_id, date_time, type, notes, value, idempotency_key, notifications_enabled
         ) VALUES (
-            $1, $2, $3, $4, $5, $6
+            $1, $2, $3, $4, $5, $6, $7
         ) RETURNING id
     `
 
@@ -48,10 +48,15 @@ func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventReq
 		key = sql.NullString{String: idempotencyKey, Valid: true}
 	}
 
+	notificationsEnabled := false
+	if req.NotificationsEnabled != nil {
+		notificationsEnabled = *req.NotificationsEnabled
+	}
+
 	var eventID uuid.UUID
 	// value передаётся строкой: столбец event.value имеет тип jsonb, а
 	// []byte драйвер закодировал бы как bytea.
-	err = exec.QueryRow(query, petID, dateTime, req.Type, notes, string(req.Value), key).Scan(&eventID)
+	err = exec.QueryRow(query, petID, dateTime, req.Type, notes, string(req.Value), key, notificationsEnabled).Scan(&eventID)
 	if err != nil {
 		log.Println("InsertEvent error:", err)
 		return uuid.Nil, err
@@ -65,7 +70,7 @@ func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventReq
 // Backend"). Возвращает sql.ErrNoRows, если такого события нет.
 func GetEventByPetIDAndIdempotencyKey(petID uuid.UUID, idempotencyKey string) (*models.EventDB, uuid.UUID, string, error) {
 	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
 	WHERE e.pet_id = $1 AND e.idempotency_key = $2
@@ -81,6 +86,7 @@ func GetEventByPetIDAndIdempotencyKey(petID uuid.UUID, idempotencyKey string) (*
 		&eventDB.Type,
 		&eventDB.Notes,
 		&eventDB.Value,
+		&eventDB.NotificationsEnabled,
 		&petName,
 	)
 
@@ -94,7 +100,7 @@ func GetEventByPetIDAndIdempotencyKey(petID uuid.UUID, idempotencyKey string) (*
 // GetEventByID - получить событие по ID и информацию о питомце
 func GetEventByID(eventID uuid.UUID) (*models.EventDB, uuid.UUID, string, error) {
 	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
 	WHERE e.id = $1 AND e.deleted_at IS NULL
@@ -110,6 +116,7 @@ func GetEventByID(eventID uuid.UUID) (*models.EventDB, uuid.UUID, string, error)
 		&eventDB.Type,
 		&eventDB.Notes,
 		&eventDB.Value,
+		&eventDB.NotificationsEnabled,
 		&petName,
 	)
 
@@ -121,7 +128,7 @@ func GetEventByID(eventID uuid.UUID) (*models.EventDB, uuid.UUID, string, error)
 }
 
 // UpdateEvent - функция обновления события
-func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *time.Time, eventType *string, notes *string, value *json.RawMessage) error {
+func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *time.Time, eventType *string, notes *string, value *json.RawMessage, notificationsEnabled *bool) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -149,6 +156,9 @@ func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *tim
 		// value заменяется целиком (слияние вложенных полей не поддерживается).
 		add("value", string(*value))
 	}
+	if notificationsEnabled != nil {
+		add("notifications_enabled", *notificationsEnabled)
+	}
 
 	if len(setParts) == 0 {
 		return nil // нечего обновлять
@@ -173,7 +183,7 @@ func UpdateEvent(eventID uuid.UUID, req models.UpdateEventRequest, dateTime *tim
 // GetEventByIDForUpdate - получить событие по ID для обновления
 func GetEventByIDForUpdate(eventID uuid.UUID) (*models.EventDB, error) {
 	query := `
-	SELECT id, pet_id, date_time, type, notes, value
+	SELECT id, pet_id, date_time, type, notes, value, notifications_enabled
 	FROM event
 	WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -186,6 +196,7 @@ func GetEventByIDForUpdate(eventID uuid.UUID) (*models.EventDB, error) {
 		&eventDB.Type,
 		&eventDB.Notes,
 		&eventDB.Value,
+		&eventDB.NotificationsEnabled,
 	)
 
 	if err != nil {
@@ -224,7 +235,7 @@ func DeleteEvent(eventID uuid.UUID) error {
 // [fromDate, toDate+1 день) в UTC, см. страницу "Просмотр календаря — Backend".
 func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) ([]models.EventDB, error) {
 	query := `
-	SELECT id, pet_id, date_time, type, notes, value
+	SELECT id, pet_id, date_time, type, notes, value, notifications_enabled
 	FROM event
 	WHERE pet_id = $1
 	AND deleted_at IS NULL
@@ -249,6 +260,7 @@ func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) (
 			&eventDB.Type,
 			&eventDB.Notes,
 			&eventDB.Value,
+			&eventDB.NotificationsEnabled,
 		)
 		if err != nil {
 			log.Println("GetEventsByPetIDAndDateRange scan error:", err)
@@ -294,15 +306,24 @@ type EventWithPet struct {
 	PetName string
 }
 
+// CalendarDayAggregate — агрегат одного календарного дня для
+// GET /activities/calendar: количество событий и признак того, что хотя бы
+// одно из них имеет notifications_enabled = true (см. «Просмотр календаря —
+// Backend»).
+type CalendarDayAggregate struct {
+	Count            int
+	HasNotifications bool
+}
+
 // CountEventsByUserIDGroupedByDay возвращает количество неудалённых событий
-// всех неудалённых питомцев userID, попадающих в полуоткрытый интервал
-// [fromDate, toDate+1 день) в UTC, сгруппированное по календарному дню (UTC)
-// — см. «Просмотр календаря — Backend», GET /activities/calendar. Дни без
-// событий отсутствуют в результирующей map — вызывающий код достраивает
-// диапазон нулями.
-func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) (map[string]int, error) {
+// и признак has_notifications всех неудалённых питомцев userID, попадающих в
+// полуоткрытый интервал [fromDate, toDate+1 день) в UTC, сгруппированное по
+// календарному дню (UTC) — см. «Просмотр календаря — Backend», GET
+// /activities/calendar. Дни без событий отсутствуют в результирующей map —
+// вызывающий код достраивает диапазон нулями/false.
+func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) (map[string]CalendarDayAggregate, error) {
 	query := `
-	SELECT (e.date_time AT TIME ZONE 'UTC')::date AS day, COUNT(*)
+	SELECT (e.date_time AT TIME ZONE 'UTC')::date AS day, COUNT(*), bool_or(e.notifications_enabled)
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
 	WHERE p.user_id = $1
@@ -319,14 +340,15 @@ func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) 
 	}
 	defer rows.Close()
 
-	result := make(map[string]int)
+	result := make(map[string]CalendarDayAggregate)
 	for rows.Next() {
 		var day time.Time
 		var count int
-		if err := rows.Scan(&day, &count); err != nil {
+		var hasNotifications bool
+		if err := rows.Scan(&day, &count, &hasNotifications); err != nil {
 			return nil, err
 		}
-		result[day.Format("2006-01-02")] = count
+		result[day.Format("2006-01-02")] = CalendarDayAggregate{Count: count, HasNotifications: hasNotifications}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -342,7 +364,7 @@ func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) 
 // GET /activities/day.
 func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet, error) {
 	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
 	WHERE p.user_id = $1
@@ -362,7 +384,7 @@ func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet
 	var events []EventWithPet
 	for rows.Next() {
 		var e EventWithPet
-		if err := rows.Scan(&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.PetName); err != nil {
+		if err := rows.Scan(&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.Event.NotificationsEnabled, &e.PetName); err != nil {
 			return nil, err
 		}
 		events = append(events, e)
@@ -382,7 +404,7 @@ func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet
 // (это не ошибка).
 func GetNearestUpcomingEvent(userID string) (*EventWithPet, error) {
 	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
 	WHERE p.user_id = $1
@@ -394,7 +416,7 @@ func GetNearestUpcomingEvent(userID string) (*EventWithPet, error) {
 	`
 	var e EventWithPet
 	err := DB.QueryRow(query, userID, time.Now().UTC()).Scan(
-		&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.PetName,
+		&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.Event.NotificationsEnabled, &e.PetName,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -408,7 +430,7 @@ func GetNearestUpcomingEvent(userID string) (*EventWithPet, error) {
 
 // escapeLikePattern экранирует спецсимволы LIKE/ILIKE (%, _ и сам escape-
 // символ \) в пользовательском вводе, чтобы его можно было безопасно
-// подставить в шаблон 'ESCAPE '\''\'''\''' — иначе значения search вроде "50%"
+// подставить в шаблон 'ESCAPE '\”\”'\”' — иначе значения search вроде "50%"
 // или "a_b" трактовались бы как wildcard-маски, а не как буквальная подстрока.
 func escapeLikePattern(s string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
@@ -424,7 +446,7 @@ func escapeLikePattern(s string) string {
 // (регистронезависимо). Пустая строка/её отсутствие — фильтр не применяется.
 func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]models.EventDB, error) {
 	query := `
-	SELECT id, pet_id, date_time, type, notes, value
+	SELECT id, pet_id, date_time, type, notes, value, notifications_enabled
 	FROM event
 	WHERE pet_id = $1
 	AND deleted_at IS NULL
@@ -444,7 +466,7 @@ func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]mode
 	var events []models.EventDB
 	for rows.Next() {
 		var eventDB models.EventDB
-		if err := rows.Scan(&eventDB.ID, &eventDB.PetID, &eventDB.Date, &eventDB.Type, &eventDB.Notes, &eventDB.Value); err != nil {
+		if err := rows.Scan(&eventDB.ID, &eventDB.PetID, &eventDB.Date, &eventDB.Type, &eventDB.Notes, &eventDB.Value, &eventDB.NotificationsEnabled); err != nil {
 			return nil, err
 		}
 		events = append(events, eventDB)

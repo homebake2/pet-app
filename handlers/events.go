@@ -151,12 +151,13 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 			*notes = eventDB.Notes.String
 		}
 		activityEvent := models.ActivityEvent{
-			ID:         eventDB.ID.String(),
-			Date:       eventDate.Format(time.RFC3339),
-			Type:       eventDB.Type,
-			Notes:      notes,
-			Value:      eventDB.Value,
-			FilesCount: filesCounts[eventDB.ID],
+			ID:                   eventDB.ID.String(),
+			Date:                 eventDate.Format(time.RFC3339),
+			Type:                 eventDB.Type,
+			Notes:                notes,
+			Value:                eventDB.Value,
+			FilesCount:           filesCounts[eventDB.ID],
+			NotificationsEnabled: eventDB.NotificationsEnabled,
 		}
 		eventsByDay[dateStr] = append(eventsByDay[dateStr], activityEvent)
 	}
@@ -186,12 +187,13 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 // PetEventItem - одно событие в ответе GET /pet/{id}/events (GetEventResponse).
 type PetEventItem struct {
-	ID         string          `json:"id"`
-	Date       string          `json:"date"`
-	Type       string          `json:"type"`
-	Notes      *string         `json:"notes,omitempty"`
-	Value      json.RawMessage `json:"value"`
-	FilesCount int             `json:"files_count"`
+	ID                   string          `json:"id"`
+	Date                 string          `json:"date"`
+	Type                 string          `json:"type"`
+	Notes                *string         `json:"notes,omitempty"`
+	Value                json.RawMessage `json:"value"`
+	FilesCount           int             `json:"files_count"`
+	NotificationsEnabled bool            `json:"notifications_enabled"`
 }
 
 // PetEventsResponse - тело ответа GET /pet/{id}/events.
@@ -291,12 +293,13 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 			notes = &eventDB.Notes.String
 		}
 		items = append(items, PetEventItem{
-			ID:         eventDB.ID.String(),
-			Date:       eventDB.Date.Format(time.RFC3339),
-			Type:       eventDB.Type,
-			Notes:      notes,
-			Value:      eventDB.Value,
-			FilesCount: filesCounts[eventDB.ID],
+			ID:                   eventDB.ID.String(),
+			Date:                 eventDB.Date.Format(time.RFC3339),
+			Type:                 eventDB.Type,
+			Notes:                notes,
+			Value:                eventDB.Value,
+			FilesCount:           filesCounts[eventDB.ID],
+			NotificationsEnabled: eventDB.NotificationsEnabled,
 		})
 	}
 
@@ -402,7 +405,8 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := parseEventDate(req.Date); err != nil {
+	parsedDate, err := parseEventDate(req.Date)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат даты")
 		return
 	}
@@ -414,6 +418,11 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	if !validateNotesLength(req.Notes) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes не должно превышать 500 символов")
+		return
+	}
+
+	if msg := validateNotificationsEnabledForDate(req.NotificationsEnabled, parsedDate); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 		return
 	}
 
@@ -541,13 +550,14 @@ func eventResponseFromDB(eventDB *models.EventDB, petID uuid.UUID, petName strin
 		notes = &eventDB.Notes.String
 	}
 	return models.EventResponse{
-		ID:      eventDB.ID.String(),
-		Date:    eventDB.Date.Format(time.RFC3339),
-		Type:    eventDB.Type,
-		Value:   eventDB.Value,
-		Notes:   notes,
-		PetID:   petID.String(),
-		PetName: petName,
+		ID:                   eventDB.ID.String(),
+		Date:                 eventDB.Date.Format(time.RFC3339),
+		Type:                 eventDB.Type,
+		Value:                eventDB.Value,
+		Notes:                notes,
+		PetID:                petID.String(),
+		PetName:              petName,
+		NotificationsEnabled: eventDB.NotificationsEnabled,
 	}
 }
 
@@ -585,7 +595,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil {
+	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil && req.NotificationsEnabled == nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Необходимо указать хотя бы одно поле для обновления")
 		return
 	}
@@ -668,7 +678,27 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		dateTime = &parsedDate
 	}
 
-	if err := database.UpdateEvent(eventID, req, dateTime, req.Type, req.Notes, req.Value); err != nil {
+	// Итоговое сочетание notifications_enabled/date проверяется только если
+	// хотя бы одно из этих двух полей присутствует в запросе — иначе уже
+	// сохранённое сочетание не пересматривается только из-за изменения
+	// других полей (type/value/notes), см. «Редактирование события —
+	// Backend».
+	if req.Date != nil || req.NotificationsEnabled != nil {
+		finalDateTime := eventDB.Date
+		if dateTime != nil {
+			finalDateTime = *dateTime
+		}
+		finalNotificationsEnabled := &eventDB.NotificationsEnabled
+		if req.NotificationsEnabled != nil {
+			finalNotificationsEnabled = req.NotificationsEnabled
+		}
+		if msg := validateNotificationsEnabledForDate(finalNotificationsEnabled, finalDateTime); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+	}
+
+	if err := database.UpdateEvent(eventID, req, dateTime, req.Type, req.Notes, req.Value, req.NotificationsEnabled); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при обновлении события")
 		return
 	}

@@ -47,10 +47,10 @@ func TestGetActivitiesCalendarHandler_Unauthorized(t *testing.T) {
 func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT \(e\.date_time AT TIME ZONE 'UTC'\)::date AS day, COUNT\(\*\)\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+GROUP BY day`).
+	mock.ExpectQuery(`SELECT \(e\.date_time AT TIME ZONE 'UTC'\)::date AS day, COUNT\(\*\), bool_or\(e\.notifications_enabled\)\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+GROUP BY day`).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"day", "count"}).
-			AddRow(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC), 3))
+		WillReturnRows(sqlmock.NewRows([]string{"day", "count", "bool_or"}).
+			AddRow(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC), 3, true))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-03", nil, true)
@@ -59,18 +59,22 @@ func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
 		Items []struct {
-			Date  string `json:"date"`
-			Count int    `json:"count"`
+			Date             string `json:"date"`
+			Count            int    `json:"count"`
+			HasNotifications bool   `json:"has_notifications"`
 		} `json:"items"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 3)
 	assert.Equal(t, "2024-01-01", resp.Items[0].Date)
 	assert.Equal(t, 0, resp.Items[0].Count)
+	assert.False(t, resp.Items[0].HasNotifications)
 	assert.Equal(t, "2024-01-02", resp.Items[1].Date)
 	assert.Equal(t, 3, resp.Items[1].Count)
+	assert.True(t, resp.Items[1].HasNotifications)
 	assert.Equal(t, "2024-01-03", resp.Items[2].Date)
 	assert.Equal(t, 0, resp.Items[2].Count)
+	assert.False(t, resp.Items[2].HasNotifications)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -105,10 +109,10 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	eventDate := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+ORDER BY e\.date_time ASC`).
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+ORDER BY e\.date_time ASC`).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
-			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), "Rex"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
+			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), false, "Rex"))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 2))
 
@@ -141,8 +145,8 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 func TestGetActivitiesDayHandler_EmptyResultNo404(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}))
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, true)
@@ -176,10 +180,10 @@ func TestGetActivitiesNearestHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	eventDate := time.Date(2030, 1, 1, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+ORDER BY e\.date_time ASC, e\.id ASC\s+LIMIT 1`).
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+ORDER BY e\.date_time ASC, e\.id ASC\s+LIMIT 1`).
 		WithArgs(testUserID, sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
-			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), "Rex"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
+			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), false, "Rex"))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 1))
 
@@ -210,8 +214,8 @@ func TestGetActivitiesNearestHandler_Success(t *testing.T) {
 func TestGetActivitiesNearestHandler_NoUpcomingEventReturnsNullItem(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}))
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodGet, "/activities/nearest", nil, true)

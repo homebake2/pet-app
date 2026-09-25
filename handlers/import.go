@@ -81,7 +81,8 @@ func validateImportEvent(event models.ImportLocalDataEvent) string {
 		return "Некорректное значение type у события"
 	}
 
-	if _, err := parseEventDate(event.Date); err != nil {
+	parsedDate, err := parseEventDate(event.Date)
+	if err != nil {
 		return "Некорректный формат даты события"
 	}
 
@@ -91,6 +92,10 @@ func validateImportEvent(event models.ImportLocalDataEvent) string {
 
 	if !validateNotesLength(event.Notes) {
 		return "Поле notes события не должно превышать 500 символов"
+	}
+
+	if msg := validateNotificationsEnabledForDate(event.NotificationsEnabled, parsedDate); msg != "" {
+		return msg
 	}
 
 	return ""

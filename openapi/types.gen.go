@@ -224,6 +224,9 @@ const (
 type ActivitiesCalendarItem struct {
 	Count int                `json:"count"`
 	Date  openapi_types.Date `json:"date"`
+
+	// HasNotifications Признак того, что хотя бы одно событие этого дня (по всем питомцам пользователя) имеет notifications_enabled = true. Производное агрегатное значение дня, а не поле конкретного события.
+	HasNotifications bool `json:"has_notifications"`
 }
 
 // ActivitiesDayEventItem defines model for ActivitiesDayEventItem.
@@ -232,9 +235,12 @@ type ActivitiesDayEventItem struct {
 	FilesCount int                `json:"files_count"`
 	Id         openapi_types.UUID `json:"id"`
 	Notes      *string            `json:"notes,omitempty"`
-	PetId      openapi_types.UUID `json:"pet_id"`
-	PetName    string             `json:"pet_name"`
-	Type       GetEventEnum       `json:"type"`
+
+	// NotificationsEnabled Сохранённое значение столбца event.notifications_enabled, отдаётся как есть.
+	NotificationsEnabled bool               `json:"notifications_enabled"`
+	PetId                openapi_types.UUID `json:"pet_id"`
+	PetName              string             `json:"pet_name"`
+	Type                 GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -531,12 +537,15 @@ type GetEventIdResponseRequest struct {
 	Date time.Time `json:"date"`
 
 	// Files Прикреплённые файлы события (фото и документы), в порядке position.
-	Files   []EventFile        `json:"files"`
-	Id      openapi_types.UUID `json:"id"`
-	Notes   *string            `json:"notes,omitempty"`
-	PetId   openapi_types.UUID `json:"pet_id"`
-	PetName string             `json:"pet_name"`
-	Type    GetEventEnum       `json:"type"`
+	Files []EventFile        `json:"files"`
+	Id    openapi_types.UUID `json:"id"`
+	Notes *string            `json:"notes,omitempty"`
+
+	// NotificationsEnabled Сохранённое значение столбца event.notifications_enabled, отдаётся как есть.
+	NotificationsEnabled bool               `json:"notifications_enabled"`
+	PetId                openapi_types.UUID `json:"pet_id"`
+	PetName              string             `json:"pet_name"`
+	Type                 GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -563,10 +572,13 @@ type GetEventIdResponseRequest struct {
 
 // GetEventRequest defines model for GetEventRequest.
 type GetEventRequest struct {
-	Date  time.Time          `json:"date"`
-	Notes *string            `json:"notes,omitempty"`
-	PetId openapi_types.UUID `json:"pet_id"`
-	Type  GetEventEnum       `json:"type"`
+	Date  time.Time `json:"date"`
+	Notes *string   `json:"notes,omitempty"`
+
+	// NotificationsEnabled Опционально, по умолчанию false. Допустимо true только если date строго в будущем относительно момента обработки запроса (см. «Добавление события — Backend»).
+	NotificationsEnabled *bool              `json:"notifications_enabled,omitempty"`
+	PetId                openapi_types.UUID `json:"pet_id"`
+	Type                 GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -599,7 +611,10 @@ type GetEventResponse struct {
 	FilesCount int                `json:"files_count"`
 	Id         openapi_types.UUID `json:"id"`
 	Notes      *string            `json:"notes,omitempty"`
-	Type       GetEventEnum       `json:"type"`
+
+	// NotificationsEnabled Сохранённое значение столбца event.notifications_enabled, отдаётся как есть.
+	NotificationsEnabled bool         `json:"notifications_enabled"`
+	Type                 GetEventEnum `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -920,6 +935,9 @@ type ImportLocalDataEvent struct {
 	LocalId string  `json:"local_id"`
 	Notes   *string `json:"notes,omitempty"`
 
+	// NotificationsEnabled Опционально, валидируется как в POST /events (см. «Импорт локальных данных — Backend»).
+	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
+
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
 	PetLocalId string       `json:"pet_local_id"`
 	Type       GetEventEnum `json:"type"`
@@ -1186,10 +1204,13 @@ type UpdateDiseaseRequest struct {
 
 // UpdateEventRequest defines model for UpdateEventRequest.
 type UpdateEventRequest struct {
-	Date  *time.Time         `json:"date,omitempty"`
-	Notes *string            `json:"notes,omitempty"`
-	PetId openapi_types.UUID `json:"pet_id"`
-	Type  *GetEventEnum      `json:"type,omitempty"`
+	Date  *time.Time `json:"date,omitempty"`
+	Notes *string    `json:"notes,omitempty"`
+
+	// NotificationsEnabled Опционально, независимо от других полей. Итоговое сочетание (переданное значение либо уже сохранённое) проверяется против итоговой даты события (см. «Редактирование события — Backend»).
+	NotificationsEnabled *bool              `json:"notifications_enabled,omitempty"`
+	PetId                openapi_types.UUID `json:"pet_id"`
+	Type                 *GetEventEnum      `json:"type,omitempty"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//

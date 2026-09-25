@@ -52,17 +52,21 @@ type ImportLocalDataEvent struct {
 	Type       string          `json:"type"`
 	Notes      *string         `json:"notes,omitempty"`
 	Value      json.RawMessage `json:"value"`
+	// NotificationsEnabled — опционально, валидируется так же, как в
+	// POST /events (см. «Импорт локальных данных — Backend»).
+	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
 }
 
 // ToCreateEventRequest конвертирует элемент events[] в тот же тип запроса,
 // что принимает POST /events, подставляя уже разрешённый серверный id питомца.
 func (e ImportLocalDataEvent) ToCreateEventRequest(petID string) CreateEventRequest {
 	return CreateEventRequest{
-		PetID: petID,
-		Date:  e.Date,
-		Type:  e.Type,
-		Notes: e.Notes,
-		Value: e.Value,
+		PetID:                petID,
+		Date:                 e.Date,
+		Type:                 e.Type,
+		Notes:                e.Notes,
+		Value:                e.Value,
+		NotificationsEnabled: e.NotificationsEnabled,
 	}
 }
 

@@ -65,6 +65,23 @@ func parseEventDate(date string) (time.Time, error) {
 	return time.Parse(time.RFC3339, date)
 }
 
+// validateNotificationsEnabledForDate проверяет правило «notifications_enabled
+// = true допустим только для события с датой строго в будущем» (см.
+// «Добавление события — Backend», «Редактирование события — Backend»,
+// «Модель значения события и реестр метрик»). now() берётся на момент
+// обработки запроса, UTC. Возвращает пустую строку, если сочетание
+// допустимо, иначе — сообщение об ошибке для ответа 400. enabled == nil или
+// *enabled == false — сочетание всегда допустимо независимо от date.
+func validateNotificationsEnabledForDate(enabled *bool, date time.Time) string {
+	if enabled == nil || !*enabled {
+		return ""
+	}
+	if !date.After(time.Now().UTC()) {
+		return "notifications_enabled = true допустим только для события с датой строго в будущем"
+	}
+	return ""
+}
+
 // isValidUUIDv4 проверяет, что значение заголовка Idempotency-Key — валидный
 // UUID версии 4 (см. страницу "Добавление события — Backend").
 func isValidUUIDv4(value string) bool {

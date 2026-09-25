@@ -158,6 +158,33 @@ func TestImportLocalDataHandler_InvalidEventRejected(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// notifications_enabled в элементе events[] валидируется так же, как в
+// POST /events: true допустим только с датой строго в будущем (см. «Импорт
+// локальных данных — Backend»).
+func TestImportLocalDataHandler_EventNotificationsEnabledPastDateRejected(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+		WithArgs(testUserID, testImportIdempotencyKey).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	pet := validImportPet("local-1")
+	notificationsEnabled := true
+	badEvent := models.ImportLocalDataEvent{
+		LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight",
+		Value: eventValue(`{"amount":4.2}`), NotificationsEnabled: &notificationsEnabled,
+	}
+	w := httptest.NewRecorder()
+	r := importRequest(t, models.ImportLocalDataRequest{
+		Pets:   []models.ImportLocalDataPet{pet},
+		Events: []models.ImportLocalDataEvent{badEvent},
+	}, true, testImportIdempotencyKey)
+	ImportLocalDataHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // Импорт обязан использовать тот же валидатор значения, что и POST /events:
 // ослабленного правила для переноса локальных данных быть не должно.
 func TestImportLocalDataHandler_InvalidEventValueRejected(t *testing.T) {

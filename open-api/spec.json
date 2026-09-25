@@ -3286,7 +3286,8 @@
           "date",
           "type",
           "value",
-          "files_count"
+          "files_count",
+          "notifications_enabled"
         ],
         "properties": {
           "id": {
@@ -3324,6 +3325,10 @@
             "x-stoplight": {
               "id": "f11e0007fc"
             }
+          },
+          "notifications_enabled": {
+            "type": "boolean",
+            "description": "Сохранённое значение столбца event.notifications_enabled, отдаётся как есть."
           }
         }
       },
@@ -3742,6 +3747,11 @@
           },
           "value": {
             "$ref": "#/components/schemas/EventValue"
+          },
+          "notifications_enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Опционально, по умолчанию false. Допустимо true только если date строго в будущем относительно момента обработки запроса (см. «Добавление события — Backend»)."
           }
         }
       },
@@ -3982,7 +3992,8 @@
           "value",
           "pet_id",
           "pet_name",
-          "files"
+          "files",
+          "notifications_enabled"
         ],
         "properties": {
           "id": {
@@ -4037,6 +4048,10 @@
             "x-stoplight": {
               "id": "f11e0008files"
             }
+          },
+          "notifications_enabled": {
+            "type": "boolean",
+            "description": "Сохранённое значение столбца event.notifications_enabled, отдаётся как есть."
           }
         }
       },
@@ -4097,6 +4112,10 @@
           "value": {
             "$ref": "#/components/schemas/EventValue",
             "description": "При PATCH объект value заменяется целиком; слияние вложенных полей не поддерживается."
+          },
+          "notifications_enabled": {
+            "type": "boolean",
+            "description": "Опционально, независимо от других полей. Итоговое сочетание (переданное значение либо уже сохранённое) проверяется против итоговой даты события (см. «Редактирование события — Backend»)."
           }
         }
       },
@@ -4231,6 +4250,11 @@
             "x-stoplight": {
               "id": "5z8g4fgn6axfr"
             }
+          },
+          "notifications_enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Опционально, валидируется как в POST /events (см. «Импорт локальных данных — Backend»)."
           }
         }
       },
@@ -4932,7 +4956,8 @@
           "value",
           "files_count",
           "pet_id",
-          "pet_name"
+          "pet_name",
+          "notifications_enabled"
         ],
         "properties": {
           "id": {
@@ -4982,6 +5007,10 @@
             "x-stoplight": {
               "id": "f11e0010da"
             }
+          },
+          "notifications_enabled": {
+            "type": "boolean",
+            "description": "Сохранённое значение столбца event.notifications_enabled, отдаётся как есть."
           }
         }
       },
@@ -4993,7 +5022,8 @@
         "type": "object",
         "required": [
           "date",
-          "count"
+          "count",
+          "has_notifications"
         ],
         "properties": {
           "date": {
@@ -5008,6 +5038,10 @@
             "x-stoplight": {
               "id": "f11e0013cal"
             }
+          },
+          "has_notifications": {
+            "type": "boolean",
+            "description": "Признак того, что хотя бы одно событие этого дня (по всем питомцам пользователя) имеет notifications_enabled = true. Производное агрегатное значение дня, а не поле конкретного события."
           }
         }
       },

@@ -12,6 +12,10 @@ type ActivityEvent struct {
 	// FilesCount — количество прикреплённых файлов события (0, если файлов
 	// нет), см. «Файлы события — Backend».
 	FilesCount int `json:"files_count"`
+	// NotificationsEnabled — сохранённое значение столбца
+	// event.notifications_enabled, см. «Модель значения события и реестр
+	// метрик».
+	NotificationsEnabled bool `json:"notifications_enabled"`
 }
 
 // ActivityDay represents events for a single day
@@ -32,6 +36,11 @@ type ActivitiesResponse struct {
 type ActivitiesCalendarItem struct {
 	Date  string `json:"date"`
 	Count int    `json:"count"`
+	// HasNotifications — признак того, что хотя бы одно событие этого дня
+	// (по всем питомцам пользователя) имеет notifications_enabled = true.
+	// Производное агрегатное значение дня, а не поле конкретного события
+	// (см. «Просмотр календаря — Backend»).
+	HasNotifications bool `json:"has_notifications"`
 }
 
 // ActivitiesCalendarResponse — тело ответа GET /activities/calendar.
@@ -52,6 +61,10 @@ type ActivitiesDayEventItem struct {
 	FilesCount int             `json:"files_count"`
 	PetID      string          `json:"pet_id"`
 	PetName    string          `json:"pet_name"`
+	// NotificationsEnabled — сохранённое значение столбца
+	// event.notifications_enabled, см. «Модель значения события и реестр
+	// метрик».
+	NotificationsEnabled bool `json:"notifications_enabled"`
 }
 
 // ActivitiesDayResponse — тело ответа GET /activities/day.

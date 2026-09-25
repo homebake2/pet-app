@@ -27,6 +27,10 @@ type CreateEventRequest struct {
 	Type  string          `json:"type"`            // обязательный
 	Notes *string         `json:"notes,omitempty"` // необязательный
 	Value json.RawMessage `json:"value"`           // обязательный
+	// NotificationsEnabled — необязательный, по умолчанию false. true
+	// допустим только для события с датой строго в будущем (см. «Добавление
+	// события — Backend», «Модель значения события и реестр метрик»).
+	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
 }
 
 // UpdateEventRequest — тело запроса PATCH /events/{id}. Value заменяется
@@ -37,6 +41,11 @@ type UpdateEventRequest struct {
 	Type  *string          `json:"type,omitempty"`  // необязательный
 	Notes *string          `json:"notes,omitempty"` // необязательный
 	Value *json.RawMessage `json:"value,omitempty"` // необязательный
+	// NotificationsEnabled — независимое от других полей необязательное
+	// булево значение (см. «Редактирование события — Backend»). Итоговое
+	// сочетание (переданное значение либо уже сохранённое) проверяется
+	// против итоговой даты события.
+	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
 }
 
 type EventResponse struct {
@@ -47,19 +56,24 @@ type EventResponse struct {
 	Notes   *string         `json:"notes,omitempty"`
 	PetID   string          `json:"pet_id"`
 	PetName string          `json:"pet_name"`
+	// NotificationsEnabled — сохранённое значение столбца
+	// event.notifications_enabled, отдаётся как есть без дополнительной
+	// валидации на чтении (см. «Модель значения события и реестр метрик»).
+	NotificationsEnabled bool `json:"notifications_enabled"`
 	// Files — прикреплённые файлы события (фото и документы), в порядке
 	// position, не более 10 элементов (см. «Файлы события — Backend»).
 	Files []EventFileItem `json:"files"`
 }
 
 type EventDB struct {
-	ID        uuid.UUID
-	PetID     uuid.UUID
-	Date      time.Time
-	Type      string
-	Notes     sql.NullString
-	Value     json.RawMessage
-	DeletedAt sql.NullTime
+	ID                   uuid.UUID
+	PetID                uuid.UUID
+	Date                 time.Time
+	Type                 string
+	Notes                sql.NullString
+	Value                json.RawMessage
+	NotificationsEnabled bool
+	DeletedAt            sql.NullTime
 }
 
 // knownSpeciesValues — закрытый набор значений species, распознаваемых для
