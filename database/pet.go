@@ -25,10 +25,10 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 	query := `
         INSERT INTO pet (
             user_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, deleted_at, body_condition,
-            microchipped, microchip_number, size_category, ringed, ring_number, uv_lamp_required, water_type, enclosure_volume_l, group_size
+            microchipped, microchip_number, ringed, ring_number, uv_lamp_required, water_type, enclosure_volume_l, group_size
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-            $13, $14, $15, $16, $17, $18, $19, $20, $21
+            $13, $14, $15, $16, $17, $18, $19, $20
         ) RETURNING id
     `
 
@@ -87,13 +87,6 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 		microchipNumber = sql.NullString{Valid: false}
 	}
 
-	var sizeCategory sql.NullString
-	if req.SizeCategory != nil {
-		sizeCategory = sql.NullString{String: *req.SizeCategory, Valid: true}
-	} else {
-		sizeCategory = sql.NullString{Valid: false}
-	}
-
 	var ringed sql.NullBool
 	if req.Ringed != nil {
 		ringed = sql.NullBool{Bool: *req.Ringed, Valid: true}
@@ -141,7 +134,7 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 	err := exec.QueryRow(
 		query,
 		userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, deletedAt, bodyCondition,
-		microchipped, microchipNumber, sizeCategory, ringed, ringNumber, uvLampRequired, waterType, enclosureVolumeL, groupSize,
+		microchipped, microchipNumber, ringed, ringNumber, uvLampRequired, waterType, enclosureVolumeL, groupSize,
 	).Scan(&newID)
 	if err != nil {
 		log.Println("InsertPet error:", err)
@@ -238,7 +231,7 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
 	       habitation, notes, deleted_at, breed, body_condition,
-	       microchipped, microchip_number, size_category, ringed, ring_number,
+	       microchipped, microchip_number, ringed, ring_number,
 	       uv_lamp_required, water_type, enclosure_volume_l, group_size
 	FROM pet
 	WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
@@ -261,7 +254,6 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 		&petDB.BodyCondition,
 		&petDB.Microchipped,
 		&petDB.MicrochipNumber,
-		&petDB.SizeCategory,
 		&petDB.Ringed,
 		&petDB.RingNumber,
 		&petDB.UVLampRequired,
@@ -332,9 +324,6 @@ func applyPetProfileFields(pet *models.PetIdResponse, petDB *models.PetIdDB) {
 	}
 	if petDB.MicrochipNumber.Valid {
 		pet.MicrochipNumber = &petDB.MicrochipNumber.String
-	}
-	if petDB.SizeCategory.Valid {
-		pet.SizeCategory = &petDB.SizeCategory.String
 	}
 	if petDB.Ringed.Valid {
 		pet.Ringed = &petDB.Ringed.Bool
@@ -449,9 +438,9 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 	// Профильные поля питомца по видам (см. «Профильные поля питомца по
 	// видам», «Редактирование питомца — Backend»): булевы поля — обычные
 	// *bool; microchip_number/ring_number следуют соглашению body_condition
-	// (пустая строка очищает); size_category/water_type/enclosure_volume_l/
-	// group_size различают "ключ отсутствует" (req.* == nil, ничего не
-	// делаем) от "явный null" (Clear*-флаг, заполненный
+	// (пустая строка очищает); water_type/enclosure_volume_l/group_size
+	// различают "ключ отсутствует" (req.* == nil, ничего не делаем) от
+	// "явный null" (Clear*-флаг, заполненный
 	// UpdatePetRequest.ApplyExplicitNullClears в хендлере) — очищаем поле.
 
 	if req.Microchipped != nil {
@@ -464,12 +453,6 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 		} else {
 			add("microchip_number", *req.MicrochipNumber)
 		}
-	}
-
-	if req.SizeCategory != nil {
-		add("size_category", *req.SizeCategory)
-	} else if req.ClearSizeCategory {
-		add("size_category", sql.NullString{Valid: false})
 	}
 
 	if req.Ringed != nil {
@@ -564,7 +547,7 @@ func GetPetIdDBByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdDB, e
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
 	       habitation, notes, deleted_at, breed, body_condition,
-	       microchipped, microchip_number, size_category, ringed, ring_number,
+	       microchipped, microchip_number, ringed, ring_number,
 	       uv_lamp_required, water_type, enclosure_volume_l, group_size
 	FROM pet
 	WHERE id = $1 AND user_id = $2
@@ -587,7 +570,6 @@ func GetPetIdDBByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdDB, e
 		&petDB.BodyCondition,
 		&petDB.Microchipped,
 		&petDB.MicrochipNumber,
-		&petDB.SizeCategory,
 		&petDB.Ringed,
 		&petDB.RingNumber,
 		&petDB.UVLampRequired,
@@ -634,7 +616,7 @@ func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 	query := `
 	SELECT id, name, gender, species, birth_date, color, sterilized,
 	       habitation, notes, deleted_at, breed, body_condition,
-	       microchipped, microchip_number, size_category, ringed, ring_number,
+	       microchipped, microchip_number, ringed, ring_number,
 	       uv_lamp_required, water_type, enclosure_volume_l, group_size
 	FROM pet
 	WHERE id = $1
@@ -656,7 +638,6 @@ func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 		&petDB.BodyCondition,
 		&petDB.Microchipped,
 		&petDB.MicrochipNumber,
-		&petDB.SizeCategory,
 		&petDB.Ringed,
 		&petDB.RingNumber,
 		&petDB.UVLampRequired,

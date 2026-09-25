@@ -270,11 +270,6 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.SizeCategory != nil && !models.IsValidSizeCategory(*req.SizeCategory) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение size_category")
-		return
-	}
-
 	if req.WaterType != nil && !models.IsValidWaterType(*req.WaterType) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение water_type")
 		return
@@ -508,11 +503,6 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.RingNumber != nil && len(*req.RingNumber) > models.PetRingNumberMaxLen {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле ring_number превышает допустимую длину")
-		return
-	}
-
-	if req.SizeCategory != nil && !models.IsValidSizeCategory(*req.SizeCategory) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение size_category")
 		return
 	}
 

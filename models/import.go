@@ -25,7 +25,6 @@ type ImportLocalDataPet struct {
 	// питомца по видам», паритет сущностей при переносе).
 	Microchipped     *bool    `json:"microchipped,omitempty"`
 	MicrochipNumber  *string  `json:"microchip_number,omitempty"`
-	SizeCategory     *string  `json:"size_category,omitempty"`
 	Ringed           *bool    `json:"ringed,omitempty"`
 	RingNumber       *string  `json:"ring_number,omitempty"`
 	UVLampRequired   *bool    `json:"uv_lamp_required,omitempty"`
@@ -51,7 +50,6 @@ func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 
 		Microchipped:     p.Microchipped,
 		MicrochipNumber:  p.MicrochipNumber,
-		SizeCategory:     p.SizeCategory,
 		Ringed:           p.Ringed,
 		RingNumber:       p.RingNumber,
 		UVLampRequired:   p.UVLampRequired,

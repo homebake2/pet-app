@@ -65,10 +65,6 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 		return "Поле ring_number питомца превышает допустимую длину"
 	}
 
-	if pet.SizeCategory != nil && !models.IsValidSizeCategory(*pet.SizeCategory) {
-		return "Некорректное значение size_category у питомца"
-	}
-
 	if pet.WaterType != nil && !models.IsValidWaterType(*pet.WaterType) {
 		return "Некорректное значение water_type у питомца"
 	}

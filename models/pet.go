@@ -154,18 +154,6 @@ func IsValidHabitation(habitation string) bool {
 	return allowedHabitations[habitation]
 }
 
-var allowedSizeCategories = map[string]bool{
-	"small":  true,
-	"medium": true,
-	"large":  true,
-}
-
-// IsValidSizeCategory проверяет значение профильного поля size_category
-// (см. «Профильные поля питомца по видам», «Справочник значений»).
-func IsValidSizeCategory(sizeCategory string) bool {
-	return allowedSizeCategories[sizeCategory]
-}
-
 var allowedWaterTypes = map[string]bool{
 	"freshwater": true,
 	"saltwater":  true,
@@ -201,7 +189,6 @@ type CreatePetRequest struct {
 	// (см. «Профильные поля питомца по видам»).
 	Microchipped     *bool    `json:"microchipped,omitempty"`
 	MicrochipNumber  *string  `json:"microchip_number,omitempty"`
-	SizeCategory     *string  `json:"size_category,omitempty"`
 	Ringed           *bool    `json:"ringed,omitempty"`
 	RingNumber       *string  `json:"ring_number,omitempty"`
 	UVLampRequired   *bool    `json:"uv_lamp_required,omitempty"`
@@ -263,7 +250,6 @@ type PetIdResponse struct {
 	// поля питомца по видам»).
 	Microchipped     *bool    `json:"microchipped,omitempty"`
 	MicrochipNumber  *string  `json:"microchip_number,omitempty"`
-	SizeCategory     *string  `json:"size_category,omitempty"`
 	Ringed           *bool    `json:"ringed,omitempty"`
 	RingNumber       *string  `json:"ring_number,omitempty"`
 	UVLampRequired   *bool    `json:"uv_lamp_required,omitempty"`
@@ -287,7 +273,6 @@ type PetIdDB struct {
 	BodyCondition    sql.NullString
 	Microchipped     sql.NullBool
 	MicrochipNumber  sql.NullString
-	SizeCategory     sql.NullString
 	Ringed           sql.NullBool
 	RingNumber       sql.NullString
 	UVLampRequired   sql.NullBool
@@ -329,19 +314,16 @@ type UpdatePetRequest struct {
 	RingNumber      *string `json:"ring_number,omitempty"`
 	UVLampRequired  *bool   `json:"uv_lamp_required,omitempty"`
 
-	// SizeCategory, WaterType, EnclosureVolumeL, GroupSize — nullable
-	// enum/числовые поля, где "отсутствие ключа" и "явный null" должны
-	// различаться (отсутствие ключа не меняет значение, явный null очищает
-	// поле) — в отличие от BodyCondition, тип не позволяет использовать
-	// пустую строку как признак очистки. Значение по этим четырём полям
-	// заполняется при декодировании тела запроса как обычно (nil как для
-	// absent, так и для null); отдельно, до вызова database.UpdatePet,
-	// обработчик (см. handlers.UpdatePetHandler) разбирает тело запроса как
-	// map[string]json.RawMessage и заполняет соответствующий Clear*-флаг,
-	// если ключ присутствует и его значение — буквально "null". Флаги не
-	// участвуют в JSON (де)сериализации.
-	SizeCategory          *string  `json:"size_category,omitempty"`
-	ClearSizeCategory     bool     `json:"-"`
+	// WaterType, EnclosureVolumeL, GroupSize — nullable enum/числовые поля,
+	// где "отсутствие ключа" и "явный null" должны различаться (отсутствие
+	// ключа не меняет значение, явный null очищает поле) — в отличие от
+	// BodyCondition, тип не позволяет использовать пустую строку как признак
+	// очистки. Значение по этим полям заполняется при декодировании тела
+	// запроса как обычно (nil как для absent, так и для null); отдельно, до
+	// вызова database.UpdatePet, обработчик (см. handlers.UpdatePetHandler)
+	// разбирает тело запроса как map[string]json.RawMessage и заполняет
+	// соответствующий Clear*-флаг, если ключ присутствует и его значение —
+	// буквально "null". Флаги не участвуют в JSON (де)сериализации.
 	WaterType             *string  `json:"water_type,omitempty"`
 	ClearWaterType        bool     `json:"-"`
 	EnclosureVolumeL      *float64 `json:"enclosure_volume_l,omitempty"`
@@ -351,12 +333,12 @@ type UpdatePetRequest struct {
 }
 
 // ApplyExplicitNullClears разбирает сырое тело запроса PUT /pet/{id} и
-// заставляет Clear*-флаги для тех из четырёх nullable enum/числовых
-// профильных полей (size_category, water_type, enclosure_volume_l,
-// group_size), что присутствуют в теле запроса как явный JSON null —
-// в отличие от отсутствия ключа, которое не должно менять сохранённое
-// значение (см. «Редактирование питомца — Backend»). Вызывается один раз
-// сразу после json.Unmarshal(body, &req) с тем же телом запроса.
+// заставляет Clear*-флаги для тех из трёх nullable enum/числовых
+// профильных полей (water_type, enclosure_volume_l, group_size), что
+// присутствуют в теле запроса как явный JSON null — в отличие от
+// отсутствия ключа, которое не должно менять сохранённое значение (см.
+// «Редактирование питомца — Backend»). Вызывается один раз сразу после
+// json.Unmarshal(body, &req) с тем же телом запроса.
 func (r *UpdatePetRequest) ApplyExplicitNullClears(rawBody []byte) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(rawBody, &raw); err != nil {
@@ -368,7 +350,6 @@ func (r *UpdatePetRequest) ApplyExplicitNullClears(rawBody []byte) error {
 		return present && string(value) == "null"
 	}
 
-	r.ClearSizeCategory = isExplicitNull("size_category")
 	r.ClearWaterType = isExplicitNull("water_type")
 	r.ClearEnclosureVolumeL = isExplicitNull("enclosure_volume_l")
 	r.ClearGroupSize = isExplicitNull("group_size")

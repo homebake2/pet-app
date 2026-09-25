@@ -65,20 +65,6 @@ func TestAllowedHabitationsMatchOpenAPI(t *testing.T) {
 	}
 }
 
-func TestAllowedSizeCategoriesMatchOpenAPI(t *testing.T) {
-	specSizeCategories := []openapi.PetSizeCategoryEnum{
-		openapi.Small, openapi.Medium, openapi.Large,
-	}
-	if len(specSizeCategories) != len(allowedSizeCategories) {
-		t.Fatalf("spec defines %d size_category values, allowedSizeCategories has %d", len(specSizeCategories), len(allowedSizeCategories))
-	}
-	for _, v := range specSizeCategories {
-		if !IsValidSizeCategory(string(v)) {
-			t.Errorf("openapi size_category %q missing from allowedSizeCategories", v)
-		}
-	}
-}
-
 func TestAllowedWaterTypesMatchOpenAPI(t *testing.T) {
 	specWaterTypes := []openapi.PetWaterTypeEnum{
 		openapi.Freshwater, openapi.Saltwater,
@@ -94,14 +80,14 @@ func TestAllowedWaterTypesMatchOpenAPI(t *testing.T) {
 }
 
 // TestApplyExplicitNullClears проверяет, что Clear*-флаги профильных полей
-// size_category/water_type/enclosure_volume_l/group_size отличают явный
-// JSON null от отсутствия ключа (см. «Редактирование питомца — Backend»):
-// отсутствие ключа не должно устанавливать флаг очистки, а явный null —
-// должен, независимо от значения соответствующего *T-поля после
-// json.Unmarshal (оба случая дают nil).
+// water_type/enclosure_volume_l/group_size отличают явный JSON null от
+// отсутствия ключа (см. «Редактирование питомца — Backend»): отсутствие
+// ключа не должно устанавливать флаг очистки, а явный null — должен,
+// независимо от значения соответствующего *T-поля после json.Unmarshal
+// (оба случая дают nil).
 func TestApplyExplicitNullClears(t *testing.T) {
 	var req UpdatePetRequest
-	body := []byte(`{"size_category": null, "water_type": "freshwater", "name": "Rex"}`)
+	body := []byte(`{"water_type": null, "enclosure_volume_l": 12.5, "name": "Rex"}`)
 	if err := json.Unmarshal(body, &req); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -109,19 +95,16 @@ func TestApplyExplicitNullClears(t *testing.T) {
 		t.Fatalf("ApplyExplicitNullClears: %v", err)
 	}
 
-	if !req.ClearSizeCategory {
-		t.Errorf("expected ClearSizeCategory=true for explicit null")
-	}
-	if req.ClearWaterType {
-		t.Errorf("expected ClearWaterType=false: key present with a value, not null")
+	if !req.ClearWaterType {
+		t.Errorf("expected ClearWaterType=true for explicit null")
 	}
 	if req.ClearEnclosureVolumeL {
-		t.Errorf("expected ClearEnclosureVolumeL=false: key absent")
+		t.Errorf("expected ClearEnclosureVolumeL=false: key present with a value, not null")
 	}
 	if req.ClearGroupSize {
 		t.Errorf("expected ClearGroupSize=false: key absent")
 	}
-	if req.WaterType == nil || *req.WaterType != "freshwater" {
-		t.Errorf("expected WaterType to be set from the request body")
+	if req.EnclosureVolumeL == nil || *req.EnclosureVolumeL != 12.5 {
+		t.Errorf("expected EnclosureVolumeL to be set from the request body")
 	}
 }

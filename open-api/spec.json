@@ -3283,10 +3283,6 @@
             "nullable": true,
             "description": "Профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»)."
           },
-          "size_category": {
-            "$ref": "#/components/schemas/PetSizeCategoryEnum",
-            "nullable": true
-          },
           "ringed": {
             "type": "boolean",
             "nullable": true,
@@ -3953,9 +3949,6 @@
             "maxLength": 50,
             "description": "Профильное поле группы видов «Млекопитающие», опционально (см. «Профильные поля питомца по видам»)."
           },
-          "size_category": {
-            "$ref": "#/components/schemas/PetSizeCategoryEnum"
-          },
           "ringed": {
             "type": "boolean",
             "description": "Профильное поле группы видов «Птицы», опционально (см. «Профильные поля питомца по видам»)."
@@ -4065,11 +4058,6 @@
             "maxLength": 50,
             "nullable": true,
             "description": "Профильное поле группы видов «Млекопитающие». Отсутствие ключа не меняет значение, пустая строка очищает поле (то же соглашение, что и body_condition)."
-          },
-          "size_category": {
-            "$ref": "#/components/schemas/PetSizeCategoryEnum",
-            "nullable": true,
-            "description": "Отсутствие ключа не меняет значение, явный null очищает поле."
           },
           "ringed": {
             "type": "boolean",
@@ -4328,9 +4316,6 @@
           "microchip_number": {
             "type": "string",
             "maxLength": 50
-          },
-          "size_category": {
-            "$ref": "#/components/schemas/PetSizeCategoryEnum"
           },
           "ringed": {
             "type": "boolean"
@@ -5307,16 +5292,6 @@
           "normal",
           "overweight",
           "obese"
-        ]
-      },
-      "PetSizeCategoryEnum": {
-        "title": "PetSizeCategoryEnum",
-        "type": "string",
-        "description": "Размерная категория питомца — профильное поле группы видов «Млекопитающие» (см. «Профильные поля питомца по видам»).",
-        "enum": [
-          "small",
-          "medium",
-          "large"
         ]
       },
       "PetWaterTypeEnum": {
