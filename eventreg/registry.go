@@ -64,6 +64,17 @@ type Field struct {
 	// Допустимые значения enum-поля (FieldEnum).
 	Enum []string
 
+	// SpeciesByValue — применимость каждого значения enum-поля (FieldEnum) к
+	// виду питомца pet.species — второй уровень применимости, ниже
+	// TypeSpec.ApplicableSpecies (см. «Применимость значений вложенных enum к
+	// виду питомца»). Ключ — значение enum, значение — список применимых
+	// видов из закрытого справочника. Значение enum, отсутствующее в карте
+	// (например, "other"), применимо любому виду без ограничения. nil
+	// означает, что поле не имеет ограничений второго уровня — все его
+	// значения применимы любому виду (temperature.kind: словарь
+	// EventTemperatureKindEnum видовых ограничений не имеет).
+	SpeciesByValue map[string][]string
+
 	// RequiredWith — имя поля, вместе с которым это поле передаётся:
 	// одно без другого является ошибкой валидации (medication.dose_amount и
 	// medication.dose_unit).
@@ -208,6 +219,38 @@ func IsApplicableToSpecies(eventType, species string) bool {
 	return false
 }
 
+// IsFieldValueApplicableToSpecies сообщает, применимо ли значение value
+// вложенного enum-поля fieldName (hygiene.procedure, feeding.food,
+// activity.kind) объекта value типа eventType к виду питомца species — второй
+// уровень применимости, ниже применимости самого типа события (см.
+// «Применимость значений вложенных enum к виду питомца»). OTHER (species вне
+// справочника или неопределён) применимо любому значению. Тип без записи в
+// реестре, поле без карты SpeciesByValue или значение вне карты (например,
+// "other") — применимо любому виду без ограничения.
+func IsFieldValueApplicableToSpecies(eventType, fieldName, value, species string) bool {
+	spec, ok := Spec(eventType)
+	if !ok {
+		return true
+	}
+	field, ok := spec.Field(fieldName)
+	if !ok || field.SpeciesByValue == nil {
+		return true
+	}
+	applicable, hasRule := field.SpeciesByValue[value]
+	if !hasRule {
+		return true
+	}
+	if species == "OTHER" {
+		return true
+	}
+	for _, s := range applicable {
+		if s == species {
+			return true
+		}
+	}
+	return false
+}
+
 // Словари вложенных enum значения события (см. «Справочник значений»).
 var (
 	temperatureKinds   = []string{"body", "environment"}
@@ -274,6 +317,84 @@ var (
 	diarrheaExclusion   = []string{"FISH", "AXOLOTL", "FROG", "ANT_FARM", "SNAIL"}
 )
 
+// Группы видов питомца для применимости значений вложенных enum-полей value
+// (hygiene.procedure, feeding.food, activity.kind) к виду питомца — второй
+// уровень применимости, ниже TypeSpec.ApplicableSpecies (см. «Применимость
+// значений вложенных enum к виду питомца»). Единственное место, где эти
+// группы описаны — карты применимости ниже собираются из них через
+// speciesUnion, вместо повторения списков видов под каждое значение enum.
+var (
+	mammalSpecies = []string{
+		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET",
+		"HEDGEHOG", "CHINCHILLA", "MINI_PIG", "MINI_GOAT",
+	}
+	cagedMammalSpecies = []string{
+		"HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET", "HEDGEHOG", "CHINCHILLA",
+	}
+	nonCagedMammalSpecies   = []string{"DOG", "CAT", "MINI_PIG", "MINI_GOAT"}
+	birdSpecies             = []string{"PARROT", "CANARY", "CHICKEN", "DUCK", "PIGEON"}
+	terrariumReptileSpecies = []string{"IGUANA", "GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON"}
+	aquaticSpecies          = []string{"FISH", "AXOLOTL", "FROG", "TURTLE"}
+	invertebrateSpecies     = []string{"TARANTULA", "HERMIT_CRAB", "ANT_FARM", "SNAIL"}
+)
+
+// speciesUnion объединяет несколько групп видов (и/или отдельных видов) в
+// один список применимости, без переписывания состава групп под каждое
+// значение enum.
+func speciesUnion(groups ...[]string) []string {
+	out := make([]string, 0)
+	for _, g := range groups {
+		out = append(out, g...)
+	}
+	return out
+}
+
+// hygieneProcedureSpecies — применимость значений value.procedure (type=
+// hygiene) к виду питомца. "other" отсутствует в карте — применим любому
+// виду. "shedding" — тот же состав видов, что и применимость типа события
+// molting (moltingSpecies), переиспользуется как единственный источник
+// истины для этого набора видов.
+var hygieneProcedureSpecies = map[string][]string{
+	"bath":          speciesUnion(mammalSpecies, birdSpecies, terrariumReptileSpecies, []string{"TURTLE"}),
+	"brushing":      mammalSpecies,
+	"teeth":         mammalSpecies,
+	"nails":         speciesUnion(mammalSpecies, []string{"TURTLE"}),
+	"beak":          birdSpecies,
+	"ears":          mammalSpecies,
+	"shedding":      moltingSpecies,
+	"antiparasitic": speciesUnion(mammalSpecies, birdSpecies, terrariumReptileSpecies, aquaticSpecies, invertebrateSpecies),
+	"enclosure":     speciesUnion(cagedMammalSpecies, birdSpecies, terrariumReptileSpecies, aquaticSpecies, invertebrateSpecies),
+	"water_change":  aquaticSpecies,
+}
+
+// feedingFoodSpecies — применимость значений value.food (type=feeding) к
+// виду питомца. "other" отсутствует в карте — применим любому виду.
+var feedingFoodSpecies = map[string][]string{
+	"dry":         speciesUnion(mammalSpecies, birdSpecies, aquaticSpecies, []string{"HERMIT_CRAB"}),
+	"wet":         speciesUnion(mammalSpecies, birdSpecies),
+	"raw":         mammalSpecies,
+	"homemade":    mammalSpecies,
+	"live_prey":   speciesUnion(terrariumReptileSpecies, aquaticSpecies, []string{"TARANTULA"}),
+	"frozen_prey": speciesUnion(terrariumReptileSpecies, aquaticSpecies),
+	"insects":     speciesUnion([]string{"HEDGEHOG"}, birdSpecies, terrariumReptileSpecies, aquaticSpecies, []string{"TARANTULA", "ANT_FARM"}),
+	"hay":         mammalSpecies,
+	"grain":       speciesUnion(mammalSpecies, birdSpecies),
+	"greens":      speciesUnion(mammalSpecies, birdSpecies, terrariumReptileSpecies, []string{"TURTLE", "HERMIT_CRAB", "SNAIL"}),
+	"treat":       speciesUnion(mammalSpecies, birdSpecies, []string{"HERMIT_CRAB"}),
+}
+
+// activityKindSpecies — применимость значений value.kind при type=activity к
+// виду питомца. Не путать с value.kind при type=temperature
+// (EventTemperatureKindEnum) — тот словарь применимости по видам не имеет
+// (Field.SpeciesByValue у temperature.kind не задан).
+var activityKindSpecies = map[string][]string{
+	"walk":       nonCagedMammalSpecies,
+	"free_range": speciesUnion(cagedMammalSpecies, birdSpecies, terrariumReptileSpecies, []string{"TURTLE"}),
+	"play":       speciesUnion(mammalSpecies, birdSpecies, terrariumReptileSpecies, invertebrateSpecies),
+	"training":   speciesUnion(mammalSpecies, birdSpecies),
+	"swim":       []string{"DOG", "DUCK"},
+}
+
 // excretionSpec собирает одинаковую по форме запись реестра для типов
 // urine/defecation/vomit/diarrhea — они отличаются только значением type и
 // применимостью к видам питомца.
@@ -326,7 +447,7 @@ var specs = []TypeSpec{
 		Fields: []Field{
 			{Name: "amount", Type: FieldNumber, Required: true, Min: 0.01, Max: 5000},
 			{Name: "unit", Type: FieldEnum, Required: true, Enum: feedingUnits},
-			{Name: "food", Type: FieldEnum, Required: true, Enum: feedingFoods},
+			{Name: "food", Type: FieldEnum, Required: true, Enum: feedingFoods, SpeciesByValue: feedingFoodSpecies},
 		},
 		Metrics: []Metric{
 			{Key: "amount_sum", Field: "amount", Aggregation: AggSum},
@@ -350,7 +471,7 @@ var specs = []TypeSpec{
 		ValueKind: KindQuantity,
 		Fields: []Field{
 			{Name: "duration_min", Type: FieldNumber, Required: true, Min: 1, Max: 1440},
-			{Name: "kind", Type: FieldEnum, Required: true, Enum: activityKinds},
+			{Name: "kind", Type: FieldEnum, Required: true, Enum: activityKinds, SpeciesByValue: activityKindSpecies},
 			{Name: "distance_m", Type: FieldNumber, Min: 0, Max: 100000},
 		},
 		Metrics: []Metric{
@@ -387,7 +508,7 @@ var specs = []TypeSpec{
 		Type:      "hygiene",
 		ValueKind: KindCategory,
 		Fields: []Field{
-			{Name: "procedure", Type: FieldEnum, Required: true, Enum: hygieneProcedures},
+			{Name: "procedure", Type: FieldEnum, Required: true, Enum: hygieneProcedures, SpeciesByValue: hygieneProcedureSpecies},
 		},
 		Metrics:    []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField: "procedure",

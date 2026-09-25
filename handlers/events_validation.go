@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"myauthservice/eventreg"
 	"myauthservice/models"
 	"time"
@@ -71,6 +72,62 @@ func petSpeciesOrDefault(species string) string {
 // /events и PATCH /events/{id} — правило одно и то же для обоих эндпоинтов.
 func isTypeApplicableToPet(eventType string, petSpecies string) bool {
 	return eventreg.IsApplicableToSpecies(eventType, petSpeciesOrDefault(petSpecies))
+}
+
+// nestedApplicabilityField возвращает имя вложенного enum-поля value, чья
+// применимость к виду питомца проверяется для eventType отдельно от
+// применимости самого типа (второй уровень применимости — см. «Применимость
+// значений вложенных enum к виду питомца»). Пустая строка — для eventType
+// такой проверки нет. Поле "kind" у type=temperature (EventTemperatureKindEnum)
+// сюда намеренно не включено — это отдельный словарь без ограничений по
+// видам, в отличие от "kind" у type=activity (EventActivityKindEnum).
+func nestedApplicabilityField(eventType string) string {
+	switch eventType {
+	case "hygiene":
+		return "procedure"
+	case "feeding":
+		return "food"
+	case "activity":
+		return "kind"
+	default:
+		return ""
+	}
+}
+
+// isNestedValueApplicableToPet проверяет применимость вложенного enum-поля
+// value (hygiene.procedure, feeding.food, activity.kind) к виду питомца —
+// второй уровень применимости после применимости самого типа события (см.
+// «Применимость значений вложенных enum к виду питомца»). Общая функция для
+// POST /events и PATCH /events/{id} — правило одно и то же для обоих
+// эндпоинтов. Вызывается только после успешной validateEventValue, поэтому
+// форма value уже гарантированно корректна: ошибка разбора здесь означает,
+// что проверяемого поля нет в value, и функция просто ничего не проверяет.
+// Возвращает пустую строку, если сочетание допустимо, иначе — сообщение об
+// ошибке для ответа 400.
+func isNestedValueApplicableToPet(eventType string, value json.RawMessage, petSpecies string) string {
+	fieldName := nestedApplicabilityField(eventType)
+	if fieldName == "" {
+		return ""
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(value, &fields); err != nil {
+		return ""
+	}
+	raw, present := fields[fieldName]
+	if !present {
+		return ""
+	}
+	var fieldValue string
+	if err := json.Unmarshal(raw, &fieldValue); err != nil {
+		return ""
+	}
+
+	species := petSpeciesOrDefault(petSpecies)
+	if eventreg.IsFieldValueApplicableToSpecies(eventType, fieldName, fieldValue, species) {
+		return ""
+	}
+	return fmt.Sprintf("Значение value.%s=%s недопустимо для вида питомца", fieldName, fieldValue)
 }
 
 func parseEventDate(date string) (time.Time, error) {

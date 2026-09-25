@@ -4607,7 +4607,7 @@
       "EventFeedingFoodEnum": {
         "title": "EventFeedingFoodEnum",
         "type": "string",
-        "description": "Вид корма (value.food при type=feeding).",
+        "description": "Вид корма (value.food при type=feeding). Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.",
         "enum": [
           "dry",
           "wet",
@@ -4626,7 +4626,7 @@
       "EventActivityKindEnum": {
         "title": "EventActivityKindEnum",
         "type": "string",
-        "description": "Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума.",
+        "description": "Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума. Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.",
         "enum": [
           "walk",
           "free_range",
@@ -4653,7 +4653,7 @@
       "EventHygieneProcedureEnum": {
         "title": "EventHygieneProcedureEnum",
         "type": "string",
-        "description": "Процедура гигиены (value.procedure при type=hygiene).",
+        "description": "Процедура гигиены (value.procedure при type=hygiene). Не каждое значение допустимо для каждого вида питомца (pet.species) — например, brushing неприменим к рыбе. Сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.",
         "enum": [
           "bath",
           "brushing",

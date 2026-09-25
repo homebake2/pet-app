@@ -280,7 +280,7 @@ type DiseaseStatusEnum string
 // ErrorCodeEnum Код ошибки для маппинга на фронте
 type ErrorCodeEnum string
 
-// EventActivityKindEnum Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума.
+// EventActivityKindEnum Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума. Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 type EventActivityKindEnum string
 
 // EventEggLayingStatusEnum Статус кладки (value.status при type=egg_laying). abnormal — осложнённая кладка (в т.ч. застрявшее яйцо).
@@ -289,7 +289,7 @@ type EventEggLayingStatusEnum string
 // EventExcretionStatusEnum Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).
 type EventExcretionStatusEnum string
 
-// EventFeedingFoodEnum Вид корма (value.food при type=feeding).
+// EventFeedingFoodEnum Вид корма (value.food при type=feeding). Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 type EventFeedingFoodEnum string
 
 // EventFeedingUnitEnum Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).
@@ -310,7 +310,7 @@ type EventFile struct {
 // EventHeatCyclePhaseEnum Фаза течки (value.phase при type=heat_cycle).
 type EventHeatCyclePhaseEnum string
 
-// EventHygieneProcedureEnum Процедура гигиены (value.procedure при type=hygiene).
+// EventHygieneProcedureEnum Процедура гигиены (value.procedure при type=hygiene). Не каждое значение допустимо для каждого вида питомца (pet.species) — например, brushing неприменим к рыбе. Сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 type EventHygieneProcedureEnum string
 
 // EventMedicationDoseUnitEnum Единица дозы лекарства (value.dose_unit при type=medication).
@@ -413,7 +413,7 @@ type EventValue struct {
 	// DurationMin Длительность в минутах: activity, sleep.
 	DurationMin *float32 `json:"duration_min,omitempty"`
 
-	// Food Вид корма (value.food при type=feeding).
+	// Food Вид корма (value.food при type=feeding). Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 	Food *EventFeedingFoodEnum `json:"food,omitempty"`
 
 	// Kind Вид наблюдения: при type=temperature — значение EventTemperatureKindEnum, при type=activity — значение EventActivityKindEnum.
@@ -431,7 +431,7 @@ type EventValue struct {
 	// Phase Фаза течки (value.phase при type=heat_cycle).
 	Phase *EventHeatCyclePhaseEnum `json:"phase,omitempty"`
 
-	// Procedure Процедура гигиены (value.procedure при type=hygiene).
+	// Procedure Процедура гигиены (value.procedure при type=hygiene). Не каждое значение допустимо для каждого вида питомца (pet.species) — например, brushing неприменим к рыбе. Сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 	Procedure *EventHygieneProcedureEnum `json:"procedure,omitempty"`
 
 	// State Состояние питомца (value.state при type=mood).

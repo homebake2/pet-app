@@ -396,6 +396,86 @@ func TestCreateEventHandler_UnknownSpeciesDefaultsToOtherApplicability(t *testin
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Применимость значения value.procedure (type=hygiene) к виду питомца — второй
+// уровень применимости, ниже применимости самого типа события (см.
+// «Применимость значений вложенных enum к виду питомца»): brushing неприменим
+// к FISH, хотя type=hygiene сам по себе применим к любому виду.
+func TestCreateEventHandler_HygieneProcedureNotApplicableToPetSpecies(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "hygiene", Value: eventValue(`{"procedure":"brushing"}`)}
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPost, "/events", body, true)
+	CreateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// water_change (value.procedure) применим только к водным/полуводным видам —
+// с подходящим видом запрос проходит.
+func TestCreateEventHandler_HygieneProcedureApplicableToPetSpecies_Success(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
+	mock.ExpectQuery(`SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
+			AddRow(eventID, testPetID, time.Now(), "hygiene", nil, []byte(`{"procedure":"water_change"}`), false, "Nemo"))
+	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`).
+		WillReturnRows(sqlmock.NewRows(fileRowColumns))
+
+	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "hygiene", Value: eventValue(`{"procedure":"water_change"}`)}
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPost, "/events", body, true)
+	CreateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Применимость значения value.food (type=feeding) к виду питомца: live_prey
+// допустим только террариумным рептилиям, водным/полуводным видам и
+// TARANTULA — неприменим к DOG (млекопитающее).
+func TestCreateEventHandler_FeedingFoodNotApplicableToPetSpecies(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "DOG", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "feeding", Value: eventValue(`{"amount":10,"unit":"g","food":"live_prey"}`)}
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPost, "/events", body, true)
+	CreateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Применимость значения value.kind (type=activity) к виду питомца: swim
+// допустим только DOG/DUCK — неприменим к FISH, хотя type=activity сам по
+// себе применим к FISH (activityExclusion содержит только ANT_FARM/SNAIL).
+func TestCreateEventHandler_ActivityKindNotApplicableToPetSpecies(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	body := models.CreateEventRequest{PetID: testPetID, Date: "2024-01-01T10:00:00Z", Type: "activity", Value: eventValue(`{"duration_min":10,"kind":"swim"}`)}
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPost, "/events", body, true)
+	CreateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestCreateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -672,6 +752,32 @@ func TestUpdateEventHandler_TypeUnchangedApplicabilityNotChecked(t *testing.T) {
 	UpdateEventHandler(w, r)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// PATCH проверяет применимость вложенного value.procedure к виду питомца
+// события (то же правило, что и на создании) даже когда type не меняется —
+// как и validateEventValue, эта проверка привязана к наличию value в
+// запросе, а не к смене type (см. TestUpdateEventHandler_TypeUnchangedApplicabilityNotChecked
+// для контраста с применимостью самого type).
+func TestUpdateEventHandler_HygieneProcedureNotApplicableToPetSpecies(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	eventID := "44444444-4444-4444-4444-444444444444"
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value, notifications_enabled\s+FROM event\s+WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled"}).
+			AddRow(eventID, testPetID, time.Now(), "hygiene", nil, []byte(`{"procedure":"water_change"}`), false))
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Nemo", nil, "FISH", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+
+	newValue := eventValuePtr(`{"procedure":"brushing"}`)
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodPatch, "/events/"+eventID, models.UpdateEventRequest{PetID: testPetID, Value: newValue}, true)
+	UpdateEventHandler(w, r)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

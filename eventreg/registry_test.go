@@ -202,3 +202,47 @@ func TestIsApplicableToSpecies(t *testing.T) {
 		}
 	}
 }
+
+// TestIsFieldValueApplicableToSpecies проверяет второй уровень применимости —
+// значений вложенных enum-полей value (hygiene.procedure, feeding.food,
+// activity.kind) к виду питомца, отдельно от применимости самого типа
+// события (см. «Применимость значений вложенных enum к виду питомца»).
+func TestIsFieldValueApplicableToSpecies(t *testing.T) {
+	cases := []struct {
+		eventType string
+		field     string
+		value     string
+		species   string
+		want      bool
+	}{
+		// hygiene.procedure
+		{"hygiene", "procedure", "brushing", "FISH", false},
+		{"hygiene", "procedure", "brushing", "DOG", true},
+		{"hygiene", "procedure", "water_change", "FISH", true},
+		{"hygiene", "procedure", "water_change", "DOG", false},
+		{"hygiene", "procedure", "shedding", "SNAKE", true},
+		{"hygiene", "procedure", "enclosure", "DOG", false},
+		{"hygiene", "procedure", "enclosure", "HAMSTER", true},
+		{"hygiene", "procedure", "other", "FISH", true},
+		{"hygiene", "procedure", "brushing", "OTHER", true},
+		// feeding.food
+		{"feeding", "food", "live_prey", "DOG", false},
+		{"feeding", "food", "live_prey", "SNAKE", true},
+		{"feeding", "food", "raw", "DOG", true},
+		{"feeding", "food", "insects", "HEDGEHOG", true},
+		{"feeding", "food", "insects", "CAT", false},
+		// activity.kind (не путать с temperature.kind — другой словарь)
+		{"activity", "kind", "swim", "FISH", false},
+		{"activity", "kind", "swim", "DOG", true},
+		{"activity", "kind", "walk", "CAT", true},
+		{"activity", "kind", "walk", "FISH", false},
+		{"temperature", "kind", "body", "FISH", true},
+		// поле/тип без правил применимости второго уровня
+		{"unknown_type", "procedure", "brushing", "FISH", true},
+	}
+	for _, c := range cases {
+		if got := IsFieldValueApplicableToSpecies(c.eventType, c.field, c.value, c.species); got != c.want {
+			t.Errorf("IsFieldValueApplicableToSpecies(%q, %q, %q, %q) = %v, ожидалось %v", c.eventType, c.field, c.value, c.species, got, c.want)
+		}
+	}
+}

@@ -452,6 +452,11 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := isNestedValueApplicableToPet(req.Type, req.Value, petDB.Species); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+		return
+	}
+
 	if idempotencyKey != "" {
 		if existing, existingPetID, existingPetName, err := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey); err == nil {
 			writeEventResponse(w, r, http.StatusCreated, existing, existingPetID, existingPetName)
@@ -663,6 +668,11 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 			effectiveType = *req.Type
 		}
 		if msg := validateEventValue(effectiveType, *req.Value); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+
+		if msg := isNestedValueApplicableToPet(effectiveType, *req.Value, petDB.Species); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
