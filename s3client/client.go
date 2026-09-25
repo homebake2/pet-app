@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,6 +30,23 @@ const (
 	UploadURLTTL   = 5 * time.Minute
 	DownloadURLTTL = 7 * 24 * time.Hour
 )
+
+// GetURLCacheTTL — окно, в течение которого PresignGetURL повторно отдаёт
+// уже подписанную ссылку на тот же objectKey вместо новой подписи. Без этого
+// каждый вызов (например список питомцев и карточка питомца, запрошенные
+// с разницей в секунды) получает разные query-параметры подписи
+// (X-Amz-Signature/X-Amz-Date) для одного и того же файла, и клиентский
+// image-кэш (ключ — строка URL) считает это разными ресурсами и качает файл
+// заново.
+//
+// Значение равно DownloadURLTTL: ссылка переиспользуется всё время, пока она
+// физически действительна, а не только в течение какого-то короткого окна.
+// Это безопасно, потому что на клиенте нет фонового обновления данных о
+// питомце помимо явных запросов — а любой запрос, меняющий фото (новую
+// загрузку), создаёт новый objectKey и инвалидирует связанные данные на
+// фронтенде, так что старая закэшированная ссылка на предыдущий objectKey
+// просто перестаёт запрашиваться.
+const GetURLCacheTTL = DownloadURLTTL
 
 // Config — параметры доступа к S3-совместимому хранилищу. Значения приходят
 // из переменных окружения (см. ConfigFromEnv), никогда не хранятся в
@@ -82,6 +100,19 @@ type Client struct {
 	s3      *s3.Client
 	presign *s3.PresignClient
 	bucket  string
+
+	// getURLCacheMu защищает getURLCache: PresignGetURL вызывается из
+	// обработчиков параллельных HTTP-запросов (см. handlers/pet.go,
+	// handlers/events.go), а Client — единственный синглтон-инстанс на
+	// процесс (см. main.go).
+	getURLCacheMu sync.Mutex
+	getURLCache   map[string]cachedGetURL
+}
+
+// cachedGetURL — запись кэша presigned GET URL для одного objectKey.
+type cachedGetURL struct {
+	url      string
+	cachedAt time.Time
 }
 
 // New создаёт Client по конфигурации. Ключи (KeyID/ApplicationKey) остаются
@@ -101,9 +132,10 @@ func New(cfg Config) *Client {
 		RetryMaxAttempts: 1,
 	})
 	return &Client{
-		s3:      s3Svc,
-		presign: s3.NewPresignClient(s3Svc),
-		bucket:  cfg.Bucket,
+		s3:          s3Svc,
+		presign:     s3.NewPresignClient(s3Svc),
+		bucket:      cfg.Bucket,
+		getURLCache: make(map[string]cachedGetURL),
 	}
 }
 
@@ -123,8 +155,14 @@ func (c *Client) PresignPutURL(ctx context.Context, objectKey, contentType strin
 }
 
 // PresignGetURL подписывает presigned GET URL на объект objectKey с
-// TTL = DownloadURLTTL.
+// TTL = DownloadURLTTL. Повторные вызовы для одного и того же objectKey в
+// течение GetURLCacheTTL отдают ту же самую строку URL из кэша вместо новой
+// подписи — см. комментарий к GetURLCacheTTL.
 func (c *Client) PresignGetURL(ctx context.Context, objectKey string) (url string, err error) {
+	if cached, ok := c.cachedGetURL(objectKey); ok {
+		return cached, nil
+	}
+
 	req, err := c.presign.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(objectKey),
@@ -132,7 +170,25 @@ func (c *Client) PresignGetURL(ctx context.Context, objectKey string) (url strin
 	if err != nil {
 		return "", err
 	}
+
+	c.getURLCacheMu.Lock()
+	c.getURLCache[objectKey] = cachedGetURL{url: req.URL, cachedAt: time.Now()}
+	c.getURLCacheMu.Unlock()
+
 	return req.URL, nil
+}
+
+// cachedGetURL возвращает ранее закэшированный presigned GET URL для
+// objectKey, если он ещё не устарел (см. GetURLCacheTTL).
+func (c *Client) cachedGetURL(objectKey string) (string, bool) {
+	c.getURLCacheMu.Lock()
+	defer c.getURLCacheMu.Unlock()
+
+	entry, ok := c.getURLCache[objectKey]
+	if !ok || time.Since(entry.cachedAt) >= GetURLCacheTTL {
+		return "", false
+	}
+	return entry.url, true
 }
 
 // DeleteObject удаляет объект в S3 напрямую (не presigned — backend имеет
