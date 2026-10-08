@@ -106,15 +106,21 @@ func computeMedicationScheduleSlots(frequencyType string, weekdays []int, interv
 const medicationNextDoseLookaheadDays = models.MedicationScheduleMaxLookaheadDays * 5
 
 // computeMedicationNextDose вычисляет минимальный момент (дата+время)
-// расписания, который >= now, по текущим полям расписания курса. nil, если
+// расписания, который >= now, по текущим полям расписания курса. Даты и
+// times расписания — местное время пояса loc: «сегодня» берётся по now в
+// этом поясе, и каждый приём строится как момент местного времени. nil, если
 // frequency_type=as_needed, либо весь рассчитанный график раньше now
 // (актуально для курсов с end_date в прошлом) — см. "Вычисление next_dose".
-func computeMedicationNextDose(frequencyType string, weekdays []int, intervalDays int, times []models.MedicationTimeSlot, startDate time.Time, endDate *time.Time, now time.Time) *time.Time {
+func computeMedicationNextDose(frequencyType string, weekdays []int, intervalDays int, times []models.MedicationTimeSlot, startDate time.Time, endDate *time.Time, now time.Time, loc *time.Location) *time.Time {
 	if frequencyType == models.MedicationFrequencyAsNeeded || len(times) == 0 {
 		return nil
 	}
 
-	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	// Календарные даты расписания хранятся как полночь UTC (см.
+	// parseDateOnly), поэтому и «сегодня» пояса loc приводится к такому же
+	// виду — иначе сравнение с startDate сдвигалось бы на смещение пояса.
+	localNow := now.In(loc)
+	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, time.UTC)
 	from := startDate
 	if today.After(from) {
 		if frequencyType == models.MedicationFrequencyEveryNDays && intervalDays > 0 {
@@ -129,7 +135,7 @@ func computeMedicationNextDose(frequencyType string, weekdays []int, intervalDay
 	var result *time.Time
 	medicationScheduleDates(frequencyType, weekdays, intervalDays, from, endDate, medicationNextDoseLookaheadDays, func(d time.Time) bool {
 		for _, t := range times {
-			at := parseMedicationDateTime(d, t.Time)
+			at := parseMedicationDateTime(d, t.Time, loc)
 			if !at.Before(now) {
 				result = &at
 				return false
@@ -140,8 +146,9 @@ func computeMedicationNextDose(frequencyType string, weekdays []int, intervalDay
 	return result
 }
 
-// parseMedicationDateTime строит time.Time (UTC) из даты и "HH:mm"/"HH:mm:ss".
-func parseMedicationDateTime(d time.Time, timeOfDay string) time.Time {
+// parseMedicationDateTime строит момент времени из календарной даты и
+// "HH:mm"/"HH:mm:ss", трактуя их как местное время пояса loc.
+func parseMedicationDateTime(d time.Time, timeOfDay string, loc *time.Location) time.Time {
 	hh, mm, ss := 0, 0, 0
 	parts := strings.Split(timeOfDay, ":")
 	if len(parts) >= 2 {
@@ -151,5 +158,5 @@ func parseMedicationDateTime(d time.Time, timeOfDay string) time.Time {
 	if len(parts) == 3 {
 		ss, _ = strconv.Atoi(parts[2])
 	}
-	return time.Date(d.Year(), d.Month(), d.Day(), hh, mm, ss, 0, time.UTC)
+	return time.Date(d.Year(), d.Month(), d.Day(), hh, mm, ss, 0, loc)
 }

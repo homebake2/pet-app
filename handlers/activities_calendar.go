@@ -12,8 +12,8 @@ import (
 
 // parseSingleDateParam разбирает обязательный query-параметр date
 // (YYYY-MM-DD) — используется GET /activities/day. Трактовка та же, что и у
-// границ from/to GET /activities: календарная дата в UTC (см. "Просмотр
-// календаря — Backend", раздел "Граница дня").
+// границ from/to GET /activities: календарная дата в часовом поясе клиента
+// из параметра tz (см. parseTimeZoneParam и "Просмотр календаря — Backend").
 func parseSingleDateParam(w http.ResponseWriter, r *http.Request) (date time.Time, ok bool) {
 	dateStr := r.URL.Query().Get("date")
 	if dateStr == "" {
@@ -35,7 +35,7 @@ func parseSingleDateParam(w http.ResponseWriter, r *http.Request) (date time.Tim
 // питомцам пользователя, без содержимого самих событий (см. "Просмотр
 // календаря — Backend", раздел A). Параметр pet_id не принимается и не
 // возвращает 404 — пользователь без питомцев/событий получает 200 с
-// count: 0 по всем дням.
+// count: 0 по всем дням. День события — его календарный день в поясе tz.
 func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
@@ -47,12 +47,18 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
+
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	aggregates, err := database.CountEventsByUserIDGroupedByDay(userID, fromDate, toDate)
+	start, end := localDaysBounds(fromDate, toDate, loc)
+	aggregates, err := database.CountEventsByUserIDGroupedByDay(userID, start, end, loc)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта событий")
 		return
@@ -75,7 +81,8 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetActivitiesDayHandler обрабатывает GET /activities/day — все события всех
-// не мягко удалённых питомцев пользователя за один календарный день (UTC),
+// не мягко удалённых питомцев пользователя за один календарный день в
+// часовом поясе tz (по умолчанию UTC),
 // отсортированные по date_time по возрастанию (см. "Просмотр календаря —
 // Backend", раздел B). Параметр pet_id не принимается и не возвращает 404.
 func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
@@ -89,12 +96,18 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
+
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
 
-	eventsWithPet, err := database.GetEventsByUserIDAndDate(userID, date)
+	start, end := localDaysBounds(date, date, loc)
+	eventsWithPet, err := database.GetEventsByUserIDInRange(userID, start, end)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
 		return

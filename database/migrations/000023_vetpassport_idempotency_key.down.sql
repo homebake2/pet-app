@@ -1,0 +1,10 @@
+DROP INDEX vaccination_pet_idempotency_key_idx;
+DROP INDEX disease_pet_idempotency_key_idx;
+DROP INDEX vet_visit_pet_idempotency_key_idx;
+DROP INDEX allergy_pet_idempotency_key_idx;
+DROP INDEX medication_pet_idempotency_key_idx;
+ALTER TABLE vaccination DROP COLUMN idempotency_key;
+ALTER TABLE disease     DROP COLUMN idempotency_key;
+ALTER TABLE vet_visit   DROP COLUMN idempotency_key;
+ALTER TABLE allergy     DROP COLUMN idempotency_key;
+ALTER TABLE medication  DROP COLUMN idempotency_key;

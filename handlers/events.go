@@ -19,14 +19,16 @@ const (
 	maxEventFieldLen   = 500
 )
 
-// parseEventDateRange разбирает границы периода from/to (YYYY-MM-DD, UTC) —
-// общий код для GET /activities и GET /events/stats: трактовка границ и
-// ограничение в 366 дней у них одни и те же (см. "Просмотр календаря —
-// Backend" и "Графики динамики — Backend"). При ошибке сама пишет 400 и
-// возвращает ok=false.
+// parseEventDateRange разбирает границы периода from/to (YYYY-MM-DD) —
+// общий код для GET /activities, GET /activities/calendar и GET
+// /events/stats: формат и ограничение в 366 дней у них одни и те же (см.
+// "Просмотр календаря — Backend" и "Графики динамики — Backend"). При ошибке
+// сама пишет 400 и возвращает ok=false.
 //
-// Возвращаются календарные даты (полночь UTC); полуоткрытый интервал
-// [from, to+1 день) строится потребителем.
+// Возвращаются голые календарные даты (как значения time.Time в UTC, но
+// смысл у них — только год/месяц/день): в моменты времени их переводит
+// потребитель — localDaysBounds в поясе клиента для /activities*, UTC для
+// /events/stats.
 func parseEventDateRange(w http.ResponseWriter, r *http.Request) (fromDate, toDate time.Time, ok bool) {
 	fromStr := r.URL.Query().Get("from")
 	if fromStr == "" {
@@ -95,6 +97,11 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
+
 	petID, ok := parseRequiredPetIDParam(w, r)
 	if !ok {
 		return
@@ -122,7 +129,8 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventsDB, err := database.GetEventsByPetIDAndDateRange(petID, fromDate, toDate)
+	start, end := localDaysBounds(fromDate, toDate, loc)
+	eventsDB, err := database.GetEventsByPetIDAndDateRange(petID, start, end)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
 		return
@@ -140,11 +148,12 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 	eventsByDay := make(map[string][]models.ActivityEvent)
 	for _, eventDB := range eventsDB {
-		// Календарный день события для группировки определяется по UTC-
-		// представлению date_time, а не по location, в которой драйвер
-		// вернул time.Time (см. "Просмотр календаря — Backend").
+		// Календарный день события для группировки — его день в часовом
+		// поясе клиента tz, а не в location, в которой драйвер вернул
+		// time.Time (см. "Просмотр календаря — Backend"). Сам момент
+		// времени в ответе по-прежнему отдаётся в UTC.
 		eventDate := eventDB.Date.UTC()
-		dateStr := eventDate.Format("2006-01-02")
+		dateStr := localDateKey(eventDate, loc)
 		var notes *string
 		if eventDB.Notes.Valid {
 			notes = new(string)

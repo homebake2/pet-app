@@ -250,7 +250,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			return result, err
 		}
 		var vaccinationID uuid.UUID
-		vaccinationID, err = insertVaccinationWith(tx, petID, v.ToCreateVaccinationRequest(), administeredEventID, nextEventID)
+		vaccinationID, err = insertVaccinationWith(tx, petID, v.ToCreateVaccinationRequest(), administeredEventID, nextEventID, "")
 		if err != nil {
 			return result, err
 		}
@@ -265,7 +265,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			return result, err
 		}
 		var diseaseID uuid.UUID
-		diseaseID, err = insertDiseaseWith(tx, petID, d.ToCreateDiseaseRequest())
+		diseaseID, err = insertDiseaseWith(tx, petID, d.ToCreateDiseaseRequest(), "")
 		if err != nil {
 			return result, err
 		}
@@ -280,7 +280,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			return result, err
 		}
 		var vetVisitID uuid.UUID
-		vetVisitID, err = insertVetVisitWith(tx, petID, v.ToCreateVetVisitRequest())
+		vetVisitID, err = insertVetVisitWith(tx, petID, v.ToCreateVetVisitRequest(), "")
 		if err != nil {
 			return result, err
 		}
@@ -295,7 +295,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			return result, err
 		}
 		var allergyID uuid.UUID
-		allergyID, err = insertAllergyWith(tx, petID, a.ToCreateAllergyRequest())
+		allergyID, err = insertAllergyWith(tx, petID, a.ToCreateAllergyRequest(), "")
 		if err != nil {
 			return result, err
 		}
@@ -310,7 +310,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			return result, err
 		}
 		var medicationID uuid.UUID
-		medicationID, err = insertMedicationWith(tx, petID, m.ToCreateMedicationRequest())
+		medicationID, err = insertMedicationWith(tx, petID, m.ToCreateMedicationRequest(), "")
 		if err != nil {
 			return result, err
 		}

@@ -40,6 +40,11 @@ func GetEventStatsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
+
 	types, msg := parseStatsTypes(r.URL.Query().Get("types"))
 	if msg != "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -58,12 +63,17 @@ func GetEventStatsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	bucketStarts := statsBucketStarts(bucket, fromDate, toDate)
-	// Полуоткрытый интервал [from, to+1 день) — та же трактовка границ, что и
-	// у GET /activities; интервалы, частично выходящие за период, событий вне
-	// периода не захватывают.
-	rangeStart := fromDate.UTC()
-	rangeEnd := toDate.UTC().AddDate(0, 0, 1)
+	// from/to — локальные календарные даты часового пояса клиента (tz, по
+	// умолчанию UTC), интервалы — локальные сутки/недели/месяцы этого пояса:
+	// та же трактовка, что и у GET /activities. Полуоткрытый интервал
+	// [начало суток from, начало суток, следующих за to); интервалы, частично
+	// выходящие за период, событий вне периода не захватывают.
+	bucketDates := statsBucketStarts(bucket, fromDate, toDate)
+	bucketInstants := make([]time.Time, len(bucketDates))
+	for i, date := range bucketDates {
+		bucketInstants[i] = time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
+	}
+	rangeStart, rangeEnd := localDaysBounds(fromDate, toDate, loc)
 
 	series := make([]models.EventStatsSeries, 0, len(types))
 	for _, eventType := range types {
@@ -81,20 +91,20 @@ func GetEventStatsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		rows, err := database.AggregateEvents(database.StatsQuery{
-			PetID:      petID,
-			Type:       spec.Type,
-			SplitField: spec.SplitField,
-			Bucket:     bucket,
-			From:       rangeStart,
-			To:         rangeEnd,
-			Aggregates: aggregates,
+			PetID:        petID,
+			Type:         spec.Type,
+			SplitField:   spec.SplitField,
+			BucketStarts: bucketInstants,
+			From:         rangeStart,
+			To:           rangeEnd,
+			Aggregates:   aggregates,
 		})
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка агрегации событий")
 			return
 		}
 
-		series = append(series, buildSeries(spec, rows, bucketStarts)...)
+		series = append(series, buildSeries(spec, rows, bucketDates)...)
 	}
 
 	writeJSON(w, http.StatusOK, models.EventStatsResponse{
@@ -146,9 +156,12 @@ func parseStatsTypes(raw string) ([]string, string) {
 	return types, ""
 }
 
-// statsBucketStarts перечисляет начала всех интервалов, покрывающих период
-// from..to. Интервал, частично выходящий за границы периода (первая и
-// последняя неделя/месяц), включается целиком.
+// statsBucketStarts перечисляет календарные даты начала всех интервалов,
+// покрывающих период from..to. Интервал, частично выходящий за границы
+// периода (первая и последняя неделя/месяц), включается целиком. Даты здесь —
+// «чистые» календарные (полночь UTC используется только как носитель
+// года/месяца/дня): моментом времени в поясе клиента они становятся в
+// GetEventStatsHandler.
 func statsBucketStarts(bucket string, fromDate, toDate time.Time) []time.Time {
 	current := truncateToBucket(bucket, fromDate.UTC())
 	last := truncateToBucket(bucket, toDate.UTC())
@@ -169,8 +182,8 @@ func statsBucketStarts(bucket string, fromDate, toDate time.Time) []time.Time {
 	return starts
 }
 
-// truncateToBucket приводит дату к началу её интервала по UTC: календарные
-// сутки, понедельник календарной недели или первое число месяца.
+// truncateToBucket приводит календарную дату к началу её интервала:
+// сами сутки, понедельник календарной недели или первое число месяца.
 func truncateToBucket(bucket string, date time.Time) time.Time {
 	utc := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, time.UTC)
 	switch bucket {
@@ -190,16 +203,17 @@ func truncateToBucket(bucket string, date time.Time) time.Time {
 
 // buildSeries раскладывает группы агрегации по сериям реестра и достраивает
 // пустые интервалы: каждый интервал периода обязан присутствовать в ответе,
-// а серия без единого события всё равно возвращается.
+// а серия без единого события всё равно возвращается. bucketStarts —
+// календарные даты начала интервалов; row.BucketIndex — индекс в этом срезе.
 func buildSeries(spec eventreg.TypeSpec, rows []database.StatsRow, bucketStarts []time.Time) []models.EventStatsSeries {
 	type groupKey struct {
-		bucketStart string
+		bucketIndex int
 		splitValue  string
 	}
 	grouped := make(map[groupKey]database.StatsRow, len(rows))
 	for _, row := range rows {
 		key := groupKey{
-			bucketStart: row.BucketStart.UTC().Format("2006-01-02"),
+			bucketIndex: row.BucketIndex,
 			splitValue:  splitValueOf(row.SplitValue),
 		}
 		grouped[key] = row
@@ -214,11 +228,10 @@ func buildSeries(spec eventreg.TypeSpec, rows []database.StatsRow, bucketStarts 
 	result := make([]models.EventStatsSeries, 0, len(specSeries))
 	for _, item := range specSeries {
 		buckets := make([]models.EventStatsBucket, 0, len(bucketStarts))
-		for _, start := range bucketStarts {
-			startStr := start.Format("2006-01-02")
-			bucket := models.EventStatsBucket{BucketStart: startStr}
+		for bucketIndex, start := range bucketStarts {
+			bucket := models.EventStatsBucket{BucketStart: start.Format("2006-01-02")}
 
-			row, found := grouped[groupKey{bucketStart: startStr, splitValue: item.SplitValue}]
+			row, found := grouped[groupKey{bucketIndex: bucketIndex, splitValue: item.SplitValue}]
 			if found {
 				bucket.Count = row.Count
 				if index, ok := metricIndex[item.Metric]; ok && index < len(row.Values) && row.Values[index].Valid {

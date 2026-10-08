@@ -229,11 +229,12 @@ func DeleteEvent(eventID uuid.UUID) error {
 	return nil
 }
 
-// GetEventsByPetIDAndDateRange - получить все неудалённые события питомца в
-// заданном диапазоне дат. fromDate/toDate — календарные UTC-даты (полночь
-// UTC); границы сравниваются полуоткрытым интервалом
-// [fromDate, toDate+1 день) в UTC, см. страницу "Просмотр календаря — Backend".
-func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) ([]models.EventDB, error) {
+// GetEventsByPetIDAndDateRange - получить все неудалённые события питомца,
+// чей date_time попадает в полуоткрытый интервал моментов времени
+// [start, end). Границы уже вычислены вызывающим кодом из календарных дат в
+// часовом поясе клиента (см. handlers.localDaysBounds и страницу "Просмотр
+// календаря — Backend").
+func GetEventsByPetIDAndDateRange(petID uuid.UUID, start, end time.Time) ([]models.EventDB, error) {
 	query := `
 	SELECT id, pet_id, date_time, type, notes, value, notifications_enabled
 	FROM event
@@ -243,7 +244,7 @@ func GetEventsByPetIDAndDateRange(petID uuid.UUID, fromDate, toDate time.Time) (
 	AND date_time < $3
 	ORDER BY date_time
 	`
-	rows, err := DB.Query(query, petID, fromDate.UTC(), toDate.UTC().AddDate(0, 0, 1))
+	rows, err := DB.Query(query, petID, start.UTC(), end.UTC())
 	if err != nil {
 		log.Println("GetEventsByPetIDAndDateRange error:", err)
 		return nil, err
@@ -316,14 +317,17 @@ type CalendarDayAggregate struct {
 }
 
 // CountEventsByUserIDGroupedByDay возвращает количество неудалённых событий
-// и признак has_notifications всех неудалённых питомцев userID, попадающих в
-// полуоткрытый интервал [fromDate, toDate+1 день) в UTC, сгруппированное по
-// календарному дню (UTC) — см. «Просмотр календаря — Backend», GET
-// /activities/calendar. Дни без событий отсутствуют в результирующей map —
-// вызывающий код достраивает диапазон нулями/false.
-func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) (map[string]CalendarDayAggregate, error) {
+// и признак has_notifications всех неудалённых питомцев userID, чей
+// date_time попадает в полуоткрытый интервал [start, end), сгруппированные
+// по календарному дню события в часовом поясе loc (YYYY-MM-DD) — см.
+// «Просмотр календаря — Backend», GET /activities/calendar. Группировка
+// выполняется в Go, а не через AT TIME ZONE в SQL: так часовой пояс
+// интерпретируется одной и той же базой tzdata, которой он был
+// провалидирован (time.LoadLocation). Дни без событий отсутствуют в
+// результирующей map — вызывающий код достраивает диапазон нулями/false.
+func CountEventsByUserIDGroupedByDay(userID string, start, end time.Time, loc *time.Location) (map[string]CalendarDayAggregate, error) {
 	query := `
-	SELECT (e.date_time AT TIME ZONE 'UTC')::date AS day, COUNT(*), bool_or(e.notifications_enabled)
+	SELECT e.date_time, e.notifications_enabled
 	FROM event e
 	JOIN pet p ON e.pet_id = p.id
 	WHERE p.user_id = $1
@@ -331,9 +335,8 @@ func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) 
 	AND e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
-	GROUP BY day
 	`
-	rows, err := DB.Query(query, userID, fromDate.UTC(), toDate.UTC().AddDate(0, 0, 1))
+	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
 	if err != nil {
 		log.Println("CountEventsByUserIDGroupedByDay error:", err)
 		return nil, err
@@ -342,13 +345,16 @@ func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) 
 
 	result := make(map[string]CalendarDayAggregate)
 	for rows.Next() {
-		var day time.Time
-		var count int
-		var hasNotifications bool
-		if err := rows.Scan(&day, &count, &hasNotifications); err != nil {
+		var dateTime time.Time
+		var notificationsEnabled bool
+		if err := rows.Scan(&dateTime, &notificationsEnabled); err != nil {
 			return nil, err
 		}
-		result[day.Format("2006-01-02")] = CalendarDayAggregate{Count: count, HasNotifications: hasNotifications}
+		day := dateTime.In(loc).Format("2006-01-02")
+		agg := result[day]
+		agg.Count++
+		agg.HasNotifications = agg.HasNotifications || notificationsEnabled
+		result[day] = agg
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -357,12 +363,13 @@ func CountEventsByUserIDGroupedByDay(userID string, fromDate, toDate time.Time) 
 	return result, nil
 }
 
-// GetEventsByUserIDAndDate возвращает все неудалённые события всех
-// неудалённых питомцев userID, чей календарный день (UTC) — dayStart
-// (полуоткрытый интервал [dayStart, dayStart+1 день) в UTC), отсортированные
-// по date_time по возрастанию — см. «Просмотр календаря — Backend»,
-// GET /activities/day.
-func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet, error) {
+// GetEventsByUserIDInRange возвращает все неудалённые события всех
+// неудалённых питомцев userID, чей date_time попадает в полуоткрытый
+// интервал [start, end) — для GET /activities/day это границы одних
+// локальных суток клиента (см. handlers.localDaysBounds), — отсортированные
+// по date_time, затем по id по возрастанию — см. «Просмотр календаря —
+// Backend», GET /activities/day.
+func GetEventsByUserIDInRange(userID string, start, end time.Time) ([]EventWithPet, error) {
 	query := `
 	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, e.notifications_enabled, p.name
 	FROM event e
@@ -372,11 +379,11 @@ func GetEventsByUserIDAndDate(userID string, dayStart time.Time) ([]EventWithPet
 	AND e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
-	ORDER BY e.date_time ASC
+	ORDER BY e.date_time ASC, e.id ASC
 	`
-	rows, err := DB.Query(query, userID, dayStart.UTC(), dayStart.UTC().AddDate(0, 0, 1))
+	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
 	if err != nil {
-		log.Println("GetEventsByUserIDAndDate error:", err)
+		log.Println("GetEventsByUserIDInRange error:", err)
 		return nil, err
 	}
 	defer rows.Close()

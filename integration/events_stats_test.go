@@ -335,3 +335,54 @@ func TestEventValue_ValidatedByRegistry(t *testing.T) {
 	require.InDelta(t, 39.0, readBody.Value.Amount, 0.0001)
 	require.Equal(t, "environment", readBody.Value.Kind)
 }
+
+// tz: интервалы — локальные сутки/недели/месяцы пояса клиента, а не UTC.
+func TestEventStats_BucketsInClientTimeZone(t *testing.T) {
+	resetDB(t)
+
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	// 22:30Z 31 января — это 01:30 1 февраля по Москве (UTC+3) и 17:30
+	// 31 января по Боготе (UTC-5).
+	createEvent(t, tokens.AccessToken, petID, "2024-01-31T22:30:00Z", "water", map[string]any{"amount": 100})
+	// 03:00Z 1 февраля — 06:00 1 февраля по Москве и 22:00 31 января по Боготе.
+	createEvent(t, tokens.AccessToken, petID, "2024-02-01T03:00:00Z", "water", map[string]any{"amount": 50})
+
+	countsByBucket := func(query string) map[string]int {
+		resp := doRequest(t, http.MethodGet, fmt.Sprintf("/events/stats?pet_id=%s&types=water&%s", petID, query), nil, tokens.AccessToken)
+		require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+		var stats statsResponse
+		resp.decode(t, &stats)
+		require.Len(t, stats.Series, 1)
+		counts := make(map[string]int)
+		for _, bucket := range stats.Series[0].Buckets {
+			counts[bucket.BucketStart] = bucket.Count
+		}
+		return counts
+	}
+
+	require.Equal(t, map[string]int{"2024-01-31": 1, "2024-02-01": 1},
+		countsByBucket("from=2024-01-31&to=2024-02-01&bucket=day"), "без tz — сутки по UTC")
+	require.Equal(t, map[string]int{"2024-01-31": 0, "2024-02-01": 2},
+		countsByBucket("from=2024-01-31&to=2024-02-01&bucket=day&tz=Europe/Moscow"))
+	require.Equal(t, map[string]int{"2024-01-31": 2, "2024-02-01": 0},
+		countsByBucket("from=2024-01-31&to=2024-02-01&bucket=day&tz=America/Bogota"))
+
+	// Граница месяца: по Москве оба события — февральские, по Боготе — январские.
+	require.Equal(t, map[string]int{"2024-01-01": 0, "2024-02-01": 2},
+		countsByBucket("from=2024-01-15&to=2024-02-15&bucket=month&tz=Europe/Moscow"))
+	require.Equal(t, map[string]int{"2024-01-01": 2, "2024-02-01": 0},
+		countsByBucket("from=2024-01-15&to=2024-02-15&bucket=month&tz=America/Bogota"))
+
+	// Граница недели: 2024-01-29 — понедельник; событие 2024-01-28T22:30Z —
+	// воскресенье по UTC и понедельник по Москве.
+	createEvent(t, tokens.AccessToken, petID, "2024-01-28T22:30:00Z", "water", map[string]any{"amount": 10})
+	require.Equal(t, map[string]int{"2024-01-22": 1, "2024-01-29": 2},
+		countsByBucket("from=2024-01-22&to=2024-02-04&bucket=week"))
+	require.Equal(t, map[string]int{"2024-01-22": 0, "2024-01-29": 3},
+		countsByBucket("from=2024-01-22&to=2024-02-04&bucket=week&tz=Europe/Moscow"))
+
+	bad := doRequest(t, http.MethodGet, fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=Not/AZone", petID), nil, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, bad.status)
+}

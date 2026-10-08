@@ -16,7 +16,9 @@ import (
 
 // Лимиты длины текстовых полей — см. соответствующие схемы spec.json.
 const (
-	VaccinationNameMaxLen       = 100
+	VaccinationNameMaxLen = 100
+	// VaccinationEventLabelMaxLen — лимит event_label в символах (рунах).
+	VaccinationEventLabelMaxLen = 150
 	DiseaseNameMaxLen           = 100
 	DiseaseNoteMaxLen           = 1000
 	VetVisitReasonMaxLen        = 200
@@ -122,6 +124,10 @@ type CreateVaccinationRequest struct {
 	// EventTime — время суток для создаваемых событий; не хранится в самой
 	// прививке (см. описание GetVaccinationRequest.event_time в spec.json).
 	EventTime *string `json:"event_time,omitempty"`
+	// EventLabel — опциональная, уже локализованная клиентом подпись
+	// создаваемых событий (value.label, обрезается сервером до 50 рун). Если
+	// не передана — "Вакцинация: " + name. Не хранится в самой прививке.
+	EventLabel *string `json:"event_label,omitempty"`
 }
 
 // UpdateVaccinationRequest — тело запроса PATCH /vaccinations/{id}. Nullable
@@ -134,6 +140,8 @@ type UpdateVaccinationRequest struct {
 	AddEventOnAdministered *bool   `json:"add_event_on_administered,omitempty"`
 	AddEventOnNext         *bool   `json:"add_event_on_next,omitempty"`
 	EventTime              *string `json:"event_time,omitempty"`
+	// EventLabel — см. CreateVaccinationRequest.EventLabel.
+	EventLabel *string `json:"event_label,omitempty"`
 }
 
 type VaccinationResponse struct {

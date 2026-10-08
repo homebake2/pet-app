@@ -21,17 +21,61 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Idempotency-Key создания (общий для всех 5 сущностей).
+// ---------------------------------------------------------------------------
+
+// VetPassportTable — имя таблицы сущности ветпаспорта. Отдельный тип (а не
+// произвольная строка) нужен, потому что имя таблицы подставляется в текст
+// SQL: допустимы только константы ниже.
+type VetPassportTable string
+
+const (
+	VaccinationTable VetPassportTable = "vaccination"
+	DiseaseTable     VetPassportTable = "disease"
+	VetVisitTable    VetPassportTable = "vet_visit"
+	AllergyTable     VetPassportTable = "allergy"
+	MedicationTable  VetPassportTable = "medication"
+)
+
+// idempotencyKeyToNullString: пустая строка означает "заголовок
+// Idempotency-Key не передан" (NULL в БД) — как в insertEventWith.
+func idempotencyKeyToNullString(idempotencyKey string) sql.NullString {
+	if idempotencyKey == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: idempotencyKey, Valid: true}
+}
+
+// GetVetPassportEntityIDByIdempotencyKey ищет запись сущности ветпаспорта
+// питомца по ранее использованному Idempotency-Key. Возвращает
+// sql.ErrNoRows, если такой записи нет. Мягко удалённые записи НЕ
+// отфильтровываются: уникальный индекс (pet_id, idempotency_key) покрывает и
+// их, поэтому удаление не освобождает ключ — повтор с тем же ключом
+// возвращает id прежней записи, а не падает на вставке.
+func GetVetPassportEntityIDByIdempotencyKey(table VetPassportTable, petID uuid.UUID, idempotencyKey string) (uuid.UUID, error) {
+	var id uuid.UUID
+	err := DB.QueryRow(
+		fmt.Sprintf(`SELECT id FROM %s WHERE pet_id = $1 AND idempotency_key = $2`, table),
+		petID, idempotencyKey,
+	).Scan(&id)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	return id, nil
+}
+
+// ---------------------------------------------------------------------------
 // Vaccination
 // ---------------------------------------------------------------------------
 
-func InsertVaccination(petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextEventID uuid.NullUUID) (uuid.UUID, error) {
-	return insertVaccinationWith(DB, petID, req, administeredEventID, nextEventID)
+func InsertVaccination(petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextEventID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
+	return insertVaccinationWith(DB, petID, req, administeredEventID, nextEventID, idempotencyKey)
 }
 
 // insertVaccinationWith — то же самое, что InsertVaccination, но принимает
 // произвольный dbExecutor: используется как для обычных запросов (DB), так
 // и внутри транзакции переноса локальных данных (см. ImportLocalData).
-func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextEventID uuid.NullUUID) (uuid.UUID, error) {
+func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextEventID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
 	administeredDate, err := time.Parse("2006-01-02", req.AdministeredDate)
 	if err != nil {
 		return uuid.Nil, err
@@ -48,10 +92,10 @@ func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVa
 
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO vaccination (pet_id, name, administered_date, next_date, administered_event_id, next_event_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO vaccination (pet_id, name, administered_date, next_date, administered_event_id, next_event_id, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
-	`, petID, req.Name, administeredDate, nextDate, administeredEventID, nextEventID).Scan(&newID)
+	`, petID, req.Name, administeredDate, nextDate, administeredEventID, nextEventID, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertVaccination error:", err)
 		return uuid.Nil, err
@@ -163,21 +207,21 @@ func CheckVaccinationFileOwnership(id uuid.UUID, userID string) (bool, error) {
 // Disease
 // ---------------------------------------------------------------------------
 
-func InsertDisease(petID uuid.UUID, req models.CreateDiseaseRequest) (uuid.UUID, error) {
-	return insertDiseaseWith(DB, petID, req)
+func InsertDisease(petID uuid.UUID, req models.CreateDiseaseRequest, idempotencyKey string) (uuid.UUID, error) {
+	return insertDiseaseWith(DB, petID, req, idempotencyKey)
 }
 
-func insertDiseaseWith(exec dbExecutor, petID uuid.UUID, req models.CreateDiseaseRequest) (uuid.UUID, error) {
+func insertDiseaseWith(exec dbExecutor, petID uuid.UUID, req models.CreateDiseaseRequest, idempotencyKey string) (uuid.UUID, error) {
 	diagnosedDate, err := time.Parse("2006-01-02", req.DiagnosedDate)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO disease (pet_id, name, diagnosed_date, status, note)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO disease (pet_id, name, diagnosed_date, status, note, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
-	`, petID, req.Name, diagnosedDate, req.Status, req.Note).Scan(&newID)
+	`, petID, req.Name, diagnosedDate, req.Status, req.Note, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertDisease error:", err)
 		return uuid.Nil, err
@@ -275,21 +319,21 @@ func CheckDiseaseFileOwnership(id uuid.UUID, userID string) (bool, error) {
 // VetVisit
 // ---------------------------------------------------------------------------
 
-func InsertVetVisit(petID uuid.UUID, req models.CreateVetVisitRequest) (uuid.UUID, error) {
-	return insertVetVisitWith(DB, petID, req)
+func InsertVetVisit(petID uuid.UUID, req models.CreateVetVisitRequest, idempotencyKey string) (uuid.UUID, error) {
+	return insertVetVisitWith(DB, petID, req, idempotencyKey)
 }
 
-func insertVetVisitWith(exec dbExecutor, petID uuid.UUID, req models.CreateVetVisitRequest) (uuid.UUID, error) {
+func insertVetVisitWith(exec dbExecutor, petID uuid.UUID, req models.CreateVetVisitRequest, idempotencyKey string) (uuid.UUID, error) {
 	visitDate, err := time.Parse("2006-01-02", req.VisitDate)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO vet_visit (pet_id, visit_date, reason, clinic, note)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO vet_visit (pet_id, visit_date, reason, clinic, note, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
-	`, petID, visitDate, req.Reason, req.Clinic, req.Note).Scan(&newID)
+	`, petID, visitDate, req.Reason, req.Clinic, req.Note, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertVetVisit error:", err)
 		return uuid.Nil, err
@@ -391,11 +435,11 @@ func CheckVetVisitFileOwnership(id uuid.UUID, userID string) (bool, error) {
 // Allergy
 // ---------------------------------------------------------------------------
 
-func InsertAllergy(petID uuid.UUID, req models.CreateAllergyRequest) (uuid.UUID, error) {
-	return insertAllergyWith(DB, petID, req)
+func InsertAllergy(petID uuid.UUID, req models.CreateAllergyRequest, idempotencyKey string) (uuid.UUID, error) {
+	return insertAllergyWith(DB, petID, req, idempotencyKey)
 }
 
-func insertAllergyWith(exec dbExecutor, petID uuid.UUID, req models.CreateAllergyRequest) (uuid.UUID, error) {
+func insertAllergyWith(exec dbExecutor, petID uuid.UUID, req models.CreateAllergyRequest, idempotencyKey string) (uuid.UUID, error) {
 	var detectedDate sql.NullTime
 	if req.DetectedDate != nil {
 		t, err := time.Parse("2006-01-02", *req.DetectedDate)
@@ -406,10 +450,10 @@ func insertAllergyWith(exec dbExecutor, petID uuid.UUID, req models.CreateAllerg
 	}
 	var newID uuid.UUID
 	err := exec.QueryRow(`
-		INSERT INTO allergy (pet_id, allergen, reaction, detected_date, severity, note)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO allergy (pet_id, allergen, reaction, detected_date, severity, note, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
-	`, petID, req.Allergen, req.Reaction, detectedDate, req.Severity, req.Note).Scan(&newID)
+	`, petID, req.Allergen, req.Reaction, detectedDate, req.Severity, req.Note, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertAllergy error:", err)
 		return uuid.Nil, err
@@ -518,11 +562,11 @@ func CheckAllergyFileOwnership(id uuid.UUID, userID string) (bool, error) {
 // Medication
 // ---------------------------------------------------------------------------
 
-func InsertMedication(petID uuid.UUID, req models.CreateMedicationRequest) (uuid.UUID, error) {
-	return insertMedicationWith(DB, petID, req)
+func InsertMedication(petID uuid.UUID, req models.CreateMedicationRequest, idempotencyKey string) (uuid.UUID, error) {
+	return insertMedicationWith(DB, petID, req, idempotencyKey)
 }
 
-func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMedicationRequest) (uuid.UUID, error) {
+func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMedicationRequest, idempotencyKey string) (uuid.UUID, error) {
 	weekdaysNS, err := medicationWeekdaysToNullString(req.Weekdays)
 	if err != nil {
 		return uuid.Nil, err
@@ -558,10 +602,10 @@ func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMed
 
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO medication (pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}', $10)
+		INSERT INTO medication (pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}', $10, $11)
 		RETURNING id
-	`, petID, req.Name, req.Dosage, req.FrequencyType, weekdaysNS, intervalDays, timesNS, startDate, endDate, note).Scan(&newID)
+	`, petID, req.Name, req.Dosage, req.FrequencyType, weekdaysNS, intervalDays, timesNS, startDate, endDate, note, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertMedication error:", err)
 		return uuid.Nil, err

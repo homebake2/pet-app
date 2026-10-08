@@ -11,6 +11,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
@@ -19,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -96,22 +99,24 @@ func isValidTimeOfDay(s string) bool {
 	return timeOfDayRe.MatchString(s)
 }
 
-// combineDateAndTime строит RFC3339 (UTC) момент времени из календарной даты
-// и опционального времени суток (по умолчанию — полночь UTC) — используется
-// при создании событий, связанных с прививкой/приёмом лекарства.
-func combineDateAndTime(date time.Time, timeOfDay *string) string {
-	hh, mm, ss := 0, 0, 0
-	if timeOfDay != nil && *timeOfDay != "" {
-		parts := strings.Split(*timeOfDay, ":")
-		if len(parts) >= 2 {
-			fmt.Sscanf(parts[0], "%d", &hh)
-			fmt.Sscanf(parts[1], "%d", &mm)
-		}
-		if len(parts) == 3 {
-			fmt.Sscanf(parts[2], "%d", &ss)
-		}
+// combineDateAndTime строит момент времени из календарной даты и
+// опционального времени суток (по умолчанию — полночь), трактуя их как
+// местное время пояса loc: клиент присылает дату и "HH:MM" так, как их видит
+// пользователь, а пояс — параметром tz (см. parseTimeZoneParam; без него
+// loc=UTC). Используется при создании/переносе событий, связанных с
+// прививкой/приёмом лекарства. Несуществующее местное время (час, пропавший
+// при переходе на летнее время) time.Date нормализует сдвигом вперёд.
+func combineDateAndTime(date time.Time, timeOfDay *string, loc *time.Location) time.Time {
+	if timeOfDay == nil || *timeOfDay == "" {
+		return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
 	}
-	return fmt.Sprintf("%sT%02d:%02d:%02dZ", date.Format("2006-01-02"), hh, mm, ss)
+	return parseMedicationDateTime(date, *timeOfDay, loc)
+}
+
+// eventDateString — момент времени в формате поля date запроса создания
+// события (RFC3339, UTC).
+func eventDateString(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
 }
 
 // truncateRunes обрезает строку до maxLen рун (не байт) — используется для
@@ -125,22 +130,50 @@ func truncateRunes(s string, maxLen int) string {
 	return string(r[:maxLen])
 }
 
-// createOtherEvent best-effort создаёт событие type=other со значением
-// {"label": <name, обрезано до 50 рун>} на заданный момент времени —
+// vaccinationEventLabelPrefix — префикс подписи события-напоминания по
+// умолчанию: value.label = "Вакцинация: " + name (см. «Вакцинации —
+// Backend», шаг 4 создания).
+const vaccinationEventLabelPrefix = "Вакцинация: "
+
+// otherEventLabelMaxRunes — лимит value.label события type=other (см.
+// eventreg "other": 1-50).
+const otherEventLabelMaxRunes = 50
+
+// vaccinationEventLabel возвращает подпись связанного события прививки.
+// У сервера нет локали пользователя, поэтому клиент может передать уже
+// локализованную подпись в event_label (например, "Vaccination: Rabies") —
+// так сетевой режим даёт ту же подпись, что и локальный (dataSource=local),
+// где её формирует i18n клиента. Если event_label не передан или пуст —
+// подпись по умолчанию "Вакцинация: " + name.
+func vaccinationEventLabel(requested *string, name string) string {
+	if requested != nil && strings.TrimSpace(*requested) != "" {
+		return *requested
+	}
+	return vaccinationEventLabelPrefix + name
+}
+
+// otherEventValue строит value события type=other: {"label": <label,
+// обрезано до 50 рун>}.
+func otherEventValue(label string) (json.RawMessage, error) {
+	return json.Marshal(map[string]string{"label": truncateRunes(label, otherEventLabelMaxRunes)})
+}
+
+// createOtherEvent создаёт событие type=other со значением
+// {"label": <label, обрезано до 50 рун>} на заданный момент времени —
 // побочный эффект POST/PATCH /pet/{id}/vaccinations при
 // add_event_on_administered/add_event_on_next=true (см. "Ведпаспорт —
 // Backend"). Ошибка возвращается вызывающему (в отличие от
 // createPetWeightEvent) — создание события здесь входит в основной
 // контракт ответа (administered_event_id/next_event_id), а не является
 // вспомогательной статистикой.
-func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, label string) (uuid.UUID, error) {
-	value, err := json.Marshal(map[string]string{"label": truncateRunes(label, 50)})
+func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
+	value, err := otherEventValue(label)
 	if err != nil {
 		return uuid.Nil, err
 	}
 	req := models.CreateEventRequest{
 		PetID: petID.String(),
-		Date:  combineDateAndTime(date, timeOfDay),
+		Date:  eventDateString(combineDateAndTime(date, timeOfDay, loc)),
 		Type:  "other",
 		Value: value,
 	}
@@ -148,17 +181,18 @@ func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, label 
 }
 
 // createMedicationEvent создаёт одно событие type=medication со значением
-// {"name": <medication.name>} на заданную дату/время и заметкой notes —
+// {"name": <medication.name>} на заданную дату/время (местное время пояса
+// loc) и заметкой notes —
 // используется расчётом расписания (см. handlers/medication_schedule.go) для
 // (до-/пере-)создания событий приёма.
-func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, name string, notes string) (uuid.UUID, error) {
+func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, name string, notes string) (uuid.UUID, error) {
 	value, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
 		return uuid.Nil, err
 	}
 	req := models.CreateEventRequest{
 		PetID: petID.String(),
-		Date:  combineDateAndTime(date, timeOfDay),
+		Date:  eventDateString(combineDateAndTime(date, timeOfDay, loc)),
 		Type:  "medication",
 		Notes: &notes,
 		Value: value,
@@ -170,13 +204,101 @@ func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, n
 // (см. computeMedicationScheduleSlots) в строку event: notes = slot.DoseNote,
 // либо, если он не задан, dosageFallback (medication.dosage) — см. "Расчёт
 // расписания", шаг 3.
-func createMedicationEventFromSlot(petID uuid.UUID, slot medicationScheduleSlot, name, dosageFallback string) (uuid.UUID, error) {
+func createMedicationEventFromSlot(petID uuid.UUID, slot medicationScheduleSlot, loc *time.Location, name, dosageFallback string) (uuid.UUID, error) {
 	notes := dosageFallback
 	if slot.DoseNote != nil && *slot.DoseNote != "" {
 		notes = *slot.DoseNote
 	}
 	t := slot.Time
-	return createMedicationEvent(petID, slot.Date, &t, name, notes)
+	return createMedicationEvent(petID, slot.Date, &t, loc, name, notes)
+}
+
+// syncVaccinationEvent приводит одно связанное событие прививки (на дату
+// введения либо на дату следующей вакцинации) в соответствие с PATCH — см.
+// «Вакцинации — Backend», раздел «Редактирование»: связь «один флаг — одно
+// событие», поэтому существующее событие обновляется на месте, а не
+// пересоздаётся.
+//
+//   - flag=false (явно) либо у прививки больше нет соответствующей даты —
+//     связанное событие мягко удаляется, ссылка очищается;
+//   - flag=true и связанное событие существует (не удалено) — обновляются
+//     его дата/время и подпись; время суток, не переданное в этом запросе,
+//     сохраняется прежним (то, которое событие имеет в поясе loc);
+//   - flag=true, а связанного события нет (или оно уже удалено, например,
+//     из календаря) — создаётся новое;
+//   - flag не передан — событие не создаётся и не удаляется; если в запросе
+//     изменилась дата (dateChanged) или передано время, существующее
+//     событие переносится на новую дату/время.
+//
+// Дата и время суток трактуются как местное время пояса loc (параметр tz
+// запроса, по умолчанию UTC).
+//
+// Возвращает новое значение ссылки на событие для UpdateVaccination, либо
+// nil, если ссылку менять не нужно.
+func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *bool, date sql.NullTime, dateChanged bool, eventTime *string, loc *time.Location, label string) (*uuid.NullUUID, error) {
+	var existing *models.EventDB
+	if currentEventID.Valid {
+		event, err := database.GetEventByIDForUpdate(currentEventID.UUID)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, err
+		}
+		if err == nil {
+			existing = event
+		}
+	}
+
+	if flag == nil && existing == nil {
+		return nil, nil
+	}
+
+	wantEvent := date.Valid
+	if flag != nil {
+		wantEvent = *flag && date.Valid
+	}
+
+	if !wantEvent {
+		if existing != nil {
+			if err := database.DeleteEvent(existing.ID); err != nil && err != sql.ErrNoRows {
+				return nil, err
+			}
+		}
+		if currentEventID.Valid {
+			return &uuid.NullUUID{}, nil
+		}
+		return nil, nil
+	}
+
+	hasEventTime := eventTime != nil && *eventTime != ""
+
+	if existing == nil {
+		newEventID, err := createOtherEvent(petID, date.Time, eventTime, loc, label)
+		if err != nil {
+			return nil, err
+		}
+		return &uuid.NullUUID{UUID: newEventID, Valid: true}, nil
+	}
+
+	if flag == nil && !dateChanged && !hasEventTime {
+		return nil, nil
+	}
+
+	timeOfDay := existing.Date.In(loc).Format("15:04:05")
+	if hasEventTime {
+		timeOfDay = *eventTime
+	}
+	dateTime := combineDateAndTime(date.Time, &timeOfDay, loc).UTC()
+	var value *json.RawMessage
+	if flag != nil {
+		v, err := otherEventValue(label)
+		if err != nil {
+			return nil, err
+		}
+		value = &v
+	}
+	if err := database.UpdateEvent(existing.ID, models.UpdateEventRequest{}, &dateTime, nil, nil, value, nil); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }
 
 // resolvePetForVetPassportCreate проверяет, что питомец petID существует,
@@ -197,6 +319,32 @@ func resolvePetForVetPassportCreate(w http.ResponseWriter, petID uuid.UUID, user
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Невозможно создать запись, так как питомец удален")
 		return false
 	}
+	return true
+}
+
+// replayVetPassportCreate реализует дедупликацию POST создания сущности
+// ветпаспорта по заголовку Idempotency-Key — тот же механизм, что у
+// POST /events: ключ хранится в строке сущности, уникален на пару
+// (pet_id, idempotency_key). Если запись с таким ключом уже есть, отвечает
+// тем же `201 {id}`, что и первый успешный запрос, и возвращает true —
+// вызывающий хендлер на этом завершается. Вызывается дважды: перед вставкой
+// (обычный повтор после обрыва соединения) и после нарушения уникального
+// индекса при вставке (гонка параллельных запросов с одним ключом).
+// Возвращает false, если ключ не передан или запись не найдена (тогда
+// создание продолжается как обычно); ошибка поиска — 500 и true.
+func replayVetPassportCreate(w http.ResponseWriter, table database.VetPassportTable, petID uuid.UUID, idempotencyKey string) (handled bool) {
+	if idempotencyKey == "" {
+		return false
+	}
+	existingID, err := database.GetVetPassportEntityIDByIdempotencyKey(table, petID, idempotencyKey)
+	if err == sql.ErrNoRows {
+		return false
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
+		return true
+	}
+	writeJSON(w, http.StatusCreated, models.IDResponse{ID: existingID.String()})
 	return true
 }
 
@@ -242,6 +390,9 @@ func validateCreateVaccinationRequest(req models.CreateVaccinationRequest) strin
 	}
 	if req.EventTime != nil && *req.EventTime != "" && !isValidTimeOfDay(*req.EventTime) {
 		return "Некорректный формат event_time, ожидается HH:MM[:SS]"
+	}
+	if req.EventLabel != nil && utf8.RuneCountInString(*req.EventLabel) > models.VaccinationEventLabelMaxLen {
+		return "Поле event_label превышает допустимую длину"
 	}
 	return ""
 }
@@ -307,16 +458,24 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 		return
 	}
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
 
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
 	}
+	if replayVetPassportCreate(w, database.VaccinationTable, petID, idempotencyKey) {
+		return
+	}
 
 	administeredDate, _ := parseDateOnly(req.AdministeredDate)
+	eventLabel := vaccinationEventLabel(req.EventLabel, req.Name)
 
 	var administeredEventID, nextEventID uuid.NullUUID
 	if req.AddEventOnAdministered != nil && *req.AddEventOnAdministered {
-		id, err := createOtherEvent(petID, administeredDate, req.EventTime, req.Name)
+		id, err := createOtherEvent(petID, administeredDate, req.EventTime, loc, eventLabel)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие прививки")
 			return
@@ -325,7 +484,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	}
 	if req.AddEventOnNext != nil && *req.AddEventOnNext && req.NextDate != nil && *req.NextDate != "" {
 		nextDate, _ := parseDateOnly(*req.NextDate)
-		id, err := createOtherEvent(petID, nextDate, req.EventTime, req.Name)
+		id, err := createOtherEvent(petID, nextDate, req.EventTime, loc, eventLabel)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие-напоминание прививки")
 			return
@@ -333,8 +492,28 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		nextEventID = uuid.NullUUID{UUID: id, Valid: true}
 	}
 
-	newID, err := database.InsertVaccination(petID, req, administeredEventID, nextEventID)
+	newID, err := database.InsertVaccination(petID, req, administeredEventID, nextEventID, idempotencyKey)
 	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) {
+			// Параллельный запрос с тем же ключом успел вставить прививку
+			// первым: события, созданные этим запросом, остались бы
+			// «сиротами» без связи с прививкой — удаляем их.
+			orphanEventIDs := []string{}
+			if administeredEventID.Valid {
+				orphanEventIDs = append(orphanEventIDs, administeredEventID.UUID.String())
+			}
+			if nextEventID.Valid {
+				orphanEventIDs = append(orphanEventIDs, nextEventID.UUID.String())
+			}
+			if len(orphanEventIDs) > 0 {
+				if delErr := database.HardDeleteEventsByIDs(orphanEventIDs); delErr != nil {
+					log.Println("CreateVaccinationHandler: не удалось удалить события проигравшего гонку запроса:", delErr)
+				}
+			}
+			if replayVetPassportCreate(w, database.VaccinationTable, petID, idempotencyKey) {
+				return
+			}
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать прививку")
 		return
 	}
@@ -385,10 +564,25 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		return
 	}
 
-	var req models.UpdateVaccinationRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return
+	}
+	var req models.UpdateVaccinationRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
+		return
+	}
+	// next_date в контракте nullable: явный JSON null означает «очистить
+	// дату» — так же, как пустая строка. encoding/json не отличает null от
+	// отсутствующего поля для *string, поэтому проверяем сырой JSON.
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &rawFields); err == nil {
+		if raw, present := rawFields["next_date"]; present && string(raw) == "null" {
+			empty := ""
+			req.NextDate = &empty
+		}
 	}
 
 	if req.Name != nil && (strings.TrimSpace(*req.Name) == "" || len(*req.Name) > models.VaccinationNameMaxLen) {
@@ -407,40 +601,44 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат event_time, ожидается HH:MM[:SS]")
 		return
 	}
+	if req.EventLabel != nil && utf8.RuneCountInString(*req.EventLabel) > models.VaccinationEventLabelMaxLen {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле event_label превышает допустимую длину")
+		return
+	}
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
 
-	var administeredEventID, nextEventID *uuid.NullUUID
 	effectiveName := vaccination.Name
 	if req.Name != nil {
 		effectiveName = *req.Name
 	}
-	if req.AddEventOnAdministered != nil && *req.AddEventOnAdministered {
-		effectiveDate := vaccination.AdministeredDate
-		if req.AdministeredDate != nil {
-			effectiveDate, _ = parseDateOnly(*req.AdministeredDate)
-		}
-		newEventID, err := createOtherEvent(vaccination.PetID, effectiveDate, req.EventTime, effectiveName)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие прививки")
-			return
-		}
-		v := uuid.NullUUID{UUID: newEventID, Valid: true}
-		administeredEventID = &v
+	eventLabel := vaccinationEventLabel(req.EventLabel, effectiveName)
+
+	effectiveAdministeredDate := sql.NullTime{Time: vaccination.AdministeredDate, Valid: true}
+	if req.AdministeredDate != nil {
+		t, _ := parseDateOnly(*req.AdministeredDate)
+		effectiveAdministeredDate = sql.NullTime{Time: t, Valid: true}
 	}
-	if req.AddEventOnNext != nil && *req.AddEventOnNext {
-		effectiveNextDate := vaccination.NextDate
-		if req.NextDate != nil && *req.NextDate != "" {
+	effectiveNextDate := vaccination.NextDate
+	if req.NextDate != nil {
+		effectiveNextDate = sql.NullTime{}
+		if *req.NextDate != "" {
 			t, _ := parseDateOnly(*req.NextDate)
 			effectiveNextDate = sql.NullTime{Time: t, Valid: true}
 		}
-		if effectiveNextDate.Valid {
-			newEventID, err := createOtherEvent(vaccination.PetID, effectiveNextDate.Time, req.EventTime, effectiveName)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие-напоминание прививки")
-				return
-			}
-			v := uuid.NullUUID{UUID: newEventID, Valid: true}
-			nextEventID = &v
-		}
+	}
+
+	administeredEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.AdministeredEventID, req.AddEventOnAdministered, effectiveAdministeredDate, req.AdministeredDate != nil, req.EventTime, loc, eventLabel)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось синхронизировать событие прививки")
+		return
+	}
+	nextEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.NextEventID, req.AddEventOnNext, effectiveNextDate, req.NextDate != nil, req.EventTime, loc, eventLabel)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось синхронизировать событие-напоминание прививки")
+		return
 	}
 
 	if err := database.UpdateVaccination(id, req, administeredEventID, nextEventID); err != nil {
@@ -481,6 +679,20 @@ func DeleteVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления прививки")
 		return
+	}
+	// Удаление прививки мягко удаляет и связанные события-напоминания (см.
+	// «Вакцинации — Backend», раздел «Удаление»). Best-effort: прививка уже
+	// удалена, повтор запроса дал бы 404, поэтому сбой здесь не превращаем
+	// в ошибку ответа.
+	linkedEventIDs := []string{}
+	if vaccination.AdministeredEventID.Valid {
+		linkedEventIDs = append(linkedEventIDs, vaccination.AdministeredEventID.UUID.String())
+	}
+	if vaccination.NextEventID.Valid {
+		linkedEventIDs = append(linkedEventIDs, vaccination.NextEventID.UUID.String())
+	}
+	if err := database.SoftDeleteEventsByIDs(linkedEventIDs); err != nil {
+		log.Println("DeleteVaccinationHandler: не удалось удалить связанные события:", err)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -576,8 +788,14 @@ func CreateDiseaseHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUI
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
 	}
-	newID, err := database.InsertDisease(petID, req)
+	if replayVetPassportCreate(w, database.DiseaseTable, petID, idempotencyKey) {
+		return
+	}
+	newID, err := database.InsertDisease(petID, req, idempotencyKey)
 	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.DiseaseTable, petID, idempotencyKey) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать заболевание")
 		return
 	}
@@ -778,8 +996,14 @@ func CreateVetVisitHandler(w http.ResponseWriter, r *http.Request, petID uuid.UU
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
 	}
-	newID, err := database.InsertVetVisit(petID, req)
+	if replayVetPassportCreate(w, database.VetVisitTable, petID, idempotencyKey) {
+		return
+	}
+	newID, err := database.InsertVetVisit(petID, req, idempotencyKey)
 	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.VetVisitTable, petID, idempotencyKey) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать визит")
 		return
 	}
@@ -987,8 +1211,14 @@ func CreateAllergyHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUI
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
 	}
-	newID, err := database.InsertAllergy(petID, req)
+	if replayVetPassportCreate(w, database.AllergyTable, petID, idempotencyKey) {
+		return
+	}
+	newID, err := database.InsertAllergy(petID, req, idempotencyKey)
 	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.AllergyTable, petID, idempotencyKey) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать аллергию")
 		return
 	}
@@ -1106,8 +1336,9 @@ func DeleteAllergyHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 
 // medicationResponseFromDB строит MedicationResponse, вычисляя next_dose по
 // текущим полям расписания курса относительно now (см. "Вычисление
-// next_dose").
-func medicationResponseFromDB(m models.MedicationDB, filesCount int, now time.Time) models.MedicationResponse {
+// next_dose"); даты и times расписания трактуются как местное время пояса
+// loc (параметр tz запроса, по умолчанию UTC).
+func medicationResponseFromDB(m models.MedicationDB, filesCount int, now time.Time, loc *time.Location) models.MedicationResponse {
 	resp := models.MedicationResponse{
 		ID:            m.ID.String(),
 		PetID:         m.PetID.String(),
@@ -1153,7 +1384,7 @@ func medicationResponseFromDB(m models.MedicationDB, filesCount int, now time.Ti
 		intervalDays = int(m.IntervalDays.Int64)
 	}
 	if m.StartDate.Valid {
-		if nextDose := computeMedicationNextDose(m.FrequencyType, m.Weekdays, intervalDays, m.Times, startDate, endDate, now); nextDose != nil {
+		if nextDose := computeMedicationNextDose(m.FrequencyType, m.Weekdays, intervalDays, m.Times, startDate, endDate, now, loc); nextDose != nil {
 			s := nextDose.UTC().Format(time.RFC3339)
 			resp.NextDose = &s
 		}
@@ -1265,6 +1496,10 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметры limit/offset должны быть неотрицательными целыми числами")
 		return
 	}
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
 	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
 		return
 	}
@@ -1287,7 +1522,7 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 
 	responses := make([]models.MedicationResponse, 0, len(items))
 	for _, it := range items {
-		responses = append(responses, medicationResponseFromDB(it, filesCounts[it.ID], now))
+		responses = append(responses, medicationResponseFromDB(it, filesCounts[it.ID], now, loc))
 	}
 	// Сортировка: по ближайшему будущему next_dose возр. (null — в конце),
 	// затем по created_at убыв. — см. "Лекарства — Backend", раздел «Список».
@@ -1334,11 +1569,21 @@ func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 		return
 	}
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
 	}
-	newID, err := database.InsertMedication(petID, req)
+	if replayVetPassportCreate(w, database.MedicationTable, petID, idempotencyKey) {
+		return
+	}
+	newID, err := database.InsertMedication(petID, req, idempotencyKey)
 	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.MedicationTable, petID, idempotencyKey) {
+			return
+		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать курс лекарств")
 		return
 	}
@@ -1357,7 +1602,7 @@ func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.
 		slots := computeMedicationScheduleSlots(req.FrequencyType, req.Weekdays, intervalDays, req.Times, startDate, endDate, models.MedicationScheduleEventsCap)
 		newEventIDs := make([]string, 0, len(slots))
 		for _, slot := range slots {
-			eventID, err := createMedicationEventFromSlot(petID, slot, req.Name, req.Dosage)
+			eventID, err := createMedicationEventFromSlot(petID, slot, loc, req.Name, req.Dosage)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
 				return
@@ -1526,6 +1771,10 @@ func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле note превышает допустимую длину")
 		return
 	}
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
 
 	// Эффективные (смёрженные с текущим состоянием курса) значения полей
 	// расписания + признак того, что каждое поле реально изменилось.
@@ -1625,7 +1874,7 @@ func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 			}
 			slots := computeMedicationScheduleSlots(effFreq, effWeekdays, intervalDays, effTimes, startDate, endDate, models.MedicationScheduleEventsCap)
 			for _, slot := range slots {
-				eventID, err := createMedicationEventFromSlot(medication.PetID, slot, effName, effDosage)
+				eventID, err := createMedicationEventFromSlot(medication.PetID, slot, loc, effName, effDosage)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
 					return
@@ -1722,6 +1971,10 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 	if !ok {
 		return
 	}
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
 	medication, ok := resolveOwnedMedicationForEvents(w, id, userID)
 	if !ok {
 		return
@@ -1748,7 +2001,7 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 
 	newEventIDs := make([]string, 0, len(slots))
 	for _, slot := range slots {
-		eventID, err := createMedicationEventFromSlot(medication.PetID, slot, medication.Name, medication.Dosage)
+		eventID, err := createMedicationEventFromSlot(medication.PetID, slot, loc, medication.Name, medication.Dosage)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
 			return
@@ -1768,7 +2021,7 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 		return
 	}
 
-	writeJSON(w, http.StatusOK, medicationResponseFromDB(*medication, filesCounts[medication.ID], time.Now().UTC()))
+	writeJSON(w, http.StatusOK, medicationResponseFromDB(*medication, filesCounts[medication.ID], time.Now().UTC(), loc))
 }
 
 // DeleteMedicationEventsHandler обрабатывает DELETE /medications/{id}/events —

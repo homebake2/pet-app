@@ -116,6 +116,47 @@ func TestGetActivitiesHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// UTC+3: событие 1 января в 22:30Z — это уже 2 января по Москве, и в ответе
+// оно должно оказаться под 2024-01-02; границы запроса — полночь по Москве.
+func TestGetActivitiesHandler_GroupsByClientTimeZone(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`SELECT name FROM pet WHERE id = \$1`).
+		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Rex"))
+	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value, notifications_enabled\s+FROM event\s+WHERE pet_id = \$1`).
+		WithArgs(sqlmock.AnyArg(),
+			timeArg(time.Date(2023, 12, 31, 21, 0, 0, 0, time.UTC)),
+			timeArg(time.Date(2024, 1, 2, 21, 0, 0, 0, time.UTC))).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled"}).
+			AddRow(testPetID, testPetID, time.Date(2024, 1, 1, 22, 30, 0, 0, time.UTC), "weight", nil, []byte(`{"amount":5}`), false))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
+
+	w := httptest.NewRecorder()
+	path := "/activities?from=2024-01-01&to=2024-01-02&tz=Europe/Moscow&pet_id=" + testPetID
+	GetActivitiesHandler(w, eventRequest(t, http.MethodGet, path, nil, true))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.ActivitiesResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 2)
+	assert.Equal(t, "2024-01-01", resp.Items[0].Date)
+	assert.Empty(t, resp.Items[0].Events)
+	assert.Equal(t, "2024-01-02", resp.Items[1].Date)
+	require.Len(t, resp.Items[1].Events, 1)
+	assert.Equal(t, "2024-01-01T22:30:00Z", resp.Items[1].Events[0].Date)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetActivitiesHandler_InvalidTimeZone(t *testing.T) {
+	w := httptest.NewRecorder()
+	path := "/activities?from=2024-01-01&to=2024-01-02&tz=Bad/Zone&pet_id=" + testPetID
+	GetActivitiesHandler(w, eventRequest(t, http.MethodGet, path, nil, true))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestCreateEventHandler_MethodNotAllowed(t *testing.T) {
 	w := httptest.NewRecorder()
 	CreateEventHandler(w, eventRequest(t, http.MethodGet, "/events", nil, false))

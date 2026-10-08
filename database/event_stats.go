@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // StatsAggregate — одна агрегируемая величина запроса агрегации: поле внутри
@@ -20,38 +21,46 @@ type StatsAggregate struct {
 // StatsQuery описывает агрегацию событий одного типа для GET /events/stats.
 // Значения Type, SplitField, Bucket и Aggregates приходят из реестра метрик
 // (пакет eventreg) и в SQL-выражения попадают только оттуда.
+//
+// BucketStarts — моменты начала всех интервалов периода по возрастанию
+// (начала локальных суток/недель/месяцев в часовом поясе клиента). Границы
+// интервалов вычисляет вызывающий код в Go и передаёт сюда готовыми
+// моментами времени, а не именем пояса для AT TIME ZONE: так пояс
+// интерпретируется одной и той же базой tzdata, которой он был
+// провалидирован (time.LoadLocation), — как и у GET /activities/calendar
+// (см. CountEventsByUserIDGroupedByDay).
 type StatsQuery struct {
-	PetID      uuid.UUID
-	Type       string
-	SplitField string
-	Bucket     string
-	From       time.Time // включительно
-	To         time.Time // исключительно
-	Aggregates []StatsAggregate
+	PetID        uuid.UUID
+	Type         string
+	SplitField   string
+	BucketStarts []time.Time
+	From         time.Time // включительно
+	To           time.Time // исключительно
+	Aggregates   []StatsAggregate
 }
 
 // StatsRow — одна группа результата агрегации: интервал × значение
-// разделяющего поля. Values параллелен StatsQuery.Aggregates.
+// разделяющего поля. BucketIndex — индекс интервала в
+// StatsQuery.BucketStarts (с нуля). Values параллелен StatsQuery.Aggregates.
 type StatsRow struct {
-	BucketStart time.Time
+	BucketIndex int
 	SplitValue  sql.NullString
 	Count       int
 	Values      []sql.NullFloat64
 }
 
-var allowedBuckets = map[string]bool{
-	"day":   true,
-	"week":  true,
-	"month": true,
-}
-
 // AggregateEvents сворачивает неудалённые события питомца одного типа в
-// интервалы средствами БД (GROUP BY по date_trunc), опираясь на индекс
+// интервалы средствами БД (GROUP BY по номеру интервала: width_bucket по
+// массиву моментов начала интервалов), опираясь на индекс
 // event_pet_type_date_idx. Все события периода в память сервиса не
 // выбираются: наружу отдаются только готовые группы.
 func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
-	if !allowedBuckets[q.Bucket] {
-		return nil, fmt.Errorf("AggregateEvents: недопустимый bucket %q", q.Bucket)
+	if len(q.BucketStarts) == 0 {
+		return nil, fmt.Errorf("AggregateEvents: пустой список интервалов")
+	}
+	bucketStarts := make([]string, len(q.BucketStarts))
+	for i, start := range q.BucketStarts {
+		bucketStarts[i] = start.UTC().Format(time.RFC3339)
 	}
 
 	splitExpr := "NULL::text"
@@ -60,7 +69,9 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 	}
 
 	selectParts := []string{
-		fmt.Sprintf("date_trunc('%s', date_time AT TIME ZONE 'UTC') AS bucket_start", q.Bucket),
+		// width_bucket возвращает номер интервала с единицы: i, если
+		// BucketStarts[i-1] <= date_time < BucketStarts[i].
+		"width_bucket(date_time, $5::timestamptz[]) AS bucket_number",
 		splitExpr + " AS split_value",
 		"count(*) AS event_count",
 	}
@@ -84,7 +95,7 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 	ORDER BY 1, 2
 	`, strings.Join(selectParts, ",\n\t       "))
 
-	rows, err := DB.Query(query, q.PetID, q.Type, q.From.UTC(), q.To.UTC())
+	rows, err := DB.Query(query, q.PetID, q.Type, q.From.UTC(), q.To.UTC(), pq.Array(bucketStarts))
 	if err != nil {
 		log.Println("AggregateEvents error:", err)
 		return nil, err
@@ -95,7 +106,8 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 	for rows.Next() {
 		row := StatsRow{Values: make([]sql.NullFloat64, len(q.Aggregates))}
 		dest := make([]any, 0, 3+len(q.Aggregates))
-		dest = append(dest, &row.BucketStart, &row.SplitValue, &row.Count)
+		var bucketNumber int
+		dest = append(dest, &bucketNumber, &row.SplitValue, &row.Count)
 		for i := range row.Values {
 			dest = append(dest, &row.Values[i])
 		}
@@ -103,6 +115,12 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 			log.Println("AggregateEvents scan error:", err)
 			return nil, err
 		}
+		// Номер 0 (событие раньше первого интервала) фильтром date_time >= From
+		// исключён: From не раньше начала первого интервала.
+		if bucketNumber < 1 || bucketNumber > len(q.BucketStarts) {
+			continue
+		}
+		row.BucketIndex = bucketNumber - 1
 		result = append(result, row)
 	}
 

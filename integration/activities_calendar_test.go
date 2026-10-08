@@ -257,3 +257,43 @@ func TestGetActivitiesNearest_Unauthorized(t *testing.T) {
 	resp := doRequest(t, http.MethodGet, "/activities/nearest", nil, "")
 	require.Equal(t, http.StatusUnauthorized, resp.status)
 }
+
+// Часовой пояс клиента (tz): сетка месяца и список дня группируют события по
+// локальному дню пользователя, а не по UTC. В Москве (UTC+3) событие
+// 2024-01-01T22:30Z — это уже 2 января; в Нью-Йорке (UTC-5)
+// 2024-01-02T03:00Z — ещё 1 января.
+func TestGetActivities_GroupByClientTimeZone(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "password123")
+	createProfile(t, tokens.AccessToken, "Іван")
+	catID := createPet(t, tokens.AccessToken, "Барсик")
+
+	createEvent(t, tokens.AccessToken, catID, "2024-01-01T22:30:00Z", "weight", map[string]any{"amount": 4.2})
+	createEvent(t, tokens.AccessToken, catID, "2024-01-02T03:00:00Z", "weight", map[string]any{"amount": 4.3})
+
+	var calendar struct {
+		Items []struct {
+			Date  string `json:"date"`
+			Count int    `json:"count"`
+		} `json:"items"`
+	}
+	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02&tz=Europe/Moscow", nil, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+	resp.decode(t, &calendar)
+	require.Len(t, calendar.Items, 2)
+	require.Equal(t, 0, calendar.Items[0].Count)
+	require.Equal(t, 2, calendar.Items[1].Count)
+
+	var day struct {
+		Items []struct {
+			Date string `json:"date"`
+		} `json:"items"`
+	}
+	resp = doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=America/New_York", nil, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+	resp.decode(t, &day)
+	require.Len(t, day.Items, 2)
+
+	resp = doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=Not/AZone", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, resp.status)
+}

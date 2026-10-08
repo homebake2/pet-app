@@ -734,7 +734,7 @@ type GetMedicationResponse struct {
 	IntervalDays *int   `json:"interval_days"`
 	Name         string `json:"name"`
 
-	// NextDose Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор событий (event_ids). null при frequency_type=as_needed или если весь расчитанный график уже в прошлом.
+	// NextDose Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор событий (event_ids). null при frequency_type=as_needed или если весь расчитанный график уже в прошлом. Даты и times расписания трактуются как местное время часового пояса из query-параметра tz (по умолчанию UTC).
 	NextDose *time.Time         `json:"next_dose"`
 	Note     *string            `json:"note"`
 	PetId    openapi_types.UUID `json:"pet_id"`
@@ -895,14 +895,17 @@ type GetVaccinationIdResponseRequest struct {
 
 // GetVaccinationRequest defines model for GetVaccinationRequest.
 type GetVaccinationRequest struct {
-	// AddEventOnAdministered Если true — сервер дополнительно создаёт событие на дату введения (administered_date).
+	// AddEventOnAdministered Если true — сервер дополнительно создаёт событие type=other на дату введения (administered_date) с подписью event_label (по умолчанию "Вакцинация: " + name).
 	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
 
 	// AddEventOnNext Если true и передан next_date — сервер дополнительно создаёт событие-напоминание на дату next_date.
 	AddEventOnNext   *bool              `json:"add_event_on_next,omitempty"`
 	AdministeredDate openapi_types.Date `json:"administered_date"`
 
-	// EventTime Время суток для создаваемых событий (administered/next). Не хранится в самой прививке.
+	// EventLabel Опциональная, уже локализованная клиентом подпись связанных событий (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
+	EventLabel *string `json:"event_label"`
+
+	// EventTime Время суток для создаваемых событий (administered/next). Не хранится в самой прививке. Трактуется как местное время часового пояса из query-параметра tz (по умолчанию UTC).
 	EventTime *string             `json:"event_time"`
 	Name      string              `json:"name"`
 	NextDate  *openapi_types.Date `json:"next_date"`
@@ -1367,12 +1370,20 @@ type UpdatePetProfileRequest struct {
 
 // UpdateVaccinationRequest defines model for UpdateVaccinationRequest.
 type UpdateVaccinationRequest struct {
-	AddEventOnAdministered *bool               `json:"add_event_on_administered,omitempty"`
-	AddEventOnNext         *bool               `json:"add_event_on_next,omitempty"`
-	AdministeredDate       *openapi_types.Date `json:"administered_date,omitempty"`
-	EventTime              *string             `json:"event_time"`
-	Name                   *string             `json:"name,omitempty"`
-	NextDate               *openapi_types.Date `json:"next_date"`
+	// AddEventOnAdministered true — обновить существующее связанное событие на дату введения либо создать его, если связанного события нет/оно удалено; false — мягко удалить связанное событие.
+	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
+
+	// AddEventOnNext true — обновить существующее событие-напоминание на next_date либо создать его, если его нет/оно удалено (при отсутствии next_date событие не создаётся, существующее удаляется); false — мягко удалить связанное событие.
+	AddEventOnNext   *bool               `json:"add_event_on_next,omitempty"`
+	AdministeredDate *openapi_types.Date `json:"administered_date,omitempty"`
+
+	// EventLabel Опциональная, уже локализованная клиентом подпись связанных событий (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
+	EventLabel *string `json:"event_label"`
+
+	// EventTime Время суток связанных событий. Если не передано при обновлении существующего события — сохраняется его прежнее время. Трактуется как местное время часового пояса из query-параметра tz (по умолчанию UTC).
+	EventTime *string             `json:"event_time"`
+	Name      *string             `json:"name,omitempty"`
+	NextDate  *openapi_types.Date `json:"next_date"`
 }
 
 // UpdateVetVisitRequest defines model for UpdateVetVisitRequest.
@@ -1392,27 +1403,42 @@ type IdempotencyKeyRequired = openapi_types.UUID
 // LanguageCode defines model for LanguageCode.
 type LanguageCode string
 
+// ScheduleTimeZone defines model for ScheduleTimeZone.
+type ScheduleTimeZone = string
+
+// TimeZone defines model for TimeZone.
+type TimeZone = string
+
 // GetActivitiesParams defines parameters for GetActivities.
 type GetActivitiesParams struct {
 	PetId openapi_types.UUID `form:"pet_id" json:"pet_id"`
 	From  openapi_types.Date `form:"from" json:"from"`
 	To    openapi_types.Date `form:"to" json:"to"`
+
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // GetActivitiesCalendarParams defines parameters for GetActivitiesCalendar.
 type GetActivitiesCalendarParams struct {
 	From openapi_types.Date `form:"from" json:"from"`
 	To   openapi_types.Date `form:"to" json:"to"`
+
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // GetActivitiesDayParams defines parameters for GetActivitiesDay.
 type GetActivitiesDayParams struct {
 	Date openapi_types.Date `form:"date" json:"date"`
+
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // PostEventParams defines parameters for PostEvent.
 type PostEventParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -1425,6 +1451,9 @@ type GetEventsStatsParams struct {
 	From   openapi_types.Date   `form:"from" json:"from"`
 	To     openapi_types.Date   `form:"to" json:"to"`
 	Bucket EventStatsBucketEnum `form:"bucket" json:"bucket"`
+
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // PostImportLocalDataParams defines parameters for PostImportLocalData.
@@ -1433,9 +1462,21 @@ type PostImportLocalDataParams struct {
 	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
 }
 
+// PatchMedicationParams defines parameters for PatchMedication.
+type PatchMedicationParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+}
+
+// PostMedicationEventsParams defines parameters for PostMedicationEvents.
+type PostMedicationEventsParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+}
+
 // PostPetParams defines parameters for PostPet.
 type PostPetParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -1450,7 +1491,7 @@ type GetPetAllergiesParams struct {
 
 // PostAllergyParams defines parameters for PostAllergy.
 type PostAllergyParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -1465,7 +1506,7 @@ type GetPetDiseasesParams struct {
 
 // PostDiseaseParams defines parameters for PostDisease.
 type PostDiseaseParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -1488,11 +1529,17 @@ type GetPetMedicationsParams struct {
 
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // PostMedicationParams defines parameters for PostMedication.
 type PostMedicationParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -1507,7 +1554,10 @@ type GetPetVaccinationsParams struct {
 
 // PostVaccinationParams defines parameters for PostVaccination.
 type PostVaccinationParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -1522,8 +1572,14 @@ type GetPetVetVisitsParams struct {
 
 // PostVetVisitParams defines parameters for PostVetVisit.
 type PostVetVisitParams struct {
-	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы добавления события; повторная отправка с тем же ключом возвращает ранее созданное событие вместо дубликата.
+	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// PatchVaccinationParams defines parameters for PatchVaccination.
+type PatchVaccinationParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
+	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // PatchAllergyJSONRequestBody defines body for PatchAllergy for application/json ContentType.
