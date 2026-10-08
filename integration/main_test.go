@@ -27,7 +27,11 @@ import (
 var (
 	server *httptest.Server
 	spec   *openapi3.T
+	// adminSpec — open-api/admin-spec.json (методы /admin/*, ключ X-Admin-Key).
+	adminSpec *openapi3.T
 )
+
+const testAdminKey = "integration-admin-key"
 
 func TestMain(m *testing.M) {
 	if os.Getenv("DATABASE_URL") == "" {
@@ -74,6 +78,14 @@ func TestMain(m *testing.M) {
 	// запросов/ответов это не мешает.
 	spec = doc
 
+	// Admin-методы описаны отдельной спекой, которая не входит в клиентскую.
+	adminDoc, err := loader.LoadFromFile("../open-api/admin-spec.json")
+	if err != nil {
+		panic("не удалось загрузить open-api/admin-spec.json: " + err.Error())
+	}
+	adminSpec = adminDoc
+	os.Setenv("ADMIN_KEY", testAdminKey)
+
 	server = httptest.NewServer(handlers.NewMux())
 
 	code := m.Run()
@@ -84,7 +96,7 @@ func TestMain(m *testing.M) {
 // resetDB очищает все таблицы перед тестом, обеспечивая изоляцию между тестами.
 func resetDB(t *testing.T) {
 	t.Helper()
-	if _, err := database.DB.Exec(`TRUNCATE TABLE file, vaccination, disease, vet_visit, allergy, medication, event, pet, profile, users, registration_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := database.DB.Exec(`TRUNCATE TABLE banner, file, vaccination, disease, vet_visit, allergy, medication, event, pet, profile, users, registration_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("не удалось очистить БД перед тестом: %v", err)
 	}
 }

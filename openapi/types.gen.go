@@ -20,6 +20,43 @@ const (
 	Severe   AllergySeverityEnum = "severe"
 )
 
+// Defines values for BannerCtaAction.
+const (
+	Deeplink BannerCtaAction = "deeplink"
+	Store    BannerCtaAction = "store"
+	Url      BannerCtaAction = "url"
+)
+
+// Defines values for BannerFrequency.
+const (
+	EveryLaunch BannerFrequency = "every_launch"
+	Once        BannerFrequency = "once"
+)
+
+// Defines values for BannerLayout.
+const (
+	Carousel BannerLayout = "carousel"
+	Cover    BannerLayout = "cover"
+	Dialog   BannerLayout = "dialog"
+	Poster   BannerLayout = "poster"
+	Sheet    BannerLayout = "sheet"
+)
+
+// Defines values for BannerPlatform.
+const (
+	Android BannerPlatform = "android"
+	Ios     BannerPlatform = "ios"
+)
+
+// Defines values for BannerTone.
+const (
+	Attention BannerTone = "attention"
+	Info      BannerTone = "info"
+	Negative  BannerTone = "negative"
+	Positive  BannerTone = "positive"
+	Promo     BannerTone = "promo"
+)
+
 // Defines values for DiseaseStatusEnum.
 const (
 	Active DiseaseStatusEnum = "active"
@@ -222,8 +259,14 @@ const (
 
 // Defines values for LanguageCode.
 const (
-	En LanguageCode = "en"
-	Ru LanguageCode = "ru"
+	LanguageCodeEn LanguageCode = "en"
+	LanguageCodeRu LanguageCode = "ru"
+)
+
+// Defines values for GetBannerParamsLanguageCode.
+const (
+	GetBannerParamsLanguageCodeEn GetBannerParamsLanguageCode = "en"
+	GetBannerParamsLanguageCodeRu GetBannerParamsLanguageCode = "ru"
 )
 
 // ActivitiesCalendarItem defines model for ActivitiesCalendarItem.
@@ -273,6 +316,67 @@ type ActivitiesDayEventItem struct {
 
 // AllergySeverityEnum defines model for AllergySeverityEnum.
 type AllergySeverityEnum string
+
+// Banner Локализованный баннер. Поля, которых нет у баннера, возвращаются как null.
+type Banner struct {
+	Badge     *string            `json:"badge"`
+	Body      *string            `json:"body"`
+	Frequency BannerFrequency    `json:"frequency"`
+	Id        openapi_types.UUID `json:"id"`
+	Image     *BannerImage       `json:"image"`
+
+	// Layout Шаблон баннера.
+	Layout         BannerLayout      `json:"layout"`
+	Overline       *string           `json:"overline"`
+	PrimaryCta     *BannerPrimaryCta `json:"primaryCta"`
+	SecondaryLabel *string           `json:"secondaryLabel"`
+
+	// Slides Слайды carousel по возрастанию position; для остальных шаблонов — null.
+	Slides *[]BannerSlide `json:"slides"`
+	Title  *string        `json:"title"`
+	Tone   *BannerTone    `json:"tone"`
+}
+
+// BannerCtaAction defines model for BannerCtaAction.
+type BannerCtaAction string
+
+// BannerFrequency defines model for BannerFrequency.
+type BannerFrequency string
+
+// BannerImage defines model for BannerImage.
+type BannerImage struct {
+	Blurhash *string `json:"blurhash"`
+
+	// Url Абсолютный https URL картинки.
+	Url string `json:"url"`
+}
+
+// BannerLayout Шаблон баннера.
+type BannerLayout string
+
+// BannerPlatform defines model for BannerPlatform.
+type BannerPlatform string
+
+// BannerPrimaryCta defines model for BannerPrimaryCta.
+type BannerPrimaryCta struct {
+	Action BannerCtaAction `json:"action"`
+
+	// Label Подпись действия; для poster может быть null.
+	Label *string `json:"label"`
+
+	// Target https URL для url, внутренний маршрут для deeplink; для store — null.
+	Target *string `json:"target"`
+}
+
+// BannerSlide defines model for BannerSlide.
+type BannerSlide struct {
+	Body  *string      `json:"body"`
+	Image *BannerImage `json:"image"`
+	Title string       `json:"title"`
+}
+
+// BannerTone Тональность оформления; null — нейтральная.
+type BannerTone string
 
 // DiseaseStatusEnum defines model for DiseaseStatusEnum.
 type DiseaseStatusEnum string
@@ -495,6 +599,11 @@ type GetAllergyResponse struct {
 	PetId      openapi_types.UUID  `json:"pet_id"`
 	Reaction   *string             `json:"reaction"`
 	Severity   AllergySeverityEnum `json:"severity"`
+}
+
+// GetBannerResponse defines model for GetBannerResponse.
+type GetBannerResponse struct {
+	Items []Banner `json:"items"`
 }
 
 // GetDiseaseIdResponseRequest defines model for GetDiseaseIdResponseRequest.
@@ -1446,6 +1555,22 @@ type GetActivitiesDayParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
 	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
 }
+
+// GetBannerParams defines parameters for GetBanner.
+type GetBannerParams struct {
+	// Platform Платформа клиента.
+	Platform BannerPlatform `form:"platform" json:"platform"`
+
+	// AppVersion Версия приложения в формате MAJOR.MINOR.PATCH.
+	AppVersion   string                      `form:"appVersion" json:"appVersion"`
+	LanguageCode GetBannerParamsLanguageCode `json:"LanguageCode"`
+
+	// IfNoneMatch ETag последнего успешного ответа; при совпадении сервер отвечает 304 без тела.
+	IfNoneMatch *string `json:"If-None-Match,omitempty"`
+}
+
+// GetBannerParamsLanguageCode defines parameters for GetBanner.
+type GetBannerParamsLanguageCode string
 
 // PostEventParams defines parameters for PostEvent.
 type PostEventParams struct {

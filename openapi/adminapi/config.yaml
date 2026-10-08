@@ -1,0 +1,6 @@
+package: adminapi
+output: types.gen.go
+generate:
+  models: true
+output-options:
+  skip-prune: true

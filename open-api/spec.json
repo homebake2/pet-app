@@ -1719,6 +1719,103 @@
       },
       "parameters": []
     },
+    "/banner": {
+      "get": {
+        "summary": "/banner",
+        "description": "Список баннеров, которые можно показать текущему пользователю сейчас: уже локализованных на язык LanguageCode (с запасным языком ru), отфильтрованных по окну показа, таргетингу (platform, appVersion, язык, наличие питомцев) и персональному списку, отсортированных по priority DESC, created_at DESC. Невалидные баннеры из ответа исключаются. Пустой список — 200 с items = []. Заголовок ETag вычисляется по телу ответа с учётом языка; запрос с совпадающим If-None-Match получает 304 без тела.",
+        "tags": [
+          "banner-controller"
+        ],
+        "operationId": "get-banner",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/LanguageCode"
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": true,
+            "description": "Платформа клиента.",
+            "schema": {
+              "$ref": "#/components/schemas/BannerPlatform"
+            }
+          },
+          {
+            "name": "appVersion",
+            "in": "query",
+            "required": true,
+            "description": "Версия приложения в формате MAJOR.MINOR.PATCH.",
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d+\\.\\d+\\.\\d+$",
+              "example": "1.2.0"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "required": false,
+            "description": "ETag последнего успешного ответа; при совпадении сервер отвечает 304 без тела.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Хеш тела ответа с учётом языка запроса.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetBannerResponse"
+                }
+              }
+            }
+          },
+          "304": {
+            "description": "Not Modified: If-None-Match совпал с актуальным ETag, тела нет."
+          },
+          "400": {
+            "description": "Bad Request: отсутствует или некорректен LanguageCode, platform или appVersion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/activities/nearest": {
       "get": {
         "summary": "/activities/nearest",
@@ -3583,6 +3680,221 @@
             "type": "string",
             "x-stoplight": {
               "id": "5s5sv3lb9t7ng"
+            }
+          }
+        }
+      },
+      "BannerPlatform": {
+        "title": "BannerPlatform",
+        "type": "string",
+        "enum": [
+          "ios",
+          "android"
+        ]
+      },
+      "BannerLayout": {
+        "title": "BannerLayout",
+        "type": "string",
+        "description": "Шаблон баннера.",
+        "enum": [
+          "sheet",
+          "cover",
+          "dialog",
+          "carousel",
+          "poster"
+        ]
+      },
+      "BannerTone": {
+        "title": "BannerTone",
+        "type": "string",
+        "description": "Тональность оформления; null — нейтральная.",
+        "enum": [
+          "info",
+          "attention",
+          "negative",
+          "positive",
+          "promo"
+        ]
+      },
+      "BannerFrequency": {
+        "title": "BannerFrequency",
+        "type": "string",
+        "enum": [
+          "once",
+          "every_launch"
+        ]
+      },
+      "BannerCtaAction": {
+        "title": "BannerCtaAction",
+        "type": "string",
+        "enum": [
+          "url",
+          "deeplink",
+          "store"
+        ]
+      },
+      "BannerImage": {
+        "title": "BannerImage",
+        "type": "object",
+        "required": [
+          "url",
+          "blurhash"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Абсолютный https URL картинки."
+          },
+          "blurhash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BannerSlide": {
+        "title": "BannerSlide",
+        "type": "object",
+        "required": [
+          "title",
+          "body",
+          "image"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "image": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerImage"
+              }
+            ]
+          }
+        }
+      },
+      "BannerPrimaryCta": {
+        "title": "BannerPrimaryCta",
+        "type": "object",
+        "required": [
+          "label",
+          "action",
+          "target"
+        ],
+        "properties": {
+          "label": {
+            "type": "string",
+            "nullable": true,
+            "description": "Подпись действия; для poster может быть null."
+          },
+          "action": {
+            "$ref": "#/components/schemas/BannerCtaAction"
+          },
+          "target": {
+            "type": "string",
+            "nullable": true,
+            "description": "https URL для url, внутренний маршрут для deeplink; для store — null."
+          }
+        }
+      },
+      "Banner": {
+        "title": "Banner",
+        "type": "object",
+        "description": "Локализованный баннер. Поля, которых нет у баннера, возвращаются как null.",
+        "required": [
+          "id",
+          "layout",
+          "tone",
+          "frequency",
+          "overline",
+          "title",
+          "body",
+          "badge",
+          "image",
+          "slides",
+          "primaryCta",
+          "secondaryLabel"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/BannerLayout"
+          },
+          "tone": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerTone"
+              }
+            ]
+          },
+          "frequency": {
+            "$ref": "#/components/schemas/BannerFrequency"
+          },
+          "overline": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "badge": {
+            "type": "string",
+            "nullable": true
+          },
+          "image": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerImage"
+              }
+            ]
+          },
+          "slides": {
+            "type": "array",
+            "nullable": true,
+            "description": "Слайды carousel по возрастанию position; для остальных шаблонов — null.",
+            "items": {
+              "$ref": "#/components/schemas/BannerSlide"
+            }
+          },
+          "primaryCta": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerPrimaryCta"
+              }
+            ]
+          },
+          "secondaryLabel": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "GetBannerResponse": {
+        "title": "GetBannerResponse",
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Banner"
             }
           }
         }

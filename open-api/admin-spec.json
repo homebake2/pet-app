@@ -1,0 +1,678 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Admin OpenApi",
+    "version": "1.0",
+    "summary": "Административные методы владельца сервиса. Не входят в клиентский контракт: приложение их не вызывает, клиентский код для них не генерируется."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "security": [
+    {
+      "AdminKey": []
+    }
+  ],
+  "paths": {
+    "/admin/banner": {
+      "get": {
+        "summary": "/admin/banner",
+        "description": "Все баннеры (включая выключенные и вне окна показа), сортировка created_at DESC. Без пагинации, фильтров и таргетинга; не зависит от LanguageCode.",
+        "tags": [
+          "admin-banner-controller"
+        ],
+        "operationId": "admin-list-banners",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBannerListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "post": {
+        "summary": "/admin/banner",
+        "description": "Создание баннера одним документом в одной транзакции. Невалидный документ отклоняется целиком (400 VALIDATION_ERROR, payload — список всех проблем).",
+        "tags": [
+          "admin-banner-controller"
+        ],
+        "operationId": "admin-create-banner",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BannerDoc"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BannerDocResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/admin/banner/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/BannerId"
+        }
+      ],
+      "get": {
+        "summary": "/admin/banner/{id}",
+        "description": "Баннер со всеми переводами, как хранятся.",
+        "tags": [
+          "admin-banner-controller"
+        ],
+        "operationId": "admin-get-banner",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BannerDocResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "put": {
+        "summary": "/admin/banner/{id}",
+        "description": "Полная замена баннера и всех связанных строк (чего нет в теле — удаляется). Если баннера с таким id нет — создаётся с этим id (201), иначе 200.",
+        "tags": [
+          "admin-banner-controller"
+        ],
+        "operationId": "admin-put-banner",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BannerDoc"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Replaced",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BannerDocResponse"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BannerDocResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "patch": {
+        "summary": "/admin/banner/{id}",
+        "description": "Включить/выключить показ: меняет только is_show.",
+        "tags": [
+          "admin-banner-controller"
+        ],
+        "operationId": "admin-patch-banner",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchBannerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BannerDocResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      },
+      "delete": {
+        "summary": "/admin/banner/{id}",
+        "description": "Физическое удаление баннера и всех связанных строк (каскадно).",
+        "tags": [
+          "admin-banner-controller"
+        ],
+        "operationId": "admin-delete-banner",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "AdminKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Admin-Key",
+        "description": "Административный ключ из конфигурации сервера. Если ключ не задан, admin-методы отключены и отвечают 404."
+      }
+    },
+    "parameters": {
+      "BannerId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad Request: документ не прошёл валидацию (VALIDATION_ERROR, payload — список проблем) или невалидный id.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized: отсутствует или неверен X-Admin-Key.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not Found: баннер не найден либо admin-методы отключены конфигурацией.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal Server Error: ошибка БД, транзакция откатена.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AdminErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "AdminErrorCode": {
+        "title": "AdminErrorCode",
+        "type": "string",
+        "description": "Копия ErrorCodeEnum клиентской спеки; формат ошибки тот же ({ code, message, payload }).",
+        "enum": [
+          "BAD_REQUEST",
+          "VALIDATION_ERROR",
+          "UNAUTHORIZED",
+          "FORBIDDEN",
+          "NOT_FOUND",
+          "CONFLICT",
+          "RATE_LIMITED",
+          "INTERNAL_ERROR"
+        ]
+      },
+      "AdminErrorResponse": {
+        "title": "AdminErrorResponse",
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/AdminErrorCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "payload": {
+            "description": "Для VALIDATION_ERROR — массив AdminValidationIssue."
+          }
+        }
+      },
+      "AdminValidationIssue": {
+        "title": "AdminValidationIssue",
+        "type": "object",
+        "required": [
+          "path",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Путь к полю документа, например translations.ru.title или slides[2].translations.ru.title."
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "AdminBannerLayout": {
+        "title": "AdminBannerLayout",
+        "type": "string",
+        "enum": [
+          "sheet",
+          "cover",
+          "dialog",
+          "carousel",
+          "poster"
+        ]
+      },
+      "AdminBannerTone": {
+        "title": "AdminBannerTone",
+        "type": "string",
+        "enum": [
+          "info",
+          "attention",
+          "negative",
+          "positive",
+          "promo"
+        ]
+      },
+      "AdminBannerFrequency": {
+        "title": "AdminBannerFrequency",
+        "type": "string",
+        "enum": [
+          "once",
+          "every_launch"
+        ]
+      },
+      "AdminBannerCtaAction": {
+        "title": "AdminBannerCtaAction",
+        "type": "string",
+        "enum": [
+          "url",
+          "deeplink",
+          "store"
+        ]
+      },
+      "AdminLocale": {
+        "title": "AdminLocale",
+        "type": "string",
+        "description": "Поддерживаемые языки (значения LanguageCode); ru — язык по умолчанию.",
+        "enum": [
+          "ru",
+          "en"
+        ]
+      },
+      "BannerDocCta": {
+        "title": "BannerDocCta",
+        "type": "object",
+        "properties": {
+          "action": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AdminBannerCtaAction"
+              }
+            ]
+          },
+          "target": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BannerDocImage": {
+        "title": "BannerDocImage",
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Абсолютный https URL."
+          },
+          "blurhash": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BannerDocTranslation": {
+        "title": "BannerDocTranslation",
+        "type": "object",
+        "properties": {
+          "overline": {
+            "type": "string",
+            "nullable": true
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "badge": {
+            "type": "string",
+            "nullable": true
+          },
+          "image": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerDocImage"
+              }
+            ]
+          },
+          "ctaLabel": {
+            "type": "string",
+            "nullable": true
+          },
+          "secondaryLabel": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BannerDocSlideTranslation": {
+        "title": "BannerDocSlideTranslation",
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "body": {
+            "type": "string",
+            "nullable": true
+          },
+          "image": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerDocImage"
+              }
+            ]
+          }
+        }
+      },
+      "BannerDocSlide": {
+        "title": "BannerDocSlide",
+        "type": "object",
+        "description": "Порядок слайдов задаётся порядком элементов массива (position с 1).",
+        "required": [
+          "translations"
+        ],
+        "properties": {
+          "translations": {
+            "type": "object",
+            "description": "Карта «код языка → поля».",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BannerDocSlideTranslation"
+            }
+          }
+        }
+      },
+      "BannerDocTargeting": {
+        "title": "BannerDocTargeting",
+        "type": "object",
+        "required": [
+          "type",
+          "params"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "platform | app_version | language | has_pets; не более одного правила каждого типа."
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Параметры правила: platform {values}, app_version {min,max}, language {values}, has_pets {value}."
+          }
+        }
+      },
+      "BannerDoc": {
+        "title": "BannerDoc",
+        "type": "object",
+        "description": "Единый нелокализованный документ баннера (все переводы). Отсутствующие поля трактуются как null; isShow по умолчанию true, priority — 0, массивы — пустые.",
+        "required": [
+          "layout",
+          "frequency",
+          "translations"
+        ],
+        "properties": {
+          "layout": {
+            "$ref": "#/components/schemas/AdminBannerLayout"
+          },
+          "tone": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AdminBannerTone"
+              }
+            ]
+          },
+          "isShow": {
+            "type": "boolean",
+            "default": true
+          },
+          "startsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "endsAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "priority": {
+            "type": "integer",
+            "default": 0
+          },
+          "frequency": {
+            "$ref": "#/components/schemas/AdminBannerFrequency"
+          },
+          "cta": {
+            "nullable": true,
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BannerDocCta"
+              }
+            ]
+          },
+          "translations": {
+            "type": "object",
+            "description": "Карта «код языка → поля»; обязан содержать ru.",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/BannerDocTranslation"
+            }
+          },
+          "slides": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BannerDocSlide"
+            }
+          },
+          "targeting": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BannerDocTargeting"
+            }
+          },
+          "userIds": {
+            "type": "array",
+            "description": "Если не пусто — баннер отдаётся только этим пользователям.",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "BannerDocResponse": {
+        "title": "BannerDocResponse",
+        "description": "BannerDoc с серверными полями id и createdAt.",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/BannerDoc"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "createdAt"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        ]
+      },
+      "AdminBannerListResponse": {
+        "title": "AdminBannerListResponse",
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BannerDocResponse"
+            }
+          }
+        }
+      },
+      "PatchBannerRequest": {
+        "title": "PatchBannerRequest",
+        "type": "object",
+        "required": [
+          "isShow"
+        ],
+        "properties": {
+          "isShow": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

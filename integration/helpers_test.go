@@ -36,7 +36,11 @@ func (r apiResponse) decode(t *testing.T, v any) {
 // порту — совпадения не будет. Здесь схема заведомо простая (максимум один
 // параметр на сегмент пути), поэтому сопоставление шаблонов сделано вручную.
 func findRoute(method, pathOnly string) (item *openapi3.PathItem, op *openapi3.Operation, pathParams map[string]string, template string) {
-	for tmpl, candidate := range spec.Paths.Map() {
+	return findRouteIn(spec, method, pathOnly)
+}
+
+func findRouteIn(apiSpec *openapi3.T, method, pathOnly string) (item *openapi3.PathItem, op *openapi3.Operation, pathParams map[string]string, template string) {
+	for tmpl, candidate := range apiSpec.Paths.Map() {
 		params, ok := matchTemplate(tmpl, pathOnly)
 		if !ok {
 			continue
@@ -86,6 +90,13 @@ func matchTemplate(template, path string) (map[string]string, bool) {
 // одной карты.
 func doRequest(t *testing.T, method, path string, body any, token string, extraHeaders ...map[string]string) apiResponse {
 	t.Helper()
+	return doRequestAgainstSpec(t, spec, "open-api/spec.json", method, path, body, token, extraHeaders...)
+}
+
+// doRequestAgainstSpec — реализация doRequest для произвольной спеки: клиентской
+// (spec.json) или административной (admin-spec.json, см. doAdminRequest).
+func doRequestAgainstSpec(t *testing.T, apiSpec *openapi3.T, specName, method, path string, body any, token string, extraHeaders ...map[string]string) apiResponse {
+	t.Helper()
 
 	var bodyBytes []byte
 	if body != nil {
@@ -112,10 +123,10 @@ func doRequest(t *testing.T, method, path string, body any, token string, extraH
 	}
 
 	pathOnly, _, _ := strings.Cut(path, "?")
-	item, op, pathParams, template := findRoute(method, pathOnly)
-	require.NotNilf(t, op, "в open-api/spec.json нет операции для %s %s", method, pathOnly)
+	item, op, pathParams, template := findRouteIn(apiSpec, method, pathOnly)
+	require.NotNilf(t, op, "в "+specName+" нет операции для %s %s", method, pathOnly)
 
-	route := &routers.Route{Spec: spec, Path: template, PathItem: item, Method: method, Operation: op}
+	route := &routers.Route{Spec: apiSpec, Path: template, PathItem: item, Method: method, Operation: op}
 	reqValidationInput := &openapi3filter.RequestValidationInput{
 		Request:    newReq(),
 		PathParams: pathParams,
@@ -128,7 +139,7 @@ func doRequest(t *testing.T, method, path string, body any, token string, extraH
 
 	ctx := context.Background()
 	if err := openapi3filter.ValidateRequest(ctx, reqValidationInput); err != nil {
-		t.Errorf("запрос %s %s не соответствует open-api/spec.json: %v", method, path, err)
+		t.Errorf("запрос %s %s не соответствует %s: %v", method, path, specName, err)
 	}
 
 	resp, err := http.DefaultClient.Do(newReq())
@@ -145,7 +156,7 @@ func doRequest(t *testing.T, method, path string, body any, token string, extraH
 	}
 	respValidationInput.SetBodyBytes(respBody)
 	if err := openapi3filter.ValidateResponse(ctx, respValidationInput); err != nil {
-		t.Errorf("ответ %s %s (статус %d) не соответствует open-api/spec.json: %v\nbody: %s", method, path, resp.StatusCode, err, respBody)
+		t.Errorf("ответ %s %s (статус %d) не соответствует %s: %v\nbody: %s", method, path, resp.StatusCode, specName, err, respBody)
 	}
 
 	return apiResponse{status: resp.StatusCode, header: resp.Header.Clone(), body: respBody}

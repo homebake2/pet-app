@@ -37,6 +37,11 @@ func NewMux() *http.ServeMux {
 	// Точный путь /files/upload-url выигрывает у поддерева /files/ в
 	// ServeMux, поэтому не попадает в FilesByIDHandler — та же идиома, что и
 	// у /events/stats против /events/.
+	mux.HandleFunc("/banner", GetBannerHandler)
+	// Admin-методы управления баннерами: доступ по X-Admin-Key (переменная
+	// окружения ADMIN_KEY); без ключа в конфигурации отвечают 404.
+	mux.HandleFunc("/admin/banner", AdminBannerCollectionHandler)
+	mux.HandleFunc("/admin/banner/", AdminBannerByIDHandler)
 	mux.HandleFunc("/files/upload-url", FilesUploadUrlHandler)
 	mux.HandleFunc("/files/", FilesByIDHandler)
 	return mux
