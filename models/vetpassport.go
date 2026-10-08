@@ -425,6 +425,23 @@ type MedicationListResponse struct {
 	Items []MedicationResponse `json:"items"`
 }
 
+// VaccinationEventIDs — id связанных событий прививки (null — события нет).
+// Клиенту нужны реальные id, чтобы запланировать и потом отменить системное
+// уведомление события следующей вакцинации (см. «Вакцинации — Frontend»).
+type VaccinationEventIDs struct {
+	AdministeredEventID *string `json:"administered_event_id"`
+	NextEventID         *string `json:"next_event_id"`
+}
+
+// VaccinationCreatedResponse — тело ответа 201 Created для POST
+// /pet/{id}/vaccinations: id прививки и id созданных ею событий. Повтор
+// запроса с тем же Idempotency-Key возвращает только id (события клиент
+// получит из списка прививок).
+type VaccinationCreatedResponse struct {
+	ID string `json:"id"`
+	VaccinationEventIDs
+}
+
 // IDResponse — тело ответа 201 Created для POST /pet/{id}/vaccinations|diseases|vet-visits|allergies|medications
 // (GetVaccinationIdResponseRequest / GetDiseaseIdResponseRequest / ... — все
 // одной формы: {id}).

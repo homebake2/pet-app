@@ -166,16 +166,23 @@ func otherEventValue(label string) (json.RawMessage, error) {
 // createPetWeightEvent) — создание события здесь входит в основной
 // контракт ответа (administered_event_id/next_event_id), а не является
 // вспомогательной статистикой.
-func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
+//
+// remind=true включает событию notifications_enabled, но только если его
+// момент строго в будущем (то же правило, что у POST /events): системное
+// уведомление планирует сам клиент, сервер лишь хранит признак.
+func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string, remind bool) (uuid.UUID, error) {
 	value, err := otherEventValue(label)
 	if err != nil {
 		return uuid.Nil, err
 	}
+	moment := combineDateAndTime(date, timeOfDay, loc)
+	notificationsEnabled := remind && moment.After(time.Now())
 	req := models.CreateEventRequest{
-		PetID: petID.String(),
-		Date:  eventDateString(combineDateAndTime(date, timeOfDay, loc)),
-		Type:  "other",
-		Value: value,
+		PetID:                petID.String(),
+		Date:                 eventDateString(moment),
+		Type:                 "other",
+		Value:                value,
+		NotificationsEnabled: &notificationsEnabled,
 	}
 	return database.InsertEvent(petID, req, "")
 }
@@ -235,7 +242,7 @@ func createMedicationEventFromSlot(petID uuid.UUID, slot medicationScheduleSlot,
 //
 // Возвращает новое значение ссылки на событие для UpdateVaccination, либо
 // nil, если ссылку менять не нужно.
-func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *bool, date sql.NullTime, dateChanged bool, eventTime *string, loc *time.Location, label string) (*uuid.NullUUID, error) {
+func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *bool, date sql.NullTime, dateChanged bool, eventTime *string, loc *time.Location, label string, remind bool) (*uuid.NullUUID, error) {
 	var existing *models.EventDB
 	if currentEventID.Valid {
 		event, err := database.GetEventByIDForUpdate(currentEventID.UUID)
@@ -271,7 +278,7 @@ func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *b
 	hasEventTime := eventTime != nil && *eventTime != ""
 
 	if existing == nil {
-		newEventID, err := createOtherEvent(petID, date.Time, eventTime, loc, label)
+		newEventID, err := createOtherEvent(petID, date.Time, eventTime, loc, label, remind)
 		if err != nil {
 			return nil, err
 		}
@@ -288,14 +295,22 @@ func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *b
 	}
 	dateTime := combineDateAndTime(date.Time, &timeOfDay, loc).UTC()
 	var value *json.RawMessage
+	var notificationsEnabled *bool
 	if flag != nil {
 		v, err := otherEventValue(label)
 		if err != nil {
 			return nil, err
 		}
 		value = &v
+		if remind {
+			// Явный флаг при редактировании заново включает напоминание
+			// (клиент перепланирует системное уведомление на новый момент) —
+			// но только для будущего момента, как и при создании.
+			enabled := dateTime.After(time.Now())
+			notificationsEnabled = &enabled
+		}
 	}
-	if err := database.UpdateEvent(existing.ID, models.UpdateEventRequest{}, &dateTime, nil, nil, value, nil); err != nil {
+	if err := database.UpdateEvent(existing.ID, models.UpdateEventRequest{}, &dateTime, nil, nil, value, notificationsEnabled); err != nil {
 		return nil, err
 	}
 	return nil, nil
@@ -475,7 +490,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 
 	var administeredEventID, nextEventID uuid.NullUUID
 	if req.AddEventOnAdministered != nil && *req.AddEventOnAdministered {
-		id, err := createOtherEvent(petID, administeredDate, req.EventTime, loc, eventLabel)
+		id, err := createOtherEvent(petID, administeredDate, req.EventTime, loc, eventLabel, false)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие прививки")
 			return
@@ -484,7 +499,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	}
 	if req.AddEventOnNext != nil && *req.AddEventOnNext && req.NextDate != nil && *req.NextDate != "" {
 		nextDate, _ := parseDateOnly(*req.NextDate)
-		id, err := createOtherEvent(petID, nextDate, req.EventTime, loc, eventLabel)
+		id, err := createOtherEvent(petID, nextDate, req.EventTime, loc, eventLabel, true)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие-напоминание прививки")
 			return
@@ -518,7 +533,23 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		return
 	}
 
-	writeJSON(w, http.StatusCreated, models.IDResponse{ID: newID.String()})
+	writeJSON(w, http.StatusCreated, models.VaccinationCreatedResponse{
+		ID:                  newID.String(),
+		VaccinationEventIDs: vaccinationEventIDs(administeredEventID, nextEventID),
+	})
+}
+
+// vaccinationEventIDs преобразует ссылки на связанные события в тело ответа
+// (невалидная ссылка — null).
+func vaccinationEventIDs(administered, next uuid.NullUUID) models.VaccinationEventIDs {
+	toPtr := func(id uuid.NullUUID) *string {
+		if !id.Valid {
+			return nil
+		}
+		s := id.UUID.String()
+		return &s
+	}
+	return models.VaccinationEventIDs{AdministeredEventID: toPtr(administered), NextEventID: toPtr(next)}
 }
 
 // VaccinationByIDHandler обрабатывает /vaccinations/{id}: PATCH/DELETE.
@@ -630,12 +661,12 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		}
 	}
 
-	administeredEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.AdministeredEventID, req.AddEventOnAdministered, effectiveAdministeredDate, req.AdministeredDate != nil, req.EventTime, loc, eventLabel)
+	administeredEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.AdministeredEventID, req.AddEventOnAdministered, effectiveAdministeredDate, req.AdministeredDate != nil, req.EventTime, loc, eventLabel, false)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось синхронизировать событие прививки")
 		return
 	}
-	nextEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.NextEventID, req.AddEventOnNext, effectiveNextDate, req.NextDate != nil, req.EventTime, loc, eventLabel)
+	nextEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.NextEventID, req.AddEventOnNext, effectiveNextDate, req.NextDate != nil, req.EventTime, loc, eventLabel, true)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось синхронизировать событие-напоминание прививки")
 		return
@@ -646,7 +677,15 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		return
 	}
 
-	w.WriteHeader(http.StatusNoContent)
+	// nil от syncVaccinationEvent — ссылка не менялась, остаётся прежней.
+	currentAdministered, currentNext := vaccination.AdministeredEventID, vaccination.NextEventID
+	if administeredEventID != nil {
+		currentAdministered = *administeredEventID
+	}
+	if nextEventID != nil {
+		currentNext = *nextEventID
+	}
+	writeJSON(w, http.StatusOK, vaccinationEventIDs(currentAdministered, currentNext))
 }
 
 func DeleteVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {

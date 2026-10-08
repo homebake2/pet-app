@@ -1965,8 +1965,15 @@
           }
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "description": "Прививка обновлена. В теле — актуальные id связанных событий после синхронизации (null — события нет): клиенту они нужны, чтобы перепланировать или отменить системное уведомление события следующей вакцинации.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateVaccinationResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad Request",
@@ -5502,6 +5509,38 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "administered_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Id события, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует."
+          },
+          "next_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Id события-напоминания на дату следующей вакцинации (add_event_on_next=true), иначе null. Событие создаётся с notifications_enabled=true, если его момент строго в будущем: системное уведомление планирует клиент под этим id. При повторе с тем же Idempotency-Key поле отсутствует."
+          }
+        }
+      },
+      "UpdateVaccinationResponse": {
+        "title": "UpdateVaccinationResponse",
+        "type": "object",
+        "required": [
+          "administered_event_id",
+          "next_event_id"
+        ],
+        "properties": {
+          "administered_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "next_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
           }
         }
       },

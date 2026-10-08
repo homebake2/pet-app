@@ -137,7 +137,7 @@ func TestUpdateVaccinationHandler_Success(t *testing.T) {
 	r := petRequest(t, http.MethodPatch, "/vaccinations/"+vaccinationID, models.UpdateVaccinationRequest{Name: &newName}, true)
 	VaccinationByIDHandler(w, r)
 
-	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -937,6 +937,98 @@ func TestCreateVaccinationHandler_EventLabelFromClient(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+// Событие следующей вакцинации создаётся с notifications_enabled=true (если
+// момент в будущем), событие даты введения — всегда false; id событий
+// возвращаются в теле ответа, чтобы клиент запланировал системное
+// уведомление под реальным id.
+func TestCreateVaccinationHandler_NextEventHasNotificationsAndIDsReturned(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	expectPetOwnedForCreate(mock)
+	mock.ExpectQuery(`INSERT INTO event`).
+		WithArgs(uuid.MustParse(testPetID), mustRFC3339("2024-01-01T09:30:00Z"), "other", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), false).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testAdministeredEventID))
+	mock.ExpectQuery(`INSERT INTO event`).
+		WithArgs(uuid.MustParse(testPetID), mustRFC3339("2099-06-01T09:30:00Z"), "other", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), true).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testNextEventID))
+	mock.ExpectQuery(`INSERT INTO vaccination`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
+
+	addEvent := true
+	eventTime := "09:30"
+	nextDate := "2099-06-01"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/vaccinations", models.CreateVaccinationRequest{
+		Name: "Rabies", AdministeredDate: "2024-01-01", NextDate: &nextDate,
+		AddEventOnAdministered: &addEvent, AddEventOnNext: &addEvent, EventTime: &eventTime,
+	}, true)
+	CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
+
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	assert.JSONEq(t,
+		`{"id":"`+testVaccinationID+`","administered_event_id":"`+testAdministeredEventID+`","next_event_id":"`+testNextEventID+`"}`,
+		w.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Событие следующей вакцинации в прошлом не получает notifications_enabled
+// (то же правило, что у POST /events), даже если событие создаётся.
+func TestCreateVaccinationHandler_PastNextEventHasNoNotifications(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	expectPetOwnedForCreate(mock)
+	mock.ExpectQuery(`INSERT INTO event`).
+		WithArgs(uuid.MustParse(testPetID), mustRFC3339("2020-06-01T09:30:00Z"), "other", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), false).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testNextEventID))
+	mock.ExpectQuery(`INSERT INTO vaccination`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
+
+	addEvent := true
+	eventTime := "09:30"
+	nextDate := "2020-06-01"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPost, "/pet/"+testPetID+"/vaccinations", models.CreateVaccinationRequest{
+		Name: "Rabies", AdministeredDate: "2019-01-01", NextDate: &nextDate, AddEventOnNext: &addEvent, EventTime: &eventTime,
+	}, true)
+	CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
+
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// PATCH с add_event_on_next=true при существующем событии заново включает
+// ему notifications_enabled на новом (будущем) моменте, а id событий
+// возвращаются в ответе.
+func TestUpdateVaccinationHandler_NextEventNotificationsReenabled(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(vaccinationSelect).
+		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), timeParse("2098-01-01"), nil, testNextEventID, nil))
+	expectPetBelongsToUser(mock, true)
+	mock.ExpectQuery(eventForUpdateSelect).
+		WithArgs(uuid.MustParse(testNextEventID)).
+		WillReturnRows(sqlmock.NewRows(eventForUpdateColumns).
+			AddRow(testNextEventID, testPetID, mustRFC3339("2098-01-01T09:00:00Z"), "other", nil, []byte(`{"label":"x"}`), false))
+	mock.ExpectExec(`UPDATE event SET .*notifications_enabled = \$3`).
+		WithArgs(mustRFC3339("2099-02-03T09:00:00Z"), `{"label":"Вакцинация: Rabies"}`, true, uuid.MustParse(testNextEventID)).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE vaccination SET next_date = \$1 WHERE id = \$2`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	addEvent := true
+	nextDate := "2099-02-03"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID, models.UpdateVaccinationRequest{
+		AddEventOnNext: &addEvent, NextDate: &nextDate,
+	}, true)
+	VaccinationByIDHandler(w, r)
+
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"administered_event_id":null,"next_event_id":"`+testNextEventID+`"}`, w.Body.String())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 // PATCH с add_event_on_administered=true при уже существующем связанном
 // событии обновляет его на месте (дата + прежнее время суток + подпись) и не
 // создаёт новое.
@@ -966,7 +1058,7 @@ func TestUpdateVaccinationHandler_UpdatesExistingLinkedEvent(t *testing.T) {
 	}, true)
 	VaccinationByIDHandler(w, r)
 
-	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -996,7 +1088,8 @@ func TestUpdateVaccinationHandler_CreatesEventWhenLinkedOneDeleted(t *testing.T)
 	}, true)
 	VaccinationByIDHandler(w, r)
 
-	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"administered_event_id":"`+newEventID+`","next_event_id":null}`, w.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1023,7 +1116,7 @@ func TestUpdateVaccinationHandler_FlagFalseDeletesLinkedEvent(t *testing.T) {
 	r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID, models.UpdateVaccinationRequest{AddEventOnNext: &addEvent}, true)
 	VaccinationByIDHandler(w, r)
 
-	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1050,7 +1143,7 @@ func TestUpdateVaccinationHandler_DateChangeMovesLinkedEvent(t *testing.T) {
 	r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID, models.UpdateVaccinationRequest{NextDate: &nextDate}, true)
 	VaccinationByIDHandler(w, r)
 
-	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1075,7 +1168,7 @@ func TestUpdateVaccinationHandler_NullNextDateClearsDateAndEvent(t *testing.T) {
 	r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID, map[string]any{"next_date": nil}, true)
 	VaccinationByIDHandler(w, r)
 
-	assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+	assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -1228,7 +1321,7 @@ func TestUpdateVaccinationHandler_DateChangeKeepsLocalTimeOfDay(t *testing.T) {
 			r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID+"?tz="+tc.tz, models.UpdateVaccinationRequest{NextDate: &nextDate}, true)
 			VaccinationByIDHandler(w, r)
 
-			assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+			assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
@@ -1264,7 +1357,7 @@ func TestUpdateVaccinationHandler_EventTimeInClientTimeZone(t *testing.T) {
 			r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID+"?tz="+tc.tz, models.UpdateVaccinationRequest{EventTime: &eventTime}, true)
 			VaccinationByIDHandler(w, r)
 
-			assert.Equal(t, http.StatusNoContent, w.Code, w.Body.String())
+			assert.Equal(t, http.StatusOK, w.Code, w.Body.String())
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}

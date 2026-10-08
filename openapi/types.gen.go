@@ -890,7 +890,12 @@ type GetShortInfoPetResponse struct {
 
 // GetVaccinationIdResponseRequest defines model for GetVaccinationIdResponseRequest.
 type GetVaccinationIdResponseRequest struct {
-	Id openapi_types.UUID `json:"id"`
+	// AdministeredEventId Id события, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует.
+	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
+	Id                  openapi_types.UUID  `json:"id"`
+
+	// NextEventId Id события-напоминания на дату следующей вакцинации (add_event_on_next=true), иначе null. Событие создаётся с notifications_enabled=true, если его момент строго в будущем: системное уведомление планирует клиент под этим id. При повторе с тем же Idempotency-Key поле отсутствует.
+	NextEventId *openapi_types.UUID `json:"next_event_id"`
 }
 
 // GetVaccinationRequest defines model for GetVaccinationRequest.
@@ -1384,6 +1389,12 @@ type UpdateVaccinationRequest struct {
 	EventTime *string             `json:"event_time"`
 	Name      *string             `json:"name,omitempty"`
 	NextDate  *openapi_types.Date `json:"next_date"`
+}
+
+// UpdateVaccinationResponse defines model for UpdateVaccinationResponse.
+type UpdateVaccinationResponse struct {
+	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
+	NextEventId         *openapi_types.UUID `json:"next_event_id"`
 }
 
 // UpdateVetVisitRequest defines model for UpdateVetVisitRequest.

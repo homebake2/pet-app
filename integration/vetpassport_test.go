@@ -52,7 +52,7 @@ func TestVaccination_CRUDHappyPath(t *testing.T) {
 	patch := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID, map[string]any{
 		"name": "Rabies (updated)",
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 
 	list2 := doRequest(t, http.MethodGet, "/pet/"+petID+"/vaccinations", nil, tokens.AccessToken)
 	list2.decode(t, &listBody)
@@ -647,7 +647,7 @@ func TestVaccination_LinkedEventLifecycle(t *testing.T) {
 		"add_event_on_administered": true,
 		"event_label":               "Vaccination: Rabies v2",
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 
 	events = listPetEvents(t, tokens.AccessToken, petID)
 	require.Len(t, events, 1, "PATCH не должен создавать второе событие")
@@ -661,14 +661,14 @@ func TestVaccination_LinkedEventLifecycle(t *testing.T) {
 		"add_event_on_next": true,
 		"event_time":        "10:00",
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	require.Len(t, listPetEvents(t, tokens.AccessToken, petID), 2)
 
 	// next_date: null очищает дату и удаляет напоминание на неё.
 	patch = doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID, map[string]any{
 		"next_date": nil,
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	events = listPetEvents(t, tokens.AccessToken, petID)
 	require.Len(t, events, 1)
 	require.Equal(t, eventID, events[0].ID)
@@ -695,7 +695,7 @@ func TestVaccination_LinkedEventLifecycle(t *testing.T) {
 		"add_event_on_administered": true,
 		"event_time":                "08:00",
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	events = listPetEvents(t, tokens.AccessToken, petID)
 	require.Len(t, events, 1)
 	require.NotEqual(t, eventID, events[0].ID)
@@ -743,7 +743,7 @@ func TestVetPassport_LinkedEventsUseClientTimeZone(t *testing.T) {
 			patch := doRequest(t, http.MethodPatch, "/vaccinations/"+vaccination.ID+"?tz="+tc.tz, map[string]any{
 				"administered_date": "2024-02-10",
 			}, tokens.AccessToken)
-			require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+			require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 			events = listPetEvents(t, tokens.AccessToken, petID)
 			require.Len(t, events, 1)
 			require.Equal(t, tc.vaccinationMoved, events[0].Date)
