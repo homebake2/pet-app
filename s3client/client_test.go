@@ -1,6 +1,8 @@
 package s3client
 
 import (
+	"context"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -50,5 +52,30 @@ func TestPresignGetURL_CacheExpires(t *testing.T) {
 
 	if _, ok := c.cachedGetURL(objectKey); ok {
 		t.Fatalf("expected cache miss for expired entry")
+	}
+}
+
+// TestPresignGetURL_SetsResponseCacheControl проверяет, что подписанная
+// ссылка просит S3 вернуть Cache-Control, позволяющий клиентскому кэшу не
+// скачивать картинку повторно.
+func TestPresignGetURL_SetsResponseCacheControl(t *testing.T) {
+	c := New(Config{
+		Endpoint:       "https://s3.example.com",
+		KeyID:          "key",
+		ApplicationKey: "secret",
+		Bucket:         "bucket",
+		Region:         "us-east-1",
+	})
+
+	got, err := c.PresignGetURL(context.Background(), "pets/photo-1.jpg")
+	if err != nil {
+		t.Fatalf("PresignGetURL: %v", err)
+	}
+	parsed, err := url.Parse(got)
+	if err != nil {
+		t.Fatalf("parse URL: %v", err)
+	}
+	if cc := parsed.Query().Get("response-cache-control"); cc != GetResponseCacheControl {
+		t.Fatalf("response-cache-control = %q, want %q", cc, GetResponseCacheControl)
 	}
 }

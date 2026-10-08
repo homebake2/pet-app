@@ -48,6 +48,10 @@ const (
 // просто перестаёт запрашиваться.
 const GetURLCacheTTL = DownloadURLTTL
 
+// GetResponseCacheControl — значение Cache-Control, которое S3 вернёт в
+// ответе на presigned GET (параметр response-cache-control).
+const GetResponseCacheControl = "private, max-age=604800, immutable"
+
 // Config — параметры доступа к S3-совместимому хранилищу. Значения приходят
 // из переменных окружения (см. ConfigFromEnv), никогда не хранятся в
 // репозитории и никогда не передаются клиенту.
@@ -166,6 +170,11 @@ func (c *Client) PresignGetURL(ctx context.Context, objectKey string) (url strin
 	req, err := c.presign.PresignGetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(c.bucket),
 		Key:    aws.String(objectKey),
+		// Объект по objectKey неизменяем (замена файла создаёт новый
+		// ключ), поэтому клиентский HTTP/image-кэш может держать ответ
+		// без повторных скачиваний — иначе исходящий трафик S3 расходуется
+		// на каждый показ картинки.
+		ResponseCacheControl: aws.String(GetResponseCacheControl),
 	}, s3.WithPresignExpires(DownloadURLTTL))
 	if err != nil {
 		return "", err
