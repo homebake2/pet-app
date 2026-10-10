@@ -50,11 +50,19 @@ func expectPetBelongsToUser(mock sqlmock.Sqlmock, belongs bool) {
 
 const vaccinationsPath = "/pet/" + testPetID + "/vaccinations"
 
+// expectVaccinationFactInsert — ожидание вставки факта на дату введения:
+// факт создаётся при каждом создании прививки.
+func expectVaccinationFactInsert(mock sqlmock.Sqlmock) {
+	mock.ExpectQuery(`INSERT INTO event`).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testAdministeredEventID))
+}
+
 func TestCreateVaccinationHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	expectPetOwnedForCreate(mock)
 	mock.ExpectBegin()
+	expectVaccinationFactInsert(mock)
 	mock.ExpectQuery(`INSERT INTO vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("44444444-4444-4444-4444-444444444444"))
 	mock.ExpectCommit()
@@ -70,7 +78,8 @@ func TestCreateVaccinationHandler_Success(t *testing.T) {
 	var resp models.VaccinationCreatedResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "44444444-4444-4444-4444-444444444444", resp.ID)
-	assert.Nil(t, resp.AdministeredEventID)
+	require.NotNil(t, resp.AdministeredEventID)
+	assert.Equal(t, testAdministeredEventID, *resp.AdministeredEventID)
 	assert.Nil(t, resp.NextPlanID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -244,10 +253,9 @@ func TestCreateVaccinationHandler_FutureAdministeredFactRejected(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectRollback()
 
-	addEvent := true
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, vaccinationsPath+"?tz=UTC", models.CreateVaccinationRequest{
-		Name: "Rabies", AdministeredDate: "2098-01-01", AddEventOnAdministered: &addEvent,
+		Name: "Rabies", AdministeredDate: "2098-01-01",
 	}, true)
 	CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
 
@@ -261,6 +269,7 @@ func TestCreateVaccinationHandler_PastReminderRejected(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	expectPetOwnedForCreate(mock)
 	mock.ExpectBegin()
+	expectVaccinationFactInsert(mock)
 	mock.ExpectQuery(`INSERT INTO vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
 	mock.ExpectRollback()
@@ -285,6 +294,7 @@ func TestCreateVaccinationHandler_ReminderCreatesPlan(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	expectPetOwnedForCreate(mock)
 	mock.ExpectBegin()
+	expectVaccinationFactInsert(mock)
 	mock.ExpectQuery(`INSERT INTO vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
 	mock.ExpectExec(`INSERT INTO reminder_plan`).
@@ -301,10 +311,10 @@ func TestCreateVaccinationHandler_ReminderCreatesPlan(t *testing.T) {
 
 	addReminder := true
 	nextDate := "2098-02-01"
-	eventTime := "09:30"
+	nextTime := "09:30"
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, vaccinationsPath+"?tz=Europe/Moscow", models.CreateVaccinationRequest{
-		Name: "Rabies", AdministeredDate: "2024-01-01", NextDate: &nextDate, AddReminderOnNext: &addReminder, EventTime: &eventTime,
+		Name: "Rabies", AdministeredDate: "2024-01-01", NextDate: &nextDate, AddReminderOnNext: &addReminder, NextTime: &nextTime,
 	}, true)
 	CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
 
@@ -313,7 +323,7 @@ func TestCreateVaccinationHandler_ReminderCreatesPlan(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, testVaccinationID, resp.ID)
 	assert.NotNil(t, resp.NextPlanID)
-	assert.Nil(t, resp.AdministeredEventID)
+	assert.NotNil(t, resp.AdministeredEventID)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -330,12 +340,11 @@ func TestCreateVaccinationHandler_FactInClientTimeZone(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
 	mock.ExpectCommit()
 
-	addEvent := true
-	eventTime := "09:30"
+	administeredTime := "09:30"
 	label := "Vaccination: Rabies"
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, vaccinationsPath+"?tz=Europe/Moscow", models.CreateVaccinationRequest{
-		Name: "Rabies", AdministeredDate: "2024-01-01", AddEventOnAdministered: &addEvent, EventTime: &eventTime, EventLabel: &label,
+		Name: "Rabies", AdministeredDate: "2024-01-01", AdministeredTime: &administeredTime, EventLabel: &label,
 	}, true)
 	CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
 
@@ -1188,6 +1197,9 @@ func TestVetPassportCreate_IdempotencyKey_FirstRequestStoresKey(t *testing.T) {
 			if c.transactional {
 				mock.ExpectBegin()
 			}
+			if c.table == "vaccination" {
+				expectVaccinationFactInsert(mock)
+			}
 			mock.ExpectQuery(`INSERT INTO ` + c.table + ` \(.*idempotency_key\)`).
 				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("44444444-4444-4444-4444-444444444444"))
 			if c.transactional {
@@ -1241,6 +1253,9 @@ func TestVetPassportCreate_IdempotencyKey_RaceReturnsExisting(t *testing.T) {
 			mock.ExpectQuery(lookup).WillReturnError(sql.ErrNoRows)
 			if c.transactional {
 				mock.ExpectBegin()
+			}
+			if c.table == "vaccination" {
+				expectVaccinationFactInsert(mock)
 			}
 			mock.ExpectQuery(`INSERT INTO ` + c.table).WillReturnError(&pq.Error{Code: "23505"})
 			if c.transactional {

@@ -423,16 +423,6 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле administered_event_local_id прививки не совпадает ни с одним local_id событий запроса")
 			return
 		}
-		if (v.AdministeredEventLocalID == nil || *v.AdministeredEventLocalID == "") && v.AddEventOnAdministered != nil && *v.AddEventOnAdministered {
-			// Факт на дату введения создаётся при переносе: у переноса нет
-			// часового пояса, поэтому момент трактуется как UTC; он не может
-			// быть в будущем (правило факта).
-			date, _ := parseDateOnly(v.AdministeredDate)
-			if msg := validateFactDate(combineDateAndTime(date, v.EventTime, time.UTC)); msg != "" {
-				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Дата введения вакцинации не может быть в будущем")
-				return
-			}
-		}
 	}
 
 	diseaseLocalIDs := make(map[string]bool, len(req.Diseases))

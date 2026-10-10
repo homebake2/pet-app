@@ -116,14 +116,16 @@ type VaccinationDB struct {
 
 // CreateVaccinationRequest — тело запроса POST /pet/{id}/vaccinations.
 type CreateVaccinationRequest struct {
-	Name                   string  `json:"name"`
-	AdministeredDate       string  `json:"administered_date"`
-	NextDate               *string `json:"next_date,omitempty"`
-	AddEventOnAdministered *bool   `json:"add_event_on_administered,omitempty"`
-	AddReminderOnNext      *bool   `json:"add_reminder_on_next,omitempty"`
-	// EventTime — время суток для создаваемых записей; не хранится в самой
-	// прививке (см. описание GetVaccinationRequest.event_time в spec.json).
-	EventTime *string `json:"event_time,omitempty"`
+	Name              string  `json:"name"`
+	AdministeredDate  string  `json:"administered_date"`
+	NextDate          *string `json:"next_date,omitempty"`
+	AddReminderOnNext *bool   `json:"add_reminder_on_next,omitempty"`
+	// AdministeredTime — время суток факта на дату введения (факт создаётся
+	// всегда); NextTime — время суток напоминания на next_date. Не
+	// хранятся в самой прививке (см. описание GetVaccinationRequest в
+	// spec.json).
+	AdministeredTime *string `json:"administered_time,omitempty"`
+	NextTime         *string `json:"next_time,omitempty"`
 	// EventLabel — опциональная, уже локализованная клиентом подпись
 	// создаваемых записей (value.label, обрезается сервером до 50 рун). Если
 	// не передана — "Вакцинация: " + name. Не хранится в самой прививке.
@@ -131,15 +133,15 @@ type CreateVaccinationRequest struct {
 }
 
 // UpdateVaccinationRequest — тело запроса PATCH /vaccinations/{id}. Nullable
-// строковые поля (next_date, event_time) очищаются передачей пустой строки
+// строковые поля (next_date, next_time) очищаются передачей пустой строки
 // "" — тем же соглашением, что и UpdateEventRequest.Notes.
 type UpdateVaccinationRequest struct {
-	Name                   *string `json:"name,omitempty"`
-	AdministeredDate       *string `json:"administered_date,omitempty"`
-	NextDate               *string `json:"next_date,omitempty"`
-	AddEventOnAdministered *bool   `json:"add_event_on_administered,omitempty"`
-	AddReminderOnNext      *bool   `json:"add_reminder_on_next,omitempty"`
-	EventTime              *string `json:"event_time,omitempty"`
+	Name              *string `json:"name,omitempty"`
+	AdministeredDate  *string `json:"administered_date,omitempty"`
+	NextDate          *string `json:"next_date,omitempty"`
+	AddReminderOnNext *bool   `json:"add_reminder_on_next,omitempty"`
+	AdministeredTime  *string `json:"administered_time,omitempty"`
+	NextTime          *string `json:"next_time,omitempty"`
 	// EventLabel — см. CreateVaccinationRequest.EventLabel.
 	EventLabel *string `json:"event_label,omitempty"`
 }

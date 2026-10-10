@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"myauthservice/models"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -282,7 +281,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			err = fmt.Errorf("import: pet_local_id %q не найден среди перенесённых питомцев (vaccination)", v.PetLocalID)
 			return result, err
 		}
-		administeredEventID, lookupErr := importVaccinationEventID(tx, petID, v.AdministeredEventLocalID, eventLocalIDToServerID, v.AddEventOnAdministered, v.AdministeredDate, v.EventTime, v.Name)
+		administeredEventID, lookupErr := importVaccinationEventID(v.AdministeredEventLocalID, eventLocalIDToServerID)
 		if lookupErr != nil {
 			err = lookupErr
 			return result, err
@@ -474,56 +473,19 @@ func derefOrEmpty(s *string) string {
 }
 
 // importVaccinationEventID определяет administered_event_id импортируемой
-// прививки: если клиент передал administered_event_local_id — факт уже был
-// перенесён в этом же запросе (events[]), достаточно найти его серверный id;
-// иначе, если addEvent=true и date непусто — создаёт новый факт (type=other)
-// тем же способом, что и POST /pet/{id}/vaccinations
-// (см. handlers/vetpassport.go: createOtherEvent). Дублирование построения
-// value/date здесь небольшое и оправдано отсутствием доступа пакета
-// database к пакету handlers (см. слоение: handlers -> database, не
-// наоборот).
-func importVaccinationEventID(exec dbExecutor, petID uuid.UUID, eventLocalID *string, eventLocalIDToServerID map[string]uuid.UUID, addEvent *bool, date string, eventTime *string, label string) (uuid.NullUUID, error) {
-	if eventLocalID != nil && *eventLocalID != "" {
-		serverID, ok := eventLocalIDToServerID[*eventLocalID]
-		if !ok {
-			return uuid.NullUUID{}, fmt.Errorf("import: event_local_id %q не найден среди перенесённых событий (vaccination)", *eventLocalID)
-		}
-		return uuid.NullUUID{UUID: serverID, Valid: true}, nil
-	}
-	if addEvent == nil || !*addEvent || date == "" {
+// прививки: факт на дату введения уже перенесён в этом же запросе
+// (events[]), достаточно найти его серверный id по
+// administered_event_local_id. Если ссылки нет (факт удалён на устройстве),
+// у прививки остаётся пустая ссылка — новый факт при переносе не создаётся.
+func importVaccinationEventID(eventLocalID *string, eventLocalIDToServerID map[string]uuid.UUID) (uuid.NullUUID, error) {
+	if eventLocalID == nil || *eventLocalID == "" {
 		return uuid.NullUUID{}, nil
 	}
-	parsedDate, err := time.Parse("2006-01-02", date)
-	if err != nil {
-		return uuid.NullUUID{}, err
+	serverID, ok := eventLocalIDToServerID[*eventLocalID]
+	if !ok {
+		return uuid.NullUUID{}, fmt.Errorf("import: event_local_id %q не найден среди перенесённых событий (vaccination)", *eventLocalID)
 	}
-	hh, mm, ss := 0, 0, 0
-	if eventTime != nil && *eventTime != "" {
-		parts := strings.Split(*eventTime, ":")
-		if len(parts) >= 2 {
-			fmt.Sscanf(parts[0], "%d", &hh)
-			fmt.Sscanf(parts[1], "%d", &mm)
-		}
-		if len(parts) == 3 {
-			fmt.Sscanf(parts[2], "%d", &ss)
-		}
-	}
-	dateTimeStr := fmt.Sprintf("%sT%02d:%02d:%02dZ", parsedDate.Format("2006-01-02"), hh, mm, ss)
-	value, err := json.Marshal(map[string]string{"label": truncateLabel(label, 50)})
-	if err != nil {
-		return uuid.NullUUID{}, err
-	}
-	req := models.CreateEventRequest{
-		PetID: petID.String(),
-		Date:  dateTimeStr,
-		Type:  "other",
-		Value: value,
-	}
-	eventID, err := insertEventWith(exec, petID, req, "")
-	if err != nil {
-		return uuid.NullUUID{}, err
-	}
-	return uuid.NullUUID{UUID: eventID, Valid: true}, nil
+	return uuid.NullUUID{UUID: serverID, Valid: true}, nil
 }
 
 // truncateLabel обрезает строку до maxLen рун — см.

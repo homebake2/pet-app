@@ -93,8 +93,8 @@ func isValidDateOnly(s string) bool {
 var timeOfDayRe = regexp.MustCompile(`^([01]\d|2[0-3]):([0-5]\d)(:([0-5]\d))?$`)
 
 // isValidTimeOfDay проверяет формат "HH:MM" или "HH:MM:SS" (OpenAPI
-// format=time), используемый event_time в GetVaccinationRequest/
-// GetMedicationRequest.
+// format=time), используемый administered_time/next_time в
+// GetVaccinationRequest.
 func isValidTimeOfDay(s string) bool {
 	return timeOfDayRe.MatchString(s)
 }
@@ -171,8 +171,8 @@ func vaccinationFactMoment(date time.Time, timeOfDay *string, loc *time.Location
 
 // createVaccinationFact создаёт факт type=other со значением
 // {"label": <label, обрезано до 50 рун>} на дату введения прививки —
-// побочный эффект POST/PATCH /pet/{id}/vaccinations при
-// add_event_on_administered=true. Ошибка возвращается вызывающему: создание
+// побочный эффект POST/PATCH /pet/{id}/vaccinations (факт создаётся
+// всегда). Ошибка возвращается вызывающему: создание
 // факта входит в основной контракт ответа (administered_event_id).
 func createVaccinationFact(exec database.Executor, petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
 	value, err := otherEventValue(label)
@@ -273,27 +273,25 @@ func rescheduleVaccinationReminderPlan(exec database.Executor, plan models.Remin
 }
 
 // syncVaccinationFact приводит факт прививки на дату введения в соответствие
-// с PATCH — см. «Вакцинации — Backend», раздел «Редактирование»: связь «один
-// флаг — одна запись», поэтому существующий факт обновляется на месте, а не
-// пересоздаётся.
+// с PATCH — см. «Вакцинации — Backend», раздел «Редактирование»: связь «одна
+// прививка — один факт», поэтому существующий факт обновляется на месте, а не
+// пересоздаётся. Факт есть всегда, пока есть дата введения:
 //
-//   - flag=false (явно) либо у прививки больше нет даты введения — связанный
-//     факт мягко удаляется, ссылка очищается;
-//   - flag=true и связанный факт существует (не удалён) — обновляются его
-//     дата/время и подпись; время суток, не переданное в этом запросе,
-//     сохраняется прежним (то, которое факт имеет в поясе loc);
-//   - flag=true, а связанного факта нет (или он уже удалён, например, из
-//     календаря) — создаётся новый;
-//   - flag не передан — факт не создаётся и не удаляется; если в запросе
-//     изменилась дата (dateChanged) или передано время, существующий факт
-//     переносится на новую дату/время.
+//   - связанного факта нет (или он удалён, например, из календаря) и в
+//     запросе переданы administered_date либо administered_time — создаётся
+//     новый;
+//   - факт существует и в запросе изменилась дата (dateChanged), передано
+//     время либо изменилась подпись (relabel) — обновляются его дата/время и
+//     подпись; время суток, не переданное в этом запросе, сохраняется прежним
+//     (то, которое факт имеет в поясе loc);
+//   - иначе факт не трогается.
 //
 // Итоговый момент факта не может быть позднее текущего (правило факта).
 // Дата и время суток трактуются как местное время пояса loc.
 //
 // Возвращает новое значение ссылки на факт для UpdateVaccinationWith, либо
 // nil, если ссылку менять не нужно.
-func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID uuid.NullUUID, flag *bool, date sql.NullTime, dateChanged bool, eventTime *string, loc *time.Location, label string) (*uuid.NullUUID, error) {
+func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID uuid.NullUUID, date sql.NullTime, dateChanged bool, administeredTime *string, relabel bool, loc *time.Location, label string) (*uuid.NullUUID, error) {
 	var existing *models.EventDB
 	if currentEventID.Valid {
 		event, err := database.GetEventByIDForUpdateWith(exec, currentEventID.UUID)
@@ -305,44 +303,26 @@ func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID
 		}
 	}
 
-	if flag == nil && existing == nil {
-		return nil, nil
-	}
-
-	wantEvent := date.Valid
-	if flag != nil {
-		wantEvent = *flag && date.Valid
-	}
-
-	if !wantEvent {
-		if existing != nil {
-			if err := database.DeleteEventWith(exec, existing.ID); err != nil && err != sql.ErrNoRows {
-				return nil, err
-			}
-		}
-		if currentEventID.Valid {
-			return &uuid.NullUUID{}, nil
-		}
-		return nil, nil
-	}
-
-	hasEventTime := eventTime != nil && *eventTime != ""
+	hasTime := administeredTime != nil && *administeredTime != ""
 
 	if existing == nil {
-		newEventID, err := createVaccinationFact(exec, petID, date.Time, eventTime, loc, label)
+		if !date.Valid || (!dateChanged && !hasTime) {
+			return nil, nil
+		}
+		newEventID, err := createVaccinationFact(exec, petID, date.Time, administeredTime, loc, label)
 		if err != nil {
 			return nil, err
 		}
 		return &uuid.NullUUID{UUID: newEventID, Valid: true}, nil
 	}
 
-	if flag == nil && !dateChanged && !hasEventTime {
+	if !dateChanged && !hasTime && !relabel {
 		return nil, nil
 	}
 
 	timeOfDay := existing.Date.In(loc).Format("15:04:05")
-	if hasEventTime {
-		timeOfDay = *eventTime
+	if hasTime {
+		timeOfDay = *administeredTime
 	}
 	dateTime, err := vaccinationFactMoment(date.Time, &timeOfDay, loc)
 	if err != nil {
@@ -350,7 +330,7 @@ func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID
 	}
 	dateTime = dateTime.UTC()
 	var value *json.RawMessage
-	if flag != nil {
+	if relabel {
 		v, err := otherEventValue(label)
 		if err != nil {
 			return nil, err
@@ -373,7 +353,7 @@ func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID
 //     ошибка);
 //   - add_reminder_on_next=true, настроек нет — создаются новые (момент
 //     обязан быть в будущем);
-//   - настройки есть и переданы next_date либо event_time — расписание
+//   - настройки есть и переданы next_date либо next_time — расписание
 //     переносится на новый момент (подпись при этом меняется только вместе с
 //     флагом true).
 //
@@ -408,14 +388,14 @@ func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccinat
 		return deleteExisting()
 	}
 
-	hasEventTime := req.EventTime != nil && *req.EventTime != ""
+	hasNextTime := req.NextTime != nil && *req.NextTime != ""
 	nextDateGiven := req.NextDate != nil && *req.NextDate != ""
 
 	if existing == nil {
 		if flag == nil || !*flag {
 			return nil, nil, nil
 		}
-		planID, err := createVaccinationReminderPlan(exec, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, req.EventTime, loc, tz, label, now)
+		planID, err := createVaccinationReminderPlan(exec, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, req.NextTime, loc, tz, label, now)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -432,9 +412,9 @@ func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccinat
 		}
 	}
 
-	if (nextDateGiven || hasEventTime) && effectiveNextDate.Valid {
-		timeOfDay := req.EventTime
-		if !hasEventTime && len(existing.Times) > 0 {
+	if (nextDateGiven || hasNextTime) && effectiveNextDate.Valid {
+		timeOfDay := req.NextTime
+		if !hasNextTime && len(existing.Times) > 0 {
 			t := existing.Times[0]
 			timeOfDay = &t
 		}
@@ -549,8 +529,11 @@ func validateCreateVaccinationRequest(req models.CreateVaccinationRequest) strin
 	if req.NextDate != nil && *req.NextDate != "" && !isValidDateOnly(*req.NextDate) {
 		return "Некорректный формат next_date, ожидается YYYY-MM-DD"
 	}
-	if req.EventTime != nil && *req.EventTime != "" && !isValidTimeOfDay(*req.EventTime) {
-		return "Некорректный формат event_time, ожидается HH:MM[:SS]"
+	if req.AdministeredTime != nil && *req.AdministeredTime != "" && !isValidTimeOfDay(*req.AdministeredTime) {
+		return "Некорректный формат administered_time, ожидается HH:MM[:SS]"
+	}
+	if req.NextTime != nil && *req.NextTime != "" && !isValidTimeOfDay(*req.NextTime) {
+		return "Некорректный формат next_time, ожидается HH:MM[:SS]"
 	}
 	if req.EventLabel != nil && utf8.RuneCountInString(*req.EventLabel) > models.VaccinationEventLabelMaxLen {
 		return "Поле event_label превышает допустимую длину"
@@ -636,19 +619,17 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	eventLabel := vaccinationEventLabel(req.EventLabel, req.Name)
 	now := time.Now().UTC()
 
-	// Факт на дату введения, прививка и настройки напоминания создаются в
-	// одной транзакции: проигравший гонку параллельных запросов с одним
+	// Факт на дату введения (создаётся всегда), прививка и настройки
+	// напоминания создаются в одной транзакции: проигравший гонку параллельных запросов с одним
 	// Idempotency-Key не оставляет после себя ни фактов, ни напоминаний.
 	var newID uuid.UUID
 	var administeredEventID, nextPlanID uuid.NullUUID
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		if req.AddEventOnAdministered != nil && *req.AddEventOnAdministered {
-			id, err := createVaccinationFact(tx, petID, administeredDate, req.EventTime, loc, eventLabel)
-			if err != nil {
-				return err
-			}
-			administeredEventID = uuid.NullUUID{UUID: id, Valid: true}
+		factID, err := createVaccinationFact(tx, petID, administeredDate, req.AdministeredTime, loc, eventLabel)
+		if err != nil {
+			return err
 		}
+		administeredEventID = uuid.NullUUID{UUID: factID, Valid: true}
 
 		id, err := database.InsertVaccinationWith(tx, petID, req, administeredEventID, idempotencyKey)
 		if err != nil {
@@ -658,7 +639,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 
 		if req.AddReminderOnNext != nil && *req.AddReminderOnNext && req.NextDate != nil && *req.NextDate != "" {
 			nextDate, _ := parseDateOnly(*req.NextDate)
-			planID, err := createVaccinationReminderPlan(tx, petID, newID, nextDate, req.EventTime, loc, tz, eventLabel, now)
+			planID, err := createVaccinationReminderPlan(tx, petID, newID, nextDate, req.NextTime, loc, tz, eventLabel, now)
 			if err != nil {
 				return err
 			}
@@ -770,8 +751,12 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат next_date, ожидается YYYY-MM-DD")
 		return
 	}
-	if req.EventTime != nil && *req.EventTime != "" && !isValidTimeOfDay(*req.EventTime) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат event_time, ожидается HH:MM[:SS]")
+	if req.AdministeredTime != nil && *req.AdministeredTime != "" && !isValidTimeOfDay(*req.AdministeredTime) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат administered_time, ожидается HH:MM[:SS]")
+		return
+	}
+	if req.NextTime != nil && *req.NextTime != "" && !isValidTimeOfDay(*req.NextTime) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат next_time, ожидается HH:MM[:SS]")
 		return
 	}
 	if req.EventLabel != nil && utf8.RuneCountInString(*req.EventLabel) > models.VaccinationEventLabelMaxLen {
@@ -813,7 +798,7 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 			return err
 		}
 
-		administeredLink, err := syncVaccinationFact(tx, locked.PetID, locked.AdministeredEventID, req.AddEventOnAdministered, effectiveAdministeredDate, req.AdministeredDate != nil, req.EventTime, loc, eventLabel)
+		administeredLink, err := syncVaccinationFact(tx, locked.PetID, locked.AdministeredEventID, effectiveAdministeredDate, req.AdministeredDate != nil, req.AdministeredTime, req.Name != nil || req.EventLabel != nil, loc, eventLabel)
 		if err != nil {
 			return err
 		}

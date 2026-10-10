@@ -1136,7 +1136,7 @@ func TestReminderPlan_VaccinationSourceRules(t *testing.T) {
 
 	createVac := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
 		"name": "Rabies", "administered_date": "2024-01-01", "next_date": futureDate(30),
-		"add_reminder_on_next": true, "event_time": "09:00",
+		"add_reminder_on_next": true, "next_time": "09:00",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, createVac.status, "%s", createVac.body)
 	var vac struct {
@@ -1190,7 +1190,9 @@ func TestReminderPlan_VaccinationSourceRules(t *testing.T) {
 	list.decode(t, &listBody)
 	require.Nil(t, listBody.Items[0].NextDate)
 	require.Nil(t, listBody.Items[0].NextPlanID)
-	require.Len(t, listPetEvents(t, tokens.AccessToken, petID), 1)
+	// Факт на дату введения (создаётся вместе с прививкой) и факт отметки
+	// «выполнено».
+	require.Len(t, listPetEvents(t, tokens.AccessToken, petID), 2)
 }
 
 // --- Удаление питомца ---

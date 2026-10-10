@@ -1059,7 +1059,7 @@ type GetUpcomingRemindersResponse struct {
 
 // GetVaccinationIdResponseRequest defines model for GetVaccinationIdResponseRequest.
 type GetVaccinationIdResponseRequest struct {
-	// AdministeredEventId Id факта, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует.
+	// AdministeredEventId Id факта на дату введения; null, если факт был удалён (например, из календаря). Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует.
 	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
 	Id                  openapi_types.UUID  `json:"id"`
 
@@ -1069,20 +1069,20 @@ type GetVaccinationIdResponseRequest struct {
 
 // GetVaccinationRequest defines model for GetVaccinationRequest.
 type GetVaccinationRequest struct {
-	// AddEventOnAdministered Если true — сервер дополнительно создаёт факт (событие type=other) на дату введения (administered_date) с подписью event_label (по умолчанию "Вакцинация: " + name). Момент факта не может быть позднее текущего — иначе 400.
-	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
-
 	// AddReminderOnNext Если true и передан next_date — сервер дополнительно создаёт напоминание на дату next_date (настройки с source=vaccination и одним напоминанием). Момент напоминания обязан быть строго в будущем — иначе 400.
 	AddReminderOnNext *bool              `json:"add_reminder_on_next,omitempty"`
 	AdministeredDate  openapi_types.Date `json:"administered_date"`
 
-	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
-	EventLabel *string `json:"event_label"`
+	// AdministeredTime Время суток факта на дату введения (administered_date); если не передано — 00:00. Момент факта не может быть позднее текущего — иначе 400. Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	AdministeredTime *string `json:"administered_time"`
 
-	// EventTime Время суток для создаваемых записей (факт и напоминание). Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz.
-	EventTime *string             `json:"event_time"`
-	Name      string              `json:"name"`
-	NextDate  *openapi_types.Date `json:"next_date"`
+	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
+	EventLabel *string             `json:"event_label"`
+	Name       string              `json:"name"`
+	NextDate   *openapi_types.Date `json:"next_date"`
+
+	// NextTime Время суток напоминания на next_date; если не передано — 00:00. Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	NextTime *string `json:"next_time"`
 }
 
 // GetVaccinationResponse defines model for GetVaccinationResponse.
@@ -1382,13 +1382,11 @@ type ImportReminderPlan struct {
 
 // ImportVaccination defines model for ImportVaccination.
 type ImportVaccination struct {
-	AddEventOnAdministered *bool              `json:"add_event_on_administered,omitempty"`
-	AddReminderOnNext      *bool              `json:"add_reminder_on_next,omitempty"`
-	AdministeredDate       openapi_types.Date `json:"administered_date"`
+	AddReminderOnNext *bool              `json:"add_reminder_on_next,omitempty"`
+	AdministeredDate  openapi_types.Date `json:"administered_date"`
 
 	// AdministeredEventLocalId local_id связанного local-события (факта) из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки.
 	AdministeredEventLocalId *string `json:"administered_event_local_id"`
-	EventTime                *string `json:"event_time"`
 
 	// LocalId Клиентский UUID прививки в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
 	LocalId  string              `json:"local_id"`
@@ -1876,22 +1874,22 @@ type UpdateReminderPlanRequest struct {
 
 // UpdateVaccinationRequest defines model for UpdateVaccinationRequest.
 type UpdateVaccinationRequest struct {
-	// AddEventOnAdministered true — обновить существующий связанный факт на дату введения либо создать его, если факта нет/он удалён; false — мягко удалить связанный факт. Момент факта не может быть позднее текущего — иначе 400.
-	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
-
-	// AddReminderOnNext true — обновить существующее напоминание на next_date (при изменении next_date/event_time настройки переносятся на новый момент) либо создать его, если настроек нет/они удалены (без next_date напоминание не создаётся); false — жёстко удалить настройки напоминания. Новый момент обязан быть строго в будущем — иначе 400.
+	// AddReminderOnNext true — обновить существующее напоминание на next_date (при изменении next_date/next_time настройки переносятся на новый момент) либо создать его, если настроек нет/они удалены (без next_date напоминание не создаётся); false — жёстко удалить настройки напоминания. Новый момент обязан быть строго в будущем — иначе 400.
 	AddReminderOnNext *bool               `json:"add_reminder_on_next,omitempty"`
 	AdministeredDate  *openapi_types.Date `json:"administered_date,omitempty"`
 
+	// AdministeredTime Время суток факта на дату введения. Если не передано при обновлении существующего факта — сохраняется его прежнее время. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	AdministeredTime *string `json:"administered_time"`
+
 	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
 	EventLabel *string `json:"event_label"`
-
-	// EventTime Время суток связанных записей. Если не передано при обновлении существующей записи — сохраняется её прежнее время. Трактуется как местное время часового пояса из обязательного query-параметра tz.
-	EventTime *string `json:"event_time"`
-	Name      *string `json:"name,omitempty"`
+	Name       *string `json:"name,omitempty"`
 
 	// NextDate null (или пустая строка) очищает дату следующей вакцинации и жёстко удаляет настройки напоминания на неё.
 	NextDate *openapi_types.Date `json:"next_date"`
+
+	// NextTime Время суток напоминания на next_date. Если не передано при обновлении существующего напоминания — сохраняется его прежнее время. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	NextTime *string `json:"next_time"`
 }
 
 // UpdateVaccinationResponse defines model for UpdateVaccinationResponse.
@@ -1994,13 +1992,13 @@ type PostImportLocalDataParams struct {
 
 // PatchMedicationParams defines parameters for PatchMedication.
 type PatchMedicationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
 // PostMedicationRemindersParams defines parameters for PostMedicationReminders.
 type PostMedicationRemindersParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
@@ -2060,13 +2058,13 @@ type GetPetMedicationsParams struct {
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
 // PostMedicationParams defines parameters for PostMedication.
 type PostMedicationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
@@ -2090,7 +2088,7 @@ type GetPetVaccinationsParams struct {
 
 // PostVaccinationParams defines parameters for PostVaccination.
 type PostVaccinationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
@@ -2114,13 +2112,13 @@ type PostVetVisitParams struct {
 
 // PostReminderPlanParams defines parameters for PostReminderPlan.
 type PostReminderPlanParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
 // PatchReminderPlanParams defines parameters for PatchReminderPlan.
 type PatchReminderPlanParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
@@ -2141,7 +2139,7 @@ type PostReminderDetachParams struct {
 
 // PatchVaccinationParams defines parameters for PatchVaccination.
 type PatchVaccinationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 

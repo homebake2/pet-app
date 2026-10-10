@@ -135,9 +135,7 @@ type ImportVaccination struct {
 	Name                     string  `json:"name"`
 	AdministeredDate         string  `json:"administered_date"`
 	NextDate                 *string `json:"next_date,omitempty"`
-	AddEventOnAdministered   *bool   `json:"add_event_on_administered,omitempty"`
 	AddReminderOnNext        *bool   `json:"add_reminder_on_next,omitempty"`
-	EventTime                *string `json:"event_time,omitempty"`
 	AdministeredEventLocalID *string `json:"administered_event_local_id,omitempty"`
 	// NextReminderPlanLocalID — ссылка на элемент reminder_plans этого же
 	// запроса: уже созданные локально настройки напоминания на следующую
@@ -149,12 +147,10 @@ type ImportVaccination struct {
 // тип запроса, что принимает POST /pet/{id}/vaccinations.
 func (v ImportVaccination) ToCreateVaccinationRequest() CreateVaccinationRequest {
 	return CreateVaccinationRequest{
-		Name:                   v.Name,
-		AdministeredDate:       v.AdministeredDate,
-		NextDate:               v.NextDate,
-		AddEventOnAdministered: v.AddEventOnAdministered,
-		AddReminderOnNext:      v.AddReminderOnNext,
-		EventTime:              v.EventTime,
+		Name:              v.Name,
+		AdministeredDate:  v.AdministeredDate,
+		NextDate:          v.NextDate,
+		AddReminderOnNext: v.AddReminderOnNext,
 	}
 }
 

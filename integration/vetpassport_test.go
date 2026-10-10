@@ -115,9 +115,8 @@ func TestVaccination_ValidationErrors(t *testing.T) {
 	// Факт на дату введения не может быть в будущем; напоминание на
 	// следующую дату — в прошлом. Ни одна запись при 400 не создаётся.
 	futureFact := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
-		"name":                      "Rabies",
-		"administered_date":         futureDate(10),
-		"add_event_on_administered": true,
+		"name":              "Rabies",
+		"administered_date": futureDate(10),
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusBadRequest, futureFact.status, "%s", futureFact.body)
 	pastReminder := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
@@ -146,12 +145,12 @@ func TestVaccination_AutoCreatesFactAndReminder(t *testing.T) {
 	nextDate := futureDate(30)
 
 	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
-		"name":                      "Rabies",
-		"administered_date":         "2024-01-01",
-		"next_date":                 nextDate,
-		"add_event_on_administered": true,
-		"add_reminder_on_next":      true,
-		"event_time":                "09:30",
+		"name":                 "Rabies",
+		"administered_date":    "2024-01-01",
+		"next_date":            nextDate,
+		"add_reminder_on_next": true,
+		"administered_time":    "09:30",
+		"next_time":            "09:30",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
 	var created struct {
@@ -625,7 +624,7 @@ func TestVetPassport_IdempotencyKeyDeduplicatesCreate(t *testing.T) {
 		query    string
 		body     map[string]any
 	}{
-		{"vaccinations", "?tz=UTC", map[string]any{"name": "Rabies", "administered_date": "2024-01-01", "add_event_on_administered": true, "event_time": "09:00"}},
+		{"vaccinations", "?tz=UTC", map[string]any{"name": "Rabies", "administered_date": "2024-01-01", "administered_time": "09:00"}},
 		{"diseases", "", map[string]any{"name": "Otitis", "diagnosed_date": "2024-01-01", "status": "active"}},
 		{"vet-visits", "", map[string]any{"visit_date": "2024-01-01", "reason": "Checkup"}},
 		{"allergies", "", map[string]any{"allergen": "Chicken", "severity": "mild"}},
@@ -720,7 +719,7 @@ func listMedications(t *testing.T, token, petID string) []medicationBody {
 }
 
 // Связанный факт прививки: подпись с префиксом, PATCH обновляет его на месте
-// (а не создаёт новый), снятие флага и удаление прививки удаляют его.
+// (а не создаёт новый), удаление прививки удаляет его.
 // Напоминание на следующую дату — настройки (не событие): включается и
 // выключается флагом, очищается вместе с next_date.
 func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
@@ -729,10 +728,9 @@ func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
-		"name":                      "Rabies",
-		"administered_date":         "2024-01-01",
-		"add_event_on_administered": true,
-		"event_time":                "14:45",
+		"name":              "Rabies",
+		"administered_date": "2024-01-01",
+		"administered_time": "14:45",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
 	var created idResponse
@@ -745,13 +743,12 @@ func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
 	require.Equal(t, "Вакцинация: Rabies", events[0].Value.Label)
 	require.Equal(t, "2024-01-01T14:45:00Z", events[0].Date)
 
-	// Повторный PATCH с тем же флагом: тот же факт, новая дата, прежнее время
+	// Повторный PATCH: тот же факт, новая дата, прежнее время
 	// суток, локализованная клиентом подпись.
 	patch := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=UTC", map[string]any{
-		"name":                      "Rabies v2",
-		"administered_date":         "2024-02-10",
-		"add_event_on_administered": true,
-		"event_label":               "Vaccination: Rabies v2",
+		"name":              "Rabies v2",
+		"administered_date": "2024-02-10",
+		"event_label":       "Vaccination: Rabies v2",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 
@@ -776,7 +773,7 @@ func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
 	patch = doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=UTC", map[string]any{
 		"next_date":            nextDate,
 		"add_reminder_on_next": true,
-		"event_time":           "10:00",
+		"next_time":            "10:00",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	patch.decode(t, &linked)
@@ -818,12 +815,11 @@ func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
 	require.NotNil(t, listBody.Items[0].AdministeredEventID)
 	require.Equal(t, eventID, *listBody.Items[0].AdministeredEventID)
 
-	// Факт удалён из календаря — флаг=true создаёт его заново.
+	// Факт удалён из календаря — PATCH с administered_time создаёт его заново.
 	del := doRequest(t, http.MethodDelete, "/events/"+eventID, nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusNoContent, del.status, "%s", del.body)
 	patch = doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=UTC", map[string]any{
-		"add_event_on_administered": true,
-		"event_time":                "08:00",
+		"administered_time": "08:00",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	events = listPetEvents(t, tokens.AccessToken, petID)
@@ -836,7 +832,7 @@ func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
 	require.Empty(t, listPetEvents(t, tokens.AccessToken, petID))
 }
 
-// event_time прививки и times курса лекарств — местное время пояса tz:
+// administered_time/next_time прививки и times курса лекарств — местное время пояса tz:
 // факт и напоминания создаются/переносятся на соответствующий момент, а не на
 // то же время суток в UTC.
 func TestVetPassport_LinkedRecordsUseClientTimeZone(t *testing.T) {
@@ -856,10 +852,9 @@ func TestVetPassport_LinkedRecordsUseClientTimeZone(t *testing.T) {
 			petID := createPet(t, tokens.AccessToken, "Барсик")
 
 			createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz="+tc.tz, map[string]any{
-				"name":                      "Rabies",
-				"administered_date":         "2024-01-01",
-				"add_event_on_administered": true,
-				"event_time":                "09:30",
+				"name":              "Rabies",
+				"administered_date": "2024-01-01",
+				"administered_time": "09:30",
 			}, tokens.AccessToken)
 			require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
 			var vaccination idResponse
@@ -869,7 +864,7 @@ func TestVetPassport_LinkedRecordsUseClientTimeZone(t *testing.T) {
 			require.Len(t, events, 1)
 			require.Equal(t, tc.vaccinationFact, events[0].Date)
 
-			// Перенос даты без event_time сохраняет местное время суток.
+			// Перенос даты без administered_time сохраняет местное время суток.
 			patch := doRequest(t, http.MethodPatch, "/vaccinations/"+vaccination.ID+"?tz="+tc.tz, map[string]any{
 				"administered_date": "2024-02-10",
 			}, tokens.AccessToken)
