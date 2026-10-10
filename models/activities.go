@@ -12,10 +12,6 @@ type ActivityEvent struct {
 	// FilesCount — количество прикреплённых файлов события (0, если файлов
 	// нет), см. «Файлы события — Backend».
 	FilesCount int `json:"files_count"`
-	// NotificationsEnabled — сохранённое значение столбца
-	// event.notifications_enabled, см. «Модель значения события и реестр
-	// метрик».
-	NotificationsEnabled bool `json:"notifications_enabled"`
 }
 
 // ActivityDay represents events for a single day
@@ -31,16 +27,15 @@ type ActivitiesResponse struct {
 }
 
 // ActivitiesCalendarItem — один элемент items ответа GET /activities/calendar:
-// количество событий (по всем питомцам пользователя) за один календарный
-// день диапазона, без содержимого самих событий.
+// количество элементов (фактов и незавершённых напоминаний по всем питомцам
+// пользователя) за один календарный день диапазона, без их содержимого.
 type ActivitiesCalendarItem struct {
 	Date  string `json:"date"`
 	Count int    `json:"count"`
-	// HasNotifications — признак того, что хотя бы одно событие этого дня
-	// (по всем питомцам пользователя) имеет notifications_enabled = true.
-	// Производное агрегатное значение дня, а не поле конкретного события
-	// (см. «Просмотр календаря — Backend»).
-	HasNotifications bool `json:"has_notifications"`
+	// HasReminders — признак того, что в этот день есть хотя бы одно
+	// незавершённое напоминание. Производное агрегатное значение дня, а не
+	// поле конкретного элемента.
+	HasReminders bool `json:"has_reminders"`
 }
 
 // ActivitiesCalendarResponse — тело ответа GET /activities/calendar.
@@ -48,12 +43,21 @@ type ActivitiesCalendarResponse struct {
 	Items []ActivitiesCalendarItem `json:"items"`
 }
 
-// ActivitiesDayEventItem — один элемент items ответа GET /activities/day:
-// событие с теми же полями, что ActivityEvent, плюс pet_id/pet_name — в
-// отличие от GET /activities, здесь в одном списке смешаны события разных
-// питомцев пользователя (см. «Просмотр календаря — Backend»).
-type ActivitiesDayEventItem struct {
-	ID         string          `json:"id"`
+// Значения ActivitiesDayItem.ItemType.
+const (
+	ActivityItemTypeEvent    = "event"
+	ActivityItemTypeReminder = "reminder"
+)
+
+// ActivitiesDayItem — один элемент items ответа GET /activities/day: факт
+// (item_type=event) либо незавершённое напоминание (item_type=reminder). В отличие от
+// GET /activities, здесь в одном списке смешаны элементы разных питомцев
+// пользователя, поэтому у элемента есть pet_id/pet_name.
+type ActivitiesDayItem struct {
+	ItemType string `json:"item_type"`
+	ID       string `json:"id"`
+	// PlanID — настройки напоминания; только у item_type=reminder.
+	PlanID     *string         `json:"plan_id,omitempty"`
 	Date       string          `json:"date"`
 	Type       string          `json:"type"`
 	Notes      *string         `json:"notes,omitempty"`
@@ -61,21 +65,10 @@ type ActivitiesDayEventItem struct {
 	FilesCount int             `json:"files_count"`
 	PetID      string          `json:"pet_id"`
 	PetName    string          `json:"pet_name"`
-	// NotificationsEnabled — сохранённое значение столбца
-	// event.notifications_enabled, см. «Модель значения события и реестр
-	// метрик».
-	NotificationsEnabled bool `json:"notifications_enabled"`
 }
 
 // ActivitiesDayResponse — тело ответа GET /activities/day.
 type ActivitiesDayResponse struct {
-	Date  string                   `json:"date"`
-	Items []ActivitiesDayEventItem `json:"items"`
-}
-
-// ActivitiesNearestResponse — тело ответа GET /activities/nearest. Item равен
-// nil, если у пользователя нет ни одного предстоящего события (не ошибка) —
-// см. «Просмотр календаря — Backend», раздел D.
-type ActivitiesNearestResponse struct {
-	Item *ActivitiesDayEventItem `json:"item"`
+	Date  string              `json:"date"`
+	Items []ActivitiesDayItem `json:"items"`
 }

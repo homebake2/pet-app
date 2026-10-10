@@ -13,6 +13,12 @@ const (
 	AuthorizationScopes = "Authorization.Scopes"
 )
 
+// Defines values for ActivitiesItemTypeEnum.
+const (
+	Event    ActivitiesItemTypeEnum = "event"
+	Reminder ActivitiesItemTypeEnum = "reminder"
+)
+
 // Defines values for AllergySeverityEnum.
 const (
 	Mild     AllergySeverityEnum = "mild"
@@ -29,8 +35,8 @@ const (
 
 // Defines values for BannerFrequency.
 const (
-	EveryLaunch BannerFrequency = "every_launch"
-	Once        BannerFrequency = "once"
+	BannerFrequencyEveryLaunch BannerFrequency = "every_launch"
+	BannerFrequencyOnce        BannerFrequency = "once"
 )
 
 // Defines values for BannerLayout.
@@ -257,6 +263,21 @@ const (
 	Saltwater  PetWaterTypeEnum = "saltwater"
 )
 
+// Defines values for ReminderFrequencyTypeEnum.
+const (
+	ReminderFrequencyTypeEnumDaily        ReminderFrequencyTypeEnum = "daily"
+	ReminderFrequencyTypeEnumEveryNDays   ReminderFrequencyTypeEnum = "every_n_days"
+	ReminderFrequencyTypeEnumOnce         ReminderFrequencyTypeEnum = "once"
+	ReminderFrequencyTypeEnumSpecificDays ReminderFrequencyTypeEnum = "specific_days"
+)
+
+// Defines values for ReminderSourceEnum.
+const (
+	Manual      ReminderSourceEnum = "manual"
+	Medication  ReminderSourceEnum = "medication"
+	Vaccination ReminderSourceEnum = "vaccination"
+)
+
 // Defines values for LanguageCode.
 const (
 	LanguageCodeEn LanguageCode = "en"
@@ -271,25 +292,29 @@ const (
 
 // ActivitiesCalendarItem defines model for ActivitiesCalendarItem.
 type ActivitiesCalendarItem struct {
+	// Count Количество элементов дня: фактов плюс незавершённых напоминаний.
 	Count int                `json:"count"`
 	Date  openapi_types.Date `json:"date"`
 
-	// HasNotifications Признак того, что хотя бы одно событие этого дня (по всем питомцам пользователя) имеет notifications_enabled = true. Производное агрегатное значение дня, а не поле конкретного события.
-	HasNotifications bool `json:"has_notifications"`
+	// HasReminders Признак того, что в этот день (по всем питомцам пользователя) есть хотя бы одно незавершённое напоминание. Производное агрегатное значение дня, а не поле конкретного элемента.
+	HasReminders bool `json:"has_reminders"`
 }
 
-// ActivitiesDayEventItem defines model for ActivitiesDayEventItem.
-type ActivitiesDayEventItem struct {
+// ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id — id настроек. У факта plan_id отсутствует.
+type ActivitiesDayItem struct {
 	Date       time.Time          `json:"date"`
 	FilesCount int                `json:"files_count"`
 	Id         openapi_types.UUID `json:"id"`
-	Notes      *string            `json:"notes,omitempty"`
 
-	// NotificationsEnabled Сохранённое значение столбца event.notifications_enabled, отдаётся как есть.
-	NotificationsEnabled bool               `json:"notifications_enabled"`
-	PetId                openapi_types.UUID `json:"pet_id"`
-	PetName              string             `json:"pet_name"`
-	Type                 GetEventEnum       `json:"type"`
+	// ItemType event — факт (уже произошедшее событие), reminder — незавершённое напоминание.
+	ItemType ActivitiesItemTypeEnum `json:"item_type"`
+	Notes    *string                `json:"notes,omitempty"`
+	PetId    openapi_types.UUID     `json:"pet_id"`
+	PetName  string                 `json:"pet_name"`
+
+	// PlanId Id настроек напоминания; присутствует только при item_type=reminder.
+	PlanId *openapi_types.UUID `json:"plan_id,omitempty"`
+	Type   GetEventEnum        `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -313,6 +338,9 @@ type ActivitiesDayEventItem struct {
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
+
+// ActivitiesItemTypeEnum event — факт (уже произошедшее событие), reminder — незавершённое напоминание.
+type ActivitiesItemTypeEnum string
 
 // AllergySeverityEnum defines model for AllergySeverityEnum.
 type AllergySeverityEnum string
@@ -377,6 +405,32 @@ type BannerSlide struct {
 
 // BannerTone Тональность оформления; null — нейтральная.
 type BannerTone string
+
+// CompleteReminderRequest defines model for CompleteReminderRequest.
+type CompleteReminderRequest struct {
+	// Done true — «выполнено» (создаётся факт), false — «не выполнено».
+	Done bool `json:"done"`
+}
+
+// CompleteReminderResponse defines model for CompleteReminderResponse.
+type CompleteReminderResponse struct {
+	// FactEventId Id факта, созданного при done=true; null при done=false.
+	FactEventId *openapi_types.UUID `json:"fact_event_id"`
+}
+
+// DetachReminderRequest Ровно одно из event и plan: оба или ни одного — 400. Для plan обязателен query-параметр tz.
+type DetachReminderRequest struct {
+	Event *GetEventRequest `json:"event,omitempty"`
+
+	// Plan Создание настроек напоминания: данные события (type/value/notes) и расписание. Поля, не относящиеся к выбранному frequency_type, не передаются.
+	Plan *ReminderPlanRequest `json:"plan,omitempty"`
+}
+
+// DetachReminderResponse Присутствует ровно одно из event и plan — то, что было передано в запросе.
+type DetachReminderResponse struct {
+	Event *GetEventIdResponseRequest `json:"event,omitempty"`
+	Plan  *ReminderPlanResponse      `json:"plan,omitempty"`
+}
 
 // DiseaseStatusEnum defines model for DiseaseStatusEnum.
 type DiseaseStatusEnum string
@@ -558,13 +612,8 @@ type GetActivitiesCalendarResponse struct {
 
 // GetActivitiesDayResponse defines model for GetActivitiesDayResponse.
 type GetActivitiesDayResponse struct {
-	Date  openapi_types.Date       `json:"date"`
-	Items []ActivitiesDayEventItem `json:"items"`
-}
-
-// GetActivitiesNearestResponse defines model for GetActivitiesNearestResponse.
-type GetActivitiesNearestResponse struct {
-	Item *ActivitiesDayEventItem `json:"item"`
+	Date  openapi_types.Date  `json:"date"`
+	Items []ActivitiesDayItem `json:"items"`
 }
 
 // GetActivitiesResponse defines model for GetActivitiesResponse.
@@ -652,15 +701,12 @@ type GetEventIdResponseRequest struct {
 	Date time.Time `json:"date"`
 
 	// Files Прикреплённые файлы события (фото и документы), в порядке position.
-	Files []EventFile        `json:"files"`
-	Id    openapi_types.UUID `json:"id"`
-	Notes *string            `json:"notes,omitempty"`
-
-	// NotificationsEnabled Сохранённое значение столбца event.notifications_enabled, отдаётся как есть.
-	NotificationsEnabled bool               `json:"notifications_enabled"`
-	PetId                openapi_types.UUID `json:"pet_id"`
-	PetName              string             `json:"pet_name"`
-	Type                 GetEventEnum       `json:"type"`
+	Files   []EventFile        `json:"files"`
+	Id      openapi_types.UUID `json:"id"`
+	Notes   *string            `json:"notes,omitempty"`
+	PetId   openapi_types.UUID `json:"pet_id"`
+	PetName string             `json:"pet_name"`
+	Type    GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -687,13 +733,11 @@ type GetEventIdResponseRequest struct {
 
 // GetEventRequest defines model for GetEventRequest.
 type GetEventRequest struct {
-	Date  time.Time `json:"date"`
-	Notes *string   `json:"notes,omitempty"`
-
-	// NotificationsEnabled Опционально, по умолчанию false. Допустимо true только если date строго в будущем относительно момента обработки запроса (см. «Добавление события — Backend»).
-	NotificationsEnabled *bool              `json:"notifications_enabled,omitempty"`
-	PetId                openapi_types.UUID `json:"pet_id"`
-	Type                 GetEventEnum       `json:"type"`
+	// Date Момент события (факта). Не позднее текущего момента UTC плюс допуск 5 минут — иначе 400 (см. «Добавление события — Backend»). Запланированные события создаются через POST /reminder-plans.
+	Date  time.Time          `json:"date"`
+	Notes *string            `json:"notes,omitempty"`
+	PetId openapi_types.UUID `json:"pet_id"`
+	Type  GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -726,10 +770,7 @@ type GetEventResponse struct {
 	FilesCount int                `json:"files_count"`
 	Id         openapi_types.UUID `json:"id"`
 	Notes      *string            `json:"notes,omitempty"`
-
-	// NotificationsEnabled Сохранённое значение столбца event.notifications_enabled, отдаётся как есть.
-	NotificationsEnabled bool         `json:"notifications_enabled"`
-	Type                 GetEventEnum `json:"type"`
+	Type       GetEventEnum       `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -806,10 +847,10 @@ type GetMedicationIdResponseRequest struct {
 
 // GetMedicationRequest defines model for GetMedicationRequest.
 type GetMedicationRequest struct {
-	// AddEvent Создать набор событий-напоминаний сразу при создании курса. Недопустимо при frequency_type=as_needed.
-	AddEvent *bool               `json:"add_event,omitempty"`
-	Dosage   string              `json:"dosage"`
-	EndDate  *openapi_types.Date `json:"end_date"`
+	// AddReminders Создать набор напоминаний сразу при создании курса. Недопустимо при frequency_type=as_needed.
+	AddReminders *bool               `json:"add_reminders,omitempty"`
+	Dosage       string              `json:"dosage"`
+	EndDate      *openapi_types.Date `json:"end_date"`
 
 	// FrequencyType Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
 	FrequencyType MedicationFrequencyTypeEnum `json:"frequency_type"`
@@ -829,9 +870,6 @@ type GetMedicationResponse struct {
 	// EndDate Дата окончания курса; null = без даты окончания (бессрочно). Всегда null при frequency_type=as_needed.
 	EndDate *openapi_types.Date `json:"end_date"`
 
-	// EventIds id уже созданных событий приёма препарата, в порядке дат приёма. Заполняется через POST /medications/{id}/events.
-	EventIds []openapi_types.UUID `json:"event_ids"`
-
 	// FilesCount Количество прикреплённых файлов курса лечения (0, если файлов нет).
 	FilesCount int `json:"files_count"`
 
@@ -843,10 +881,13 @@ type GetMedicationResponse struct {
 	IntervalDays *int   `json:"interval_days"`
 	Name         string `json:"name"`
 
-	// NextDose Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор событий (event_ids). null при frequency_type=as_needed или если весь расчитанный график уже в прошлом. Даты и times расписания трактуются как местное время часового пояса из query-параметра tz (по умолчанию UTC).
+	// NextDose Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор напоминаний (reminder_plan_id). null при frequency_type=as_needed или если весь рассчитанный график уже в прошлом. Даты и times расписания трактуются как местное время часового пояса из обязательного query-параметра tz.
 	NextDose *time.Time         `json:"next_dose"`
 	Note     *string            `json:"note"`
 	PetId    openapi_types.UUID `json:"pet_id"`
+
+	// ReminderPlanId id настроек напоминания набора приёмов; null, если набора нет или его настроек уже нет (все напоминания закрыты либо набор удалён). Признак «есть набор напоминаний» — reminder_plan_id не null.
+	ReminderPlanId *openapi_types.UUID `json:"reminder_plan_id"`
 
 	// StartDate Обязателен при frequency_type!=as_needed, иначе null.
 	StartDate *openapi_types.Date `json:"start_date"`
@@ -952,6 +993,11 @@ type GetPetProfileResponse struct {
 	Weight *float32 `json:"weight"`
 }
 
+// GetPetUpcomingRemindersResponse defines model for GetPetUpcomingRemindersResponse.
+type GetPetUpcomingRemindersResponse struct {
+	Items []PetUpcomingReminderItem `json:"items"`
+}
+
 // GetProfileRequest defines model for GetProfileRequest.
 type GetProfileRequest struct {
 	Email      *openapi_types.Email `json:"email,omitempty"`
@@ -997,29 +1043,34 @@ type GetShortInfoPetResponse struct {
 	Species  string  `json:"species"`
 }
 
+// GetUpcomingRemindersResponse defines model for GetUpcomingRemindersResponse.
+type GetUpcomingRemindersResponse struct {
+	Items []UpcomingReminderItem `json:"items"`
+}
+
 // GetVaccinationIdResponseRequest defines model for GetVaccinationIdResponseRequest.
 type GetVaccinationIdResponseRequest struct {
-	// AdministeredEventId Id события, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует.
+	// AdministeredEventId Id факта, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует.
 	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
 	Id                  openapi_types.UUID  `json:"id"`
 
-	// NextEventId Id события-напоминания на дату следующей вакцинации (add_event_on_next=true), иначе null. Событие создаётся с notifications_enabled=true, если его момент строго в будущем: системное уведомление планирует клиент под этим id. При повторе с тем же Idempotency-Key поле отсутствует.
-	NextEventId *openapi_types.UUID `json:"next_event_id"`
+	// NextPlanId Id настроек напоминания на дату следующей вакцинации (add_reminder_on_next=true), иначе null. Локальное уведомление клиент планирует по напоминаниям настроек. При повторе с тем же Idempotency-Key поле отсутствует.
+	NextPlanId *openapi_types.UUID `json:"next_plan_id"`
 }
 
 // GetVaccinationRequest defines model for GetVaccinationRequest.
 type GetVaccinationRequest struct {
-	// AddEventOnAdministered Если true — сервер дополнительно создаёт событие type=other на дату введения (administered_date) с подписью event_label (по умолчанию "Вакцинация: " + name).
+	// AddEventOnAdministered Если true — сервер дополнительно создаёт факт (событие type=other) на дату введения (administered_date) с подписью event_label (по умолчанию "Вакцинация: " + name). Момент факта не может быть позднее текущего — иначе 400.
 	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
 
-	// AddEventOnNext Если true и передан next_date — сервер дополнительно создаёт событие-напоминание на дату next_date.
-	AddEventOnNext   *bool              `json:"add_event_on_next,omitempty"`
-	AdministeredDate openapi_types.Date `json:"administered_date"`
+	// AddReminderOnNext Если true и передан next_date — сервер дополнительно создаёт напоминание на дату next_date (настройки с source=vaccination и одним напоминанием). Момент напоминания обязан быть строго в будущем — иначе 400.
+	AddReminderOnNext *bool              `json:"add_reminder_on_next,omitempty"`
+	AdministeredDate  openapi_types.Date `json:"administered_date"`
 
-	// EventLabel Опциональная, уже локализованная клиентом подпись связанных событий (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
+	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
 	EventLabel *string `json:"event_label"`
 
-	// EventTime Время суток для создаваемых событий (administered/next). Не хранится в самой прививке. Трактуется как местное время часового пояса из query-параметра tz (по умолчанию UTC).
+	// EventTime Время суток для создаваемых записей (факт и напоминание). Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	EventTime *string             `json:"event_time"`
 	Name      string              `json:"name"`
 	NextDate  *openapi_types.Date `json:"next_date"`
@@ -1029,7 +1080,7 @@ type GetVaccinationRequest struct {
 type GetVaccinationResponse struct {
 	AdministeredDate openapi_types.Date `json:"administered_date"`
 
-	// AdministeredEventId id события, связанного с этой прививкой на дату введения; null, если такое событие не создавалось.
+	// AdministeredEventId id факта, связанного с этой прививкой на дату введения; null, если факт не создавался.
 	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
 
 	// FilesCount Количество прикреплённых файлов прививки (0, если файлов нет).
@@ -1038,9 +1089,9 @@ type GetVaccinationResponse struct {
 	Name       string              `json:"name"`
 	NextDate   *openapi_types.Date `json:"next_date"`
 
-	// NextEventId id события-напоминания о следующей прививке; null, если такое событие не создавалось.
-	NextEventId *openapi_types.UUID `json:"next_event_id"`
-	PetId       openapi_types.UUID  `json:"pet_id"`
+	// NextPlanId id настроек напоминания на дату следующей прививки; null, если напоминание не создавалось либо его настроек уже нет (напоминание удалено или отмечено в календаре).
+	NextPlanId *openapi_types.UUID `json:"next_plan_id"`
+	PetId      openapi_types.UUID  `json:"pet_id"`
 }
 
 // GetVetVisitIdResponseRequest defines model for GetVetVisitIdResponseRequest.
@@ -1100,14 +1151,12 @@ type ImportDisease struct {
 
 // ImportLocalDataEvent defines model for ImportLocalDataEvent.
 type ImportLocalDataEvent struct {
+	// Date Событие в импорте — факт: дата не позже текущего момента UTC плюс допуск 5 минут, как в POST /events.
 	Date time.Time `json:"date"`
 
 	// LocalId Клиентский UUID события в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
 	LocalId string  `json:"local_id"`
 	Notes   *string `json:"notes,omitempty"`
-
-	// NotificationsEnabled Опционально, валидируется как в POST /events (см. «Импорт локальных данных — Backend»).
-	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
 
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
 	PetLocalId string       `json:"pet_local_id"`
@@ -1173,13 +1222,18 @@ type ImportLocalDataRequest struct {
 	Allergies *[]ImportAllergy `json:"allergies,omitempty"`
 
 	// Diseases Опционально: переносимые заболевания. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
-	Diseases *[]ImportDisease       `json:"diseases,omitempty"`
-	Events   []ImportLocalDataEvent `json:"events"`
+	Diseases *[]ImportDisease `json:"diseases,omitempty"`
+
+	// Events События в импорте — факты: дата не позже текущего момента UTC плюс допуск 5 минут, как в POST /events.
+	Events []ImportLocalDataEvent `json:"events"`
 
 	// Medications Опционально: переносимые курсы лекарств. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
 	Medications *[]ImportMedication  `json:"medications,omitempty"`
 	Pets        []ImportLocalDataPet `json:"pets"`
 	Profile     *GetProfileRequest   `json:"profile,omitempty"`
+
+	// ReminderPlans Переносимые настройки напоминаний с их незавершёнными напоминаниями (может быть пустым). pet_local_id должен совпадать с одним из pets[].local_id этого же запроса. Источник настроек сервер определяет по ссылкам medications[].reminder_plan_local_id и vaccinations[].next_reminder_plan_local_id, остальные — manual.
+	ReminderPlans []ImportReminderPlan `json:"reminder_plans"`
 
 	// Vaccinations Опционально: переносимые прививки. pet_local_id должен совпадать с одним из pets[].local_id этого же запроса.
 	Vaccinations *[]ImportVaccination `json:"vaccinations,omitempty"`
@@ -1211,6 +1265,12 @@ type ImportLocalDataResponse struct {
 	PetsImported    int           `json:"pets_imported"`
 	ProfileImported bool          `json:"profile_imported"`
 
+	// ReminderPlans Сопоставление local_id -> серверный id для каждых перенесённых настроек, в порядке reminder_plans запроса; внутри — сопоставление для их напоминаний. Используется клиентом для фонового переноса файлов (reminder_plan_file и reminder_file).
+	ReminderPlans []ImportedReminderPlan `json:"reminder_plans"`
+
+	// ReminderPlansImported Количество перенесённых настроек напоминаний.
+	ReminderPlansImported int `json:"reminder_plans_imported"`
+
 	// Vaccinations Сопоставление local_id -> серверный id для каждой перенесённой прививки, в порядке vaccinations запроса. Используется клиентом для фонового переноса файлов прививки.
 	Vaccinations         []ImportedVaccination `json:"vaccinations"`
 	VaccinationsImported int                   `json:"vaccinations_imported"`
@@ -1225,9 +1285,6 @@ type ImportMedication struct {
 	Dosage  string              `json:"dosage"`
 	EndDate *openapi_types.Date `json:"end_date"`
 
-	// EventLocalIds local_id уже переданных в этом же запросе local-событий приёма (events[].local_id), для связывания без пересчёта расписания на сервере.
-	EventLocalIds *[]string `json:"event_local_ids,omitempty"`
-
 	// FrequencyType Вид частоты приёма лекарства (по образцу раздела «Лекарства» Apple Health).
 	FrequencyType MedicationFrequencyTypeEnum `json:"frequency_type"`
 	IntervalDays  *int                        `json:"interval_days"`
@@ -1238,19 +1295,89 @@ type ImportMedication struct {
 	Note    *string `json:"note"`
 
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
-	PetLocalId string                `json:"pet_local_id"`
-	StartDate  *openapi_types.Date   `json:"start_date"`
-	Times      *[]MedicationTimeSlot `json:"times"`
-	Weekdays   *[]int                `json:"weekdays"`
+	PetLocalId string `json:"pet_local_id"`
+
+	// ReminderPlanLocalId local_id настроек набора напоминаний из reminder_plans[] этого же запроса, для связывания без пересчёта расписания на сервере; после импорта настройкам записывается source=medication.
+	ReminderPlanLocalId *string               `json:"reminder_plan_local_id"`
+	StartDate           *openapi_types.Date   `json:"start_date"`
+	Times               *[]MedicationTimeSlot `json:"times"`
+	Weekdays            *[]int                `json:"weekdays"`
+}
+
+// ImportReminder defines model for ImportReminder.
+type ImportReminder struct {
+	// LocalId Клиентский UUID напоминания; ключ соответствия в ответе, не сохраняется.
+	LocalId string `json:"local_id"`
+
+	// Notes Собственная заметка напоминания (например, доза по времени приёма лекарства).
+	Notes    *string   `json:"notes,omitempty"`
+	RemindAt time.Time `json:"remind_at"`
+}
+
+// ImportReminderPlan defines model for ImportReminderPlan.
+type ImportReminderPlan struct {
+	// EndDate Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся.
+	EndDate *openapi_types.Date `json:"end_date"`
+
+	// FrequencyType once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней.
+	FrequencyType ReminderFrequencyTypeEnum `json:"frequency_type"`
+
+	// IntervalDays Интервал в днях. Обязателен, если и только если frequency_type=every_n_days.
+	IntervalDays *int `json:"interval_days"`
+
+	// LocalId Клиентский UUID настроек в локальном хранилище; временный ключ ссылки внутри запроса и ключ соответствия в ответе, не сохраняется.
+	LocalId string  `json:"local_id"`
+	Notes   *string `json:"notes,omitempty"`
+
+	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
+	PetLocalId string `json:"pet_local_id"`
+
+	// Reminders Незавершённые локальные напоминания. Переносятся как есть, расписание не пересчитывается, потолок 60 и правило «момент в будущем» не применяются. Закрытые напоминания не переносятся.
+	Reminders []ImportReminder `json:"reminders"`
+
+	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
+	StartDate openapi_types.Date `json:"start_date"`
+
+	// Times От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.
+	Times []string     `json:"times"`
+	Type  GetEventEnum `json:"type"`
+
+	// Tz Часовой пояс IANA расписания настроек. Обязателен.
+	Tz string `json:"tz"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value EventValue `json:"value"`
+
+	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
+	Weekdays *[]int `json:"weekdays"`
 }
 
 // ImportVaccination defines model for ImportVaccination.
 type ImportVaccination struct {
 	AddEventOnAdministered *bool              `json:"add_event_on_administered,omitempty"`
-	AddEventOnNext         *bool              `json:"add_event_on_next,omitempty"`
+	AddReminderOnNext      *bool              `json:"add_reminder_on_next,omitempty"`
 	AdministeredDate       openapi_types.Date `json:"administered_date"`
 
-	// AdministeredEventLocalId local_id связанного local-события из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки.
+	// AdministeredEventLocalId local_id связанного local-события (факта) из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки.
 	AdministeredEventLocalId *string `json:"administered_event_local_id"`
 	EventTime                *string `json:"event_time"`
 
@@ -1259,8 +1386,8 @@ type ImportVaccination struct {
 	Name     string              `json:"name"`
 	NextDate *openapi_types.Date `json:"next_date"`
 
-	// NextEventLocalId local_id связанного local-события-напоминания из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем next_event_id прививки.
-	NextEventLocalId *string `json:"next_event_local_id"`
+	// NextReminderPlanLocalId local_id настроек напоминания из reminder_plans[] этого же запроса; после импорта сервер свяжет их с полем next_plan_id прививки и запишет настройкам source=vaccination.
+	NextReminderPlanLocalId *string `json:"next_reminder_plan_local_id"`
 
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
 	PetLocalId string `json:"pet_local_id"`
@@ -1310,6 +1437,21 @@ type ImportedPet struct {
 	LocalId string             `json:"local_id"`
 }
 
+// ImportedReminder defines model for ImportedReminder.
+type ImportedReminder struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
+}
+
+// ImportedReminderPlan defines model for ImportedReminderPlan.
+type ImportedReminderPlan struct {
+	Id      openapi_types.UUID `json:"id"`
+	LocalId string             `json:"local_id"`
+
+	// Reminders Соответствие local_id -> серверный id для напоминаний этих настроек, в порядке запроса.
+	Reminders []ImportedReminder `json:"reminders"`
+}
+
 // ImportedVaccination defines model for ImportedVaccination.
 type ImportedVaccination struct {
 	Id      openapi_types.UUID `json:"id"`
@@ -1343,6 +1485,14 @@ type MedicationTimeSlot struct {
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
 
+// PetUpcomingReminderItem defines model for PetUpcomingReminderItem.
+type PetUpcomingReminderItem struct {
+	Id       openapi_types.UUID `json:"id"`
+	PlanId   openapi_types.UUID `json:"plan_id"`
+	RemindAt time.Time          `json:"remind_at"`
+	Type     GetEventEnum       `json:"type"`
+}
+
 // PetWaterTypeEnum Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
 type PetWaterTypeEnum string
 
@@ -1355,7 +1505,7 @@ type PostFilesUploadUrlRequest struct {
 	Filename *string            `json:"filename,omitempty"`
 	OwnerId  openapi_types.UUID `json:"owner_id"`
 
-	// OwnerType Тип владельца файла из реестра типов владельцев, например pet_photo, event_file, vaccination_file, disease_file, vet_visit_file, allergy_file, medication_file
+	// OwnerType Тип владельца файла из реестра типов владельцев, например pet_photo, event_file, vaccination_file, disease_file, vet_visit_file, allergy_file, medication_file, reminder_plan_file, reminder_file
 	OwnerType string `json:"owner_type"`
 }
 
@@ -1369,6 +1519,194 @@ type PostFilesUploadUrlResponse struct {
 
 	// UploadUrl Presigned PUT URL для прямой загрузки в S3-совместимое хранилище
 	UploadUrl string `json:"upload_url"`
+}
+
+// ReminderFrequencyTypeEnum once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней.
+type ReminderFrequencyTypeEnum string
+
+// ReminderPlanRequest Создание настроек напоминания: данные события (type/value/notes) и расписание. Поля, не относящиеся к выбранному frequency_type, не передаются.
+type ReminderPlanRequest struct {
+	// EndDate Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся.
+	EndDate *openapi_types.Date `json:"end_date"`
+
+	// FrequencyType once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней.
+	FrequencyType ReminderFrequencyTypeEnum `json:"frequency_type"`
+
+	// Id Идентификатор настроек, назначается клиентом (UUID v4). Служит ключом идемпотентности создания.
+	Id openapi_types.UUID `json:"id"`
+
+	// IntervalDays Интервал в днях. Обязателен, если и только если frequency_type=every_n_days.
+	IntervalDays *int               `json:"interval_days"`
+	Notes        *string            `json:"notes,omitempty"`
+	PetId        openapi_types.UUID `json:"pet_id"`
+
+	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
+	StartDate openapi_types.Date `json:"start_date"`
+
+	// Times От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.
+	Times []string     `json:"times"`
+	Type  GetEventEnum `json:"type"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value EventValue `json:"value"`
+
+	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
+	Weekdays *[]int `json:"weekdays"`
+}
+
+// ReminderPlanResponse defines model for ReminderPlanResponse.
+type ReminderPlanResponse struct {
+	// EndDate Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся.
+	EndDate *openapi_types.Date `json:"end_date"`
+
+	// Files Файлы настроек (owner_type=reminder_plan_file), в порядке position.
+	Files []EventFile `json:"files"`
+
+	// FrequencyType once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней.
+	FrequencyType ReminderFrequencyTypeEnum `json:"frequency_type"`
+
+	// FutureRemindersWithFilesCount Число незавершённых напоминаний с remind_at > now(), у которых есть собственные файлы; по нему клиент предупреждает о потере файлов при пересоздании расписания.
+	FutureRemindersWithFilesCount int                `json:"future_reminders_with_files_count"`
+	Id                            openapi_types.UUID `json:"id"`
+
+	// IntervalDays Интервал в днях. Обязателен, если и только если frequency_type=every_n_days.
+	IntervalDays *int               `json:"interval_days"`
+	Notes        *string            `json:"notes"`
+	PetId        openapi_types.UUID `json:"pet_id"`
+	PetName      string             `json:"pet_name"`
+
+	// Reminders Незавершённые напоминания настроек.
+	Reminders []ReminderRef `json:"reminders"`
+
+	// Source Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+	Source ReminderSourceEnum `json:"source"`
+
+	// SourceId medication.id либо vaccination.id; null при source=manual.
+	SourceId *openapi_types.UUID `json:"source_id"`
+
+	// SourceTitle Название лекарства либо вакцинации; null при source=manual.
+	SourceTitle *string `json:"source_title"`
+
+	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
+	StartDate openapi_types.Date `json:"start_date"`
+
+	// Times От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.
+	Times []string     `json:"times"`
+	Type  GetEventEnum `json:"type"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value EventValue `json:"value"`
+
+	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
+	Weekdays *[]int `json:"weekdays"`
+}
+
+// ReminderRef defines model for ReminderRef.
+type ReminderRef struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// RemindAt Момент напоминания в UTC.
+	RemindAt time.Time `json:"remind_at"`
+}
+
+// ReminderResponse defines model for ReminderResponse.
+type ReminderResponse struct {
+	// Files Собственные файлы напоминания (owner_type=reminder_file).
+	Files []EventFile        `json:"files"`
+	Id    openapi_types.UUID `json:"id"`
+
+	// Notes Собственная заметка напоминания, а при её отсутствии — заметка настроек.
+	Notes   *string            `json:"notes"`
+	PetId   openapi_types.UUID `json:"pet_id"`
+	PetName string             `json:"pet_name"`
+
+	// PlanFiles Файлы настроек.
+	PlanFiles []EventFile        `json:"plan_files"`
+	PlanId    openapi_types.UUID `json:"plan_id"`
+
+	// PlanSource Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+	PlanSource ReminderSourceEnum `json:"plan_source"`
+
+	// PlanSourceTitle Название лекарства либо вакцинации; null при plan_source=manual.
+	PlanSourceTitle *string `json:"plan_source_title"`
+
+	// PlanUnclosedCount Сколько незавершённых напоминаний у настроек, включая это; по нему клиент решает, предлагать ли выбор «это / все».
+	PlanUnclosedCount int          `json:"plan_unclosed_count"`
+	RemindAt          time.Time    `json:"remind_at"`
+	Type              GetEventEnum `json:"type"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value EventValue `json:"value"`
+}
+
+// ReminderSourceEnum Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+type ReminderSourceEnum string
+
+// UpcomingReminderItem defines model for UpcomingReminderItem.
+type UpcomingReminderItem struct {
+	Id       openapi_types.UUID `json:"id"`
+	PetId    openapi_types.UUID `json:"pet_id"`
+	PetName  string             `json:"pet_name"`
+	PlanId   openapi_types.UUID `json:"plan_id"`
+	RemindAt time.Time          `json:"remind_at"`
+	Type     GetEventEnum       `json:"type"`
 }
 
 // UpdateAllergyRequest defines model for UpdateAllergyRequest.
@@ -1390,13 +1728,11 @@ type UpdateDiseaseRequest struct {
 
 // UpdateEventRequest defines model for UpdateEventRequest.
 type UpdateEventRequest struct {
-	Date  *time.Time `json:"date,omitempty"`
-	Notes *string    `json:"notes,omitempty"`
-
-	// NotificationsEnabled Опционально, независимо от других полей. Итоговое сочетание (переданное значение либо уже сохранённое) проверяется против итоговой даты события (см. «Редактирование события — Backend»).
-	NotificationsEnabled *bool              `json:"notifications_enabled,omitempty"`
-	PetId                openapi_types.UUID `json:"pet_id"`
-	Type                 *GetEventEnum      `json:"type,omitempty"`
+	// Date Если передана, не может быть позднее текущего момента UTC плюс допуск 5 минут — иначе 400 (см. «Редактирование события — Backend»).
+	Date  *time.Time         `json:"date,omitempty"`
+	Notes *string            `json:"notes,omitempty"`
+	PetId openapi_types.UUID `json:"pet_id"`
+	Type  *GetEventEnum      `json:"type,omitempty"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -1432,11 +1768,11 @@ type UpdateMedicationRequest struct {
 	Name          *string                      `json:"name,omitempty"`
 	Note          *string                      `json:"note"`
 
-	// RegenerateEvents Если поля расписания меняются и у курса уже есть event_ids — true пересоздаёт события по новому расписанию (жёсткое удаление старых + создание новых), false/отсутствие — сохраняет существующие события как есть.
-	RegenerateEvents *bool                 `json:"regenerate_events,omitempty"`
-	StartDate        *openapi_types.Date   `json:"start_date"`
-	Times            *[]MedicationTimeSlot `json:"times"`
-	Weekdays         *[]int                `json:"weekdays"`
+	// RegenerateReminders Если поля расписания меняются и у курса есть набор напоминаний (reminder_plan_id) — true применяет новое расписание к настройкам набора (жёсткое удаление будущих незавершённых напоминаний + создание новых), false/отсутствие — сохраняет набор как есть. При переходе в frequency_type=as_needed при наличии набора обязателен true (набор удаляется целиком).
+	RegenerateReminders *bool                 `json:"regenerate_reminders,omitempty"`
+	StartDate           *openapi_types.Date   `json:"start_date"`
+	Times               *[]MedicationTimeSlot `json:"times"`
+	Weekdays            *[]int                `json:"weekdays"`
 }
 
 // UpdatePetProfileRequest defines model for UpdatePetProfileRequest.
@@ -1482,28 +1818,77 @@ type UpdatePetProfileRequest struct {
 	Weight *float32 `json:"weight"`
 }
 
+// UpdateReminderPlanRequest Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно. Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).
+type UpdateReminderPlanRequest struct {
+	// EndDate Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся.
+	EndDate *openapi_types.Date `json:"end_date"`
+
+	// FrequencyType once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней.
+	FrequencyType *ReminderFrequencyTypeEnum `json:"frequency_type,omitempty"`
+
+	// IntervalDays Интервал в днях. Обязателен, если и только если frequency_type=every_n_days.
+	IntervalDays *int `json:"interval_days"`
+
+	// Notes Пустая строка очищает значение. Для настроек с source != manual не принимается.
+	Notes *string `json:"notes,omitempty"`
+
+	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
+	StartDate *openapi_types.Date `json:"start_date,omitempty"`
+
+	// Times От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.
+	Times *[]string     `json:"times,omitempty"`
+	Type  *GetEventEnum `json:"type,omitempty"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value *EventValue `json:"value,omitempty"`
+
+	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
+	Weekdays *[]int `json:"weekdays"`
+}
+
 // UpdateVaccinationRequest defines model for UpdateVaccinationRequest.
 type UpdateVaccinationRequest struct {
-	// AddEventOnAdministered true — обновить существующее связанное событие на дату введения либо создать его, если связанного события нет/оно удалено; false — мягко удалить связанное событие.
+	// AddEventOnAdministered true — обновить существующий связанный факт на дату введения либо создать его, если факта нет/он удалён; false — мягко удалить связанный факт. Момент факта не может быть позднее текущего — иначе 400.
 	AddEventOnAdministered *bool `json:"add_event_on_administered,omitempty"`
 
-	// AddEventOnNext true — обновить существующее событие-напоминание на next_date либо создать его, если его нет/оно удалено (при отсутствии next_date событие не создаётся, существующее удаляется); false — мягко удалить связанное событие.
-	AddEventOnNext   *bool               `json:"add_event_on_next,omitempty"`
-	AdministeredDate *openapi_types.Date `json:"administered_date,omitempty"`
+	// AddReminderOnNext true — обновить существующее напоминание на next_date (при изменении next_date/event_time настройки переносятся на новый момент) либо создать его, если настроек нет/они удалены (без next_date напоминание не создаётся); false — жёстко удалить настройки напоминания. Новый момент обязан быть строго в будущем — иначе 400.
+	AddReminderOnNext *bool               `json:"add_reminder_on_next,omitempty"`
+	AdministeredDate  *openapi_types.Date `json:"administered_date,omitempty"`
 
-	// EventLabel Опциональная, уже локализованная клиентом подпись связанных событий (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
+	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
 	EventLabel *string `json:"event_label"`
 
-	// EventTime Время суток связанных событий. Если не передано при обновлении существующего события — сохраняется его прежнее время. Трактуется как местное время часового пояса из query-параметра tz (по умолчанию UTC).
-	EventTime *string             `json:"event_time"`
-	Name      *string             `json:"name,omitempty"`
-	NextDate  *openapi_types.Date `json:"next_date"`
+	// EventTime Время суток связанных записей. Если не передано при обновлении существующей записи — сохраняется её прежнее время. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	EventTime *string `json:"event_time"`
+	Name      *string `json:"name,omitempty"`
+
+	// NextDate null (или пустая строка) очищает дату следующей вакцинации и жёстко удаляет настройки напоминания на неё.
+	NextDate *openapi_types.Date `json:"next_date"`
 }
 
 // UpdateVaccinationResponse defines model for UpdateVaccinationResponse.
 type UpdateVaccinationResponse struct {
 	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
-	NextEventId         *openapi_types.UUID `json:"next_event_id"`
+	NextPlanId          *openapi_types.UUID `json:"next_plan_id"`
 }
 
 // UpdateVetVisitRequest defines model for UpdateVetVisitRequest.
@@ -1535,8 +1920,8 @@ type GetActivitiesParams struct {
 	From  openapi_types.Date `form:"from" json:"from"`
 	To    openapi_types.Date `form:"to" json:"to"`
 
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz TimeZone `form:"tz" json:"tz"`
 }
 
 // GetActivitiesCalendarParams defines parameters for GetActivitiesCalendar.
@@ -1544,16 +1929,16 @@ type GetActivitiesCalendarParams struct {
 	From openapi_types.Date `form:"from" json:"from"`
 	To   openapi_types.Date `form:"to" json:"to"`
 
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz TimeZone `form:"tz" json:"tz"`
 }
 
 // GetActivitiesDayParams defines parameters for GetActivitiesDay.
 type GetActivitiesDayParams struct {
 	Date openapi_types.Date `form:"date" json:"date"`
 
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz TimeZone `form:"tz" json:"tz"`
 }
 
 // GetBannerParams defines parameters for GetBanner.
@@ -1588,8 +1973,8 @@ type GetEventsStatsParams struct {
 	To     openapi_types.Date   `form:"to" json:"to"`
 	Bucket EventStatsBucketEnum `form:"bucket" json:"bucket"`
 
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *TimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz TimeZone `form:"tz" json:"tz"`
 }
 
 // PostImportLocalDataParams defines parameters for PostImportLocalData.
@@ -1600,14 +1985,14 @@ type PostImportLocalDataParams struct {
 
 // PatchMedicationParams defines parameters for PatchMedication.
 type PatchMedicationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
-// PostMedicationEventsParams defines parameters for PostMedicationEvents.
-type PostMedicationEventsParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+// PostMedicationRemindersParams defines parameters for PostMedicationReminders.
+type PostMedicationRemindersParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
 // PostPetParams defines parameters for PostPet.
@@ -1666,17 +2051,23 @@ type GetPetMedicationsParams struct {
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
 // PostMedicationParams defines parameters for PostMedication.
 type PostMedicationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// GetPetRemindersUpcomingParams defines parameters for GetPetRemindersUpcoming.
+type GetPetRemindersUpcomingParams struct {
+	// Limit Максимум элементов в ответе. По умолчанию 3.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // GetPetVaccinationsParams defines parameters for GetPetVaccinations.
@@ -1690,8 +2081,8 @@ type GetPetVaccinationsParams struct {
 
 // PostVaccinationParams defines parameters for PostVaccination.
 type PostVaccinationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
@@ -1712,10 +2103,37 @@ type PostVetVisitParams struct {
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
+// PostReminderPlanParams defines parameters for PostReminderPlan.
+type PostReminderPlanParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+}
+
+// PatchReminderPlanParams defines parameters for PatchReminderPlan.
+type PatchReminderPlanParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+}
+
+// GetRemindersUpcomingParams defines parameters for GetRemindersUpcoming.
+type GetRemindersUpcomingParams struct {
+	// Limit Максимум элементов в ответе. По умолчанию 64.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// PostReminderDetachParams defines parameters for PostReminderDetach.
+type PostReminderDetachParams struct {
+	// Tz Часовой пояс IANA. Обязателен, если в теле передан plan; неизвестное имя пояса и значение Local — 400.
+	Tz *string `form:"tz,omitempty" json:"tz,omitempty"`
+
+	// IdempotencyKey UUID v4, генерируется клиентом один раз на попытку замены; невалидный UUID v4 — 400.
+	IdempotencyKey openapi_types.UUID `json:"Idempotency-Key"`
+}
+
 // PatchVaccinationParams defines parameters for PatchVaccination.
 type PatchVaccinationParams struct {
-	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.
-	Tz *ScheduleTimeZone `form:"tz,omitempty" json:"tz,omitempty"`
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz ScheduleTimeZone `form:"tz" json:"tz"`
 }
 
 // PatchAllergyJSONRequestBody defines body for PatchAllergy for application/json ContentType.
@@ -1780,6 +2198,18 @@ type PostProfileJSONRequestBody = GetProfileRequest
 
 // PutProfileJSONRequestBody defines body for PutProfile for application/json ContentType.
 type PutProfileJSONRequestBody = GetProfileUpdateRequest
+
+// PostReminderPlanJSONRequestBody defines body for PostReminderPlan for application/json ContentType.
+type PostReminderPlanJSONRequestBody = ReminderPlanRequest
+
+// PatchReminderPlanJSONRequestBody defines body for PatchReminderPlan for application/json ContentType.
+type PatchReminderPlanJSONRequestBody = UpdateReminderPlanRequest
+
+// PostReminderCompleteJSONRequestBody defines body for PostReminderComplete for application/json ContentType.
+type PostReminderCompleteJSONRequestBody = CompleteReminderRequest
+
+// PostReminderDetachJSONRequestBody defines body for PostReminderDetach for application/json ContentType.
+type PostReminderDetachJSONRequestBody = DetachReminderRequest
 
 // PatchVaccinationJSONRequestBody defines body for PatchVaccination for application/json ContentType.
 type PatchVaccinationJSONRequestBody = UpdateVaccinationRequest

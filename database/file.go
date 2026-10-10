@@ -92,11 +92,18 @@ func ConfirmFileExactlyOne(id uuid.UUID, ownerType string, ownerID uuid.UUID) (r
 		}
 	}
 
+	// Объект S3 удаляется только если на него не осталось ссылок других
+	// строк file.
+	orphanKeys, err := unreferencedObjectKeysWith(tx, replacedObjectKeys)
+	if err != nil {
+		return nil, err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 
-	return replacedObjectKeys, nil
+	return orphanKeys, nil
 }
 
 // ConfirmFileUpToN подтверждает загрузку (confirmed_at = now()) для файла id
@@ -152,15 +159,147 @@ func ConfirmFileUpToN(id uuid.UUID, ownerType string, ownerID uuid.UUID, limit i
 	return false, nil
 }
 
-// DeleteFileByID удаляет строку file по id и возвращает её object_key для
-// best-effort удаления в S3. sql.ErrNoRows — file_id не найден (в т.ч. уже
-// удалён), см. «Удаление файла».
-func DeleteFileByID(id uuid.UUID) (objectKey string, err error) {
-	err = DB.QueryRow(`DELETE FROM file WHERE id = $1 RETURNING object_key`, id).Scan(&objectKey)
+// DeleteFileByID удаляет строку file по id и возвращает её object_key.
+// objectOrphaned=true означает, что после удаления ни одна другая строка
+// file не указывает на тот же объект (ссылочные строки file делят object_key,
+// см. CopyFilesAsReferencesWith) — только тогда вызывающему коду нужно
+// удалить объект в S3 (best-effort). sql.ErrNoRows — file_id не найден (в т.ч.
+// уже удалён), см. «Удаление файла».
+func DeleteFileByID(id uuid.UUID) (objectKey string, objectOrphaned bool, err error) {
+	tx, err := DB.Begin()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
-	return objectKey, nil
+	defer tx.Rollback()
+
+	err = tx.QueryRow(`DELETE FROM file WHERE id = $1 RETURNING object_key`, id).Scan(&objectKey)
+	if err != nil {
+		return "", false, err
+	}
+	orphans, err := unreferencedObjectKeysWith(tx, []string{objectKey})
+	if err != nil {
+		return "", false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return "", false, err
+	}
+	return objectKey, len(orphans) > 0, nil
+}
+
+// unreferencedObjectKeysWith возвращает из keys те ключи объектов S3, на
+// которые не осталось ни одной строки file: только такие объекты можно
+// удалять из хранилища.
+func unreferencedObjectKeysWith(exec dbExecutor, keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	rows, err := exec.Query(`
+		SELECT k FROM (SELECT DISTINCT unnest($1::text[]) AS k) keys
+		WHERE NOT EXISTS (SELECT 1 FROM file WHERE file.object_key = keys.k)
+	`, pq.Array(keys))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orphans []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		orphans = append(orphans, key)
+	}
+	return orphans, rows.Err()
+}
+
+// DeleteFilesByOwnersWith удаляет все строки file (в том числе
+// неподтверждённые) владельцев ownerIDs типа ownerType и возвращает ключи
+// объектов S3, на которые после удаления не осталось ни одной строки file:
+// вызывающий код удаляет их из хранилища после фиксации транзакции.
+func DeleteFilesByOwnersWith(exec dbExecutor, ownerType string, ownerIDs []uuid.UUID) ([]string, error) {
+	if len(ownerIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := exec.Query(`
+		DELETE FROM file WHERE owner_type = $1 AND owner_id = ANY($2) RETURNING object_key
+	`, ownerType, pq.Array(ownerIDs))
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	return unreferencedObjectKeysWith(exec, keys)
+}
+
+// FileOwnerRef — пара (owner_type, owner_id) источника файлов для
+// CopyFilesAsReferencesWith.
+type FileOwnerRef struct {
+	OwnerType string
+	OwnerID   uuid.UUID
+}
+
+// CopyFilesAsReferencesWith создаёт для владельца (targetType, targetID)
+// подтверждённые ссылочные строки file: по одной на каждый подтверждённый
+// файл источников sources (в порядке источников, внутри источника — по
+// position) с тем же object_key, content_type и filename и новым id. Объект в
+// S3 не создаётся и не читается. position назначается заново (0, 1, ...).
+// userID — владелец создаваемых строк (пользователь, которому принадлежит
+// новый владелец). Возвращает число созданных строк.
+func CopyFilesAsReferencesWith(exec dbExecutor, userID string, sources []FileOwnerRef, targetType string, targetID uuid.UUID) (int, error) {
+	position := 0
+	for _, src := range sources {
+		rows, err := exec.Query(`
+			SELECT object_key, content_type, filename FROM file
+			WHERE owner_type = $1 AND owner_id = $2 AND confirmed_at IS NOT NULL
+			ORDER BY position ASC
+		`, src.OwnerType, src.OwnerID)
+		if err != nil {
+			return 0, err
+		}
+		type fileRef struct {
+			objectKey, contentType string
+			filename               sql.NullString
+		}
+		var refs []fileRef
+		for rows.Next() {
+			var ref fileRef
+			if err := rows.Scan(&ref.objectKey, &ref.contentType, &ref.filename); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			refs = append(refs, ref)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		rows.Close()
+
+		for _, ref := range refs {
+			if _, err := exec.Exec(`
+				INSERT INTO file (id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
+			`, uuid.New(), targetType, targetID, userID, ref.objectKey, ref.contentType, ref.filename, position); err != nil {
+				return 0, err
+			}
+			position++
+		}
+	}
+	return position, nil
 }
 
 // GetConfirmedFileForOwner ищет единственную подтверждённую строку file для

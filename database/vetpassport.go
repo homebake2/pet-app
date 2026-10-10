@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 )
 
 // ---------------------------------------------------------------------------
@@ -68,14 +67,19 @@ func GetVetPassportEntityIDByIdempotencyKey(table VetPassportTable, petID uuid.U
 // Vaccination
 // ---------------------------------------------------------------------------
 
-func InsertVaccination(petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextEventID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
-	return insertVaccinationWith(DB, petID, req, administeredEventID, nextEventID, idempotencyKey)
+// InsertVaccinationWith вставляет прививку на произвольном dbExecutor
+// (обычно — внутри транзакции создания, где вместе с ней создаются факт на
+// дату введения и настройки напоминания). next_plan_id при создании пуст: id
+// прививки нужен настройкам как source_id, поэтому ссылка записывается
+// отдельно (SetVaccinationLinksWith).
+func InsertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
+	return insertVaccinationWith(exec, petID, req, administeredEventID, uuid.NullUUID{}, idempotencyKey)
 }
 
 // insertVaccinationWith — то же самое, что InsertVaccination, но принимает
 // произвольный dbExecutor: используется как для обычных запросов (DB), так
 // и внутри транзакции переноса локальных данных (см. ImportLocalData).
-func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextEventID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
+func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextPlanID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
 	administeredDate, err := time.Parse("2006-01-02", req.AdministeredDate)
 	if err != nil {
 		return uuid.Nil, err
@@ -92,10 +96,10 @@ func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVa
 
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO vaccination (pet_id, name, administered_date, next_date, administered_event_id, next_event_id, idempotency_key)
+		INSERT INTO vaccination (pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, idempotency_key)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id
-	`, petID, req.Name, administeredDate, nextDate, administeredEventID, nextEventID, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
+	`, petID, req.Name, administeredDate, nextDate, administeredEventID, nextPlanID, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertVaccination error:", err)
 		return uuid.Nil, err
@@ -105,7 +109,7 @@ func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVa
 
 func GetVaccinationsByPetID(petID uuid.UUID, limit, offset int) ([]models.VaccinationDB, error) {
 	rows, err := DB.Query(`
-		SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_event_id, deleted_at
+		SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, deleted_at
 		FROM vaccination
 		WHERE pet_id = $1 AND deleted_at IS NULL
 		ORDER BY administered_date DESC
@@ -119,7 +123,7 @@ func GetVaccinationsByPetID(petID uuid.UUID, limit, offset int) ([]models.Vaccin
 	var items []models.VaccinationDB
 	for rows.Next() {
 		var v models.VaccinationDB
-		if err := rows.Scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.NextDate, &v.AdministeredEventID, &v.NextEventID, &v.DeletedAt); err != nil {
+		if err := rows.Scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.NextDate, &v.AdministeredEventID, &v.NextPlanID, &v.DeletedAt); err != nil {
 			return nil, err
 		}
 		items = append(items, v)
@@ -128,23 +132,32 @@ func GetVaccinationsByPetID(petID uuid.UUID, limit, offset int) ([]models.Vaccin
 }
 
 func GetVaccinationByIDForUpdate(id uuid.UUID) (*models.VaccinationDB, error) {
-	var v models.VaccinationDB
-	err := DB.QueryRow(`
-		SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_event_id, deleted_at
+	return GetVaccinationByIDWith(DB, id, false)
+}
+
+// GetVaccinationByIDWith — GetVaccinationByIDForUpdate на произвольном
+// dbExecutor; lock=true блокирует строку до конца транзакции.
+func GetVaccinationByIDWith(exec dbExecutor, id uuid.UUID, lock bool) (*models.VaccinationDB, error) {
+	query := `
+		SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, deleted_at
 		FROM vaccination
-		WHERE id = $1 AND deleted_at IS NULL
-	`, id).Scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.NextDate, &v.AdministeredEventID, &v.NextEventID, &v.DeletedAt)
+		WHERE id = $1 AND deleted_at IS NULL`
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	var v models.VaccinationDB
+	err := exec.QueryRow(query, id).Scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.NextDate, &v.AdministeredEventID, &v.NextPlanID, &v.DeletedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &v, nil
 }
 
-// UpdateVaccination обновляет только переданные поля. administeredEventID/
-// nextEventID передаются non-nil только когда PATCH сам создал новое
-// связанное событие (add_event_on_administered/add_event_on_next=true) —
-// иначе существующие значения не трогаются.
-func UpdateVaccination(id uuid.UUID, req models.UpdateVaccinationRequest, administeredEventID, nextEventID *uuid.NullUUID) error {
+// UpdateVaccinationWith обновляет только переданные поля.
+// administeredEventID/nextPlanID передаются non-nil только когда PATCH
+// создал, заменил либо убрал связанную запись (в том числе Valid=false —
+// очистить ссылку) — иначе существующие значения не трогаются.
+func UpdateVaccinationWith(exec dbExecutor, id uuid.UUID, req models.UpdateVaccinationRequest, administeredEventID, nextPlanID *uuid.NullUUID) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -178,8 +191,8 @@ func UpdateVaccination(id uuid.UUID, req models.UpdateVaccinationRequest, admini
 	if administeredEventID != nil {
 		add("administered_event_id", *administeredEventID)
 	}
-	if nextEventID != nil {
-		add("next_event_id", *nextEventID)
+	if nextPlanID != nil {
+		add("next_plan_id", *nextPlanID)
 	}
 
 	if len(setParts) == 0 {
@@ -188,12 +201,39 @@ func UpdateVaccination(id uuid.UUID, req models.UpdateVaccinationRequest, admini
 
 	query := fmt.Sprintf(`UPDATE vaccination SET %s WHERE id = $%d`, strings.Join(setParts, ", "), argID)
 	args = append(args, id)
-	_, err := DB.Exec(query, args...)
+	_, err := exec.Exec(query, args...)
+	return err
+}
+
+// SetVaccinationLinksWith записывает ссылки прививки на связанные записи
+// (факт на дату введения и настройки напоминания); Valid=false очищает
+// ссылку.
+func SetVaccinationLinksWith(exec dbExecutor, id uuid.UUID, administeredEventID, nextPlanID uuid.NullUUID) error {
+	_, err := exec.Exec(`UPDATE vaccination SET administered_event_id = $1, next_plan_id = $2 WHERE id = $3`,
+		administeredEventID, nextPlanID, id)
+	return err
+}
+
+// SetVaccinationNextDateWith записывает next_date прививки (nil очищает
+// дату): дата напоминания, перенесённого из календаря, и очистка даты при
+// отметке напоминания «выполнено».
+func SetVaccinationNextDateWith(exec dbExecutor, id uuid.UUID, nextDate *time.Time) error {
+	var v sql.NullTime
+	if nextDate != nil {
+		v = sql.NullTime{Time: *nextDate, Valid: true}
+	}
+	_, err := exec.Exec(`UPDATE vaccination SET next_date = $1 WHERE id = $2`, v, id)
 	return err
 }
 
 func SoftDeleteVaccination(id uuid.UUID) error {
-	return softDeleteByID("vaccination", id)
+	return softDeleteByID(DB, "vaccination", id)
+}
+
+// SoftDeleteVaccinationWith — SoftDeleteVaccination на произвольном
+// dbExecutor.
+func SoftDeleteVaccinationWith(exec dbExecutor, id uuid.UUID) error {
+	return softDeleteByID(exec, "vaccination", id)
 }
 
 // CheckVaccinationFileOwnership — правило владения для owner_type =
@@ -308,7 +348,7 @@ func UpdateDisease(id uuid.UUID, req models.UpdateDiseaseRequest) error {
 }
 
 func SoftDeleteDisease(id uuid.UUID) error {
-	return softDeleteByID("disease", id)
+	return softDeleteByID(DB, "disease", id)
 }
 
 func CheckDiseaseFileOwnership(id uuid.UUID, userID string) (bool, error) {
@@ -424,7 +464,7 @@ func UpdateVetVisit(id uuid.UUID, req models.UpdateVetVisitRequest) error {
 }
 
 func SoftDeleteVetVisit(id uuid.UUID) error {
-	return softDeleteByID("vet_visit", id)
+	return softDeleteByID(DB, "vet_visit", id)
 }
 
 func CheckVetVisitFileOwnership(id uuid.UUID, userID string) (bool, error) {
@@ -551,7 +591,7 @@ func UpdateAllergy(id uuid.UUID, req models.UpdateAllergyRequest) error {
 }
 
 func SoftDeleteAllergy(id uuid.UUID) error {
-	return softDeleteByID("allergy", id)
+	return softDeleteByID(DB, "allergy", id)
 }
 
 func CheckAllergyFileOwnership(id uuid.UUID, userID string) (bool, error) {
@@ -564,6 +604,12 @@ func CheckAllergyFileOwnership(id uuid.UUID, userID string) (bool, error) {
 
 func InsertMedication(petID uuid.UUID, req models.CreateMedicationRequest, idempotencyKey string) (uuid.UUID, error) {
 	return insertMedicationWith(DB, petID, req, idempotencyKey)
+}
+
+// InsertMedicationWith — InsertMedication на произвольном dbExecutor
+// (внутри транзакции создания лекарства с набором напоминаний).
+func InsertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMedicationRequest, idempotencyKey string) (uuid.UUID, error) {
+	return insertMedicationWith(exec, petID, req, idempotencyKey)
 }
 
 func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMedicationRequest, idempotencyKey string) (uuid.UUID, error) {
@@ -602,8 +648,8 @@ func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMed
 
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO medication (pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note, idempotency_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '{}', $10, $11)
+		INSERT INTO medication (pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, note, idempotency_key)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		RETURNING id
 	`, petID, req.Name, req.Dosage, req.FrequencyType, weekdaysNS, intervalDays, timesNS, startDate, endDate, note, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
@@ -615,7 +661,7 @@ func insertMedicationWith(exec dbExecutor, petID uuid.UUID, req models.CreateMed
 
 // medicationSelectColumns — общий список колонок для GetMedicationsByPetID /
 // GetMedicationByIDForUpdate, порядок должен совпадать с scanMedicationRow.
-const medicationSelectColumns = `id, pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, event_ids, note, deleted_at, created_at`
+const medicationSelectColumns = `id, pet_id, name, dosage, frequency_type, weekdays, interval_days, times, start_date, end_date, reminder_plan_id, note, deleted_at, created_at`
 
 // scanMedicationRow сканирует одну строку medication (обёртка над
 // *sql.Row.Scan/*sql.Rows.Scan — обе сигнатуры совпадают) и разбирает
@@ -623,7 +669,7 @@ const medicationSelectColumns = `id, pet_id, name, dosage, frequency_type, weekd
 func scanMedicationRow(scan func(dest ...any) error) (models.MedicationDB, error) {
 	var m models.MedicationDB
 	var weekdaysNS, timesNS sql.NullString
-	err := scan(&m.ID, &m.PetID, &m.Name, &m.Dosage, &m.FrequencyType, &weekdaysNS, &m.IntervalDays, &timesNS, &m.StartDate, &m.EndDate, pq.Array(&m.EventIDs), &m.Note, &m.DeletedAt, &m.CreatedAt)
+	err := scan(&m.ID, &m.PetID, &m.Name, &m.Dosage, &m.FrequencyType, &weekdaysNS, &m.IntervalDays, &timesNS, &m.StartDate, &m.EndDate, &m.ReminderPlanID, &m.Note, &m.DeletedAt, &m.CreatedAt)
 	if err != nil {
 		return m, err
 	}
@@ -663,11 +709,20 @@ func GetMedicationsByPetID(petID uuid.UUID) ([]models.MedicationDB, error) {
 }
 
 func GetMedicationByIDForUpdate(id uuid.UUID) (*models.MedicationDB, error) {
-	row := DB.QueryRow(`
-		SELECT `+medicationSelectColumns+`
+	return GetMedicationByIDWith(DB, id, false)
+}
+
+// GetMedicationByIDWith — GetMedicationByIDForUpdate на произвольном
+// dbExecutor; lock=true блокирует строку до конца транзакции.
+func GetMedicationByIDWith(exec dbExecutor, id uuid.UUID, lock bool) (*models.MedicationDB, error) {
+	query := `
+		SELECT ` + medicationSelectColumns + `
 		FROM medication
-		WHERE id = $1 AND deleted_at IS NULL
-	`, id)
+		WHERE id = $1 AND deleted_at IS NULL`
+	if lock {
+		query += ` FOR UPDATE`
+	}
+	row := exec.QueryRow(query, id)
 	m, err := scanMedicationRow(row.Scan)
 	if err != nil {
 		return nil, err
@@ -736,13 +791,11 @@ func derefMedicationTimesSlice(p *[]models.MedicationTimeSlot) []models.Medicati
 	return *p
 }
 
-// UpdateMedication обновляет только явно переданные поля (см.
+// UpdateMedicationWith обновляет только явно переданные поля (см.
 // models.OptionalField — поля расписания различают "не менять" и "явно
-// обнулить"). event_ids этой функцией никогда не трогается — доступно
-// только через SetMedicationEventIDs (POST/DELETE /medications/{id}/events
-// и ветку regenerate_events=true PATCH, см. UpdateMedicationRequest в
-// spec.json).
-func UpdateMedication(id uuid.UUID, req models.UpdateMedicationRequest) error {
+// обнулить"). reminder_plan_id этой функцией никогда не трогается —
+// доступно только через SetMedicationReminderPlanIDWith.
+func UpdateMedicationWith(exec dbExecutor, id uuid.UUID, req models.UpdateMedicationRequest) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -818,49 +871,28 @@ func UpdateMedication(id uuid.UUID, req models.UpdateMedicationRequest) error {
 
 	query := fmt.Sprintf(`UPDATE medication SET %s WHERE id = $%d`, strings.Join(setParts, ", "), argID)
 	args = append(args, id)
-	_, err := DB.Exec(query, args...)
+	_, err := exec.Exec(query, args...)
 	return err
 }
 
 func SoftDeleteMedication(id uuid.UUID) error {
-	return softDeleteByID("medication", id)
+	return softDeleteByID(DB, "medication", id)
+}
+
+// SoftDeleteMedicationWith — SoftDeleteMedication на произвольном
+// dbExecutor.
+func SoftDeleteMedicationWith(exec dbExecutor, id uuid.UUID) error {
+	return softDeleteByID(exec, "medication", id)
 }
 
 func CheckMedicationFileOwnership(id uuid.UUID, userID string) (bool, error) {
 	return checkChildFileOwnership("medication", id, userID)
 }
 
-// SetMedicationEventIDs перезаписывает event_ids курса лекарств — вызывается
-// после (пере-)создания событий приёма (POST /medications/{id}/events) или
-// после их физического удаления (DELETE /medications/{id}/events, eventIDs=nil).
-func SetMedicationEventIDs(id uuid.UUID, eventIDs []string) error {
-	if eventIDs == nil {
-		eventIDs = []string{}
-	}
-	_, err := DB.Exec(`UPDATE medication SET event_ids = $1 WHERE id = $2`, pq.Array(eventIDs), id)
-	return err
-}
-
-// SoftDeleteEventsByIDs мягко удаляет события по списку id (используется
-// при пересоздании расписания приёма препарата — POST /medications/{id}/events
-// удаляет через soft-delete предыдущий набор событий перед вставкой нового).
-func SoftDeleteEventsByIDs(ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	_, err := DB.Exec(`UPDATE event SET deleted_at = now() WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`, pq.Array(ids))
-	return err
-}
-
-// HardDeleteEventsByIDs физически удаляет события по списку id — единственное
-// намеренное исключение из soft-delete во всём проекте, см.
-// DELETE /medications/{id}/events в spec.json (описание операции
-// delete-medication-events).
-func HardDeleteEventsByIDs(ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	_, err := DB.Exec(`DELETE FROM event WHERE id = ANY($1::uuid[])`, pq.Array(ids))
+// SetMedicationReminderPlanIDWith записывает ссылку лекарства на настройки
+// напоминания набора приёмов (Valid=false — набора нет).
+func SetMedicationReminderPlanIDWith(exec dbExecutor, id uuid.UUID, planID uuid.NullUUID) error {
+	_, err := exec.Exec(`UPDATE medication SET reminder_plan_id = $1 WHERE id = $2`, planID, id)
 	return err
 }
 
@@ -874,10 +906,10 @@ func HardDeleteEventsByIDs(ids []string) error {
 // не дублированием пяти идентичных функций. table — константа, задаётся
 // только вызовами внутри этого файла, поэтому конкатенация имени в SQL не
 // является инъекцией пользовательских данных.
-func softDeleteByID(table string, id uuid.UUID) error {
+func softDeleteByID(exec dbExecutor, table string, id uuid.UUID) error {
 	query := fmt.Sprintf(`UPDATE %s SET deleted_at = $1 WHERE id = $2 AND deleted_at IS NULL`, table)
 	now := time.Now().UTC()
-	result, err := DB.Exec(query, now, id)
+	result, err := exec.Exec(query, now, id)
 	if err != nil {
 		log.Printf("softDeleteByID(%s) error: %v", table, err)
 		return err

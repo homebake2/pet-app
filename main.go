@@ -16,8 +16,7 @@ func main() {
 
 	// Конфигурация S3-совместимого хранилища (Backblaze B2) для
 	// generic-механизма файлов сущностей — presigned PUT/GET URL, backend
-	// никогда не проксирует байты файла (см. handlers/files.go,
-	// artifacts/PET/pages/integrations/obschie-trebovaniya-s3-hranilische-faylov.md).
+	// никогда не проксирует байты файла (см. handlers/files.go).
 	s3Config, err := s3client.ConfigFromEnv()
 	if err != nil {
 		log.Fatalf("Ошибка конфигурации S3-хранилища: %v", err)

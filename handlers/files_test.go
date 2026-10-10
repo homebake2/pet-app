@@ -201,6 +201,9 @@ func TestFilesCompleteHandler_CardinalityReplacement(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "object_key"}).AddRow(oldFileID, oldObjectKey))
 	mock.ExpectExec(`DELETE FROM file WHERE id = ANY\(\$1\)`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	// Объект S3 удаляется, только если на него не осталось ссылок.
+	mock.ExpectQuery(`SELECT k FROM \(SELECT DISTINCT unnest\(\$1::text\[\]\) AS k\) keys\s+WHERE NOT EXISTS`).
+		WillReturnRows(sqlmock.NewRows([]string{"k"}).AddRow(oldObjectKey))
 	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
@@ -256,15 +259,46 @@ func TestFilesDeleteHandler_Success(t *testing.T) {
 	now := time.Now()
 	expectGetFileByID(mock, testFileID, testPetID, testUserID, objectKey, now)
 	expectPetOwnership(mock, testPetID, testUserID, 1)
+	mock.ExpectBegin()
 	mock.ExpectQuery(`DELETE FROM file WHERE id = \$1 RETURNING object_key`).
 		WithArgs(testFileID).
 		WillReturnRows(sqlmock.NewRows([]string{"object_key"}).AddRow(objectKey))
+	mock.ExpectQuery(`SELECT k FROM \(SELECT DISTINCT unnest\(\$1::text\[\]\) AS k\) keys\s+WHERE NOT EXISTS`).
+		WillReturnRows(sqlmock.NewRows([]string{"k"}).AddRow(objectKey))
+	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
 	FilesDeleteHandler(w, filesRequest(t, http.MethodDelete, "/files/"+testFileID, nil, true), testFileID)
 
 	assert.Equal(t, http.StatusNoContent, w.Code)
 	assert.Contains(t, fs.deletedKeys, objectKey)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ссылочные строки file (файлы настроек напоминания, ставшие файлами факта)
+// делят один object_key: пока на объект указывает другая строка, объект S3
+// не удаляется — удаление файла не ломает файлы остальных владельцев.
+func TestFilesDeleteHandler_ObjectKeptWhileReferenced(t *testing.T) {
+	mock := setupMockDB(t)
+	fs := setupFakeStorage(t)
+	expectTokensValid(mock, testUserID)
+	objectKey := "pet_photo/" + testPetID + "/" + testFileID
+	now := time.Now()
+	expectGetFileByID(mock, testFileID, testPetID, testUserID, objectKey, now)
+	expectPetOwnership(mock, testPetID, testUserID, 1)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`DELETE FROM file WHERE id = \$1 RETURNING object_key`).
+		WithArgs(testFileID).
+		WillReturnRows(sqlmock.NewRows([]string{"object_key"}).AddRow(objectKey))
+	mock.ExpectQuery(`SELECT k FROM \(SELECT DISTINCT unnest\(\$1::text\[\]\) AS k\) keys\s+WHERE NOT EXISTS`).
+		WillReturnRows(sqlmock.NewRows([]string{"k"}))
+	mock.ExpectCommit()
+
+	w := httptest.NewRecorder()
+	FilesDeleteHandler(w, filesRequest(t, http.MethodDelete, "/files/"+testFileID, nil, true), testFileID)
+
+	assert.Equal(t, http.StatusNoContent, w.Code)
+	assert.NotContains(t, fs.deletedKeys, objectKey)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

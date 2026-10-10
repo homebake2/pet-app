@@ -8,6 +8,7 @@ import (
 	"myauthservice/openapi"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // validateImportPet провалидирует один элемент pets[] теми же правилами,
@@ -114,7 +115,7 @@ func validateImportEvent(event models.ImportLocalDataEvent) string {
 		return "Поле notes события не должно превышать 500 символов"
 	}
 
-	if msg := validateNotificationsEnabledForDate(event.NotificationsEnabled, parsedDate); msg != "" {
+	if msg := validateFactDate(parsedDate); msg != "" {
 		return msg
 	}
 
@@ -205,10 +206,62 @@ func validateImportMedication(m models.ImportMedication) string {
 	if strings.TrimSpace(m.PetLocalID) == "" {
 		return "Поле pet_local_id обязательно для каждого курса лекарств"
 	}
-	if len(m.EventLocalIDs) > models.MedicationMaxEventIDsCount {
-		return "Поле event_local_ids не может содержать больше 60 элементов"
-	}
 	return validateCreateMedicationRequest(m.ToCreateMedicationRequest())
+}
+
+// validateImportReminderPlan провалидирует один элемент reminder_plans[]
+// теми же правилами, что POST /reminder-plans (type, value, notes,
+// расписание, tz), кроме правила «в расписании есть будущий момент»: между
+// созданием локального напоминания и переносом момент мог пройти. Расписание
+// при переносе не пересчитывается, поэтому потолок 60 не применяется. Ссылка
+// pet_local_id проверяется отдельно.
+func validateImportReminderPlan(plan models.ImportReminderPlan) string {
+	if strings.TrimSpace(plan.LocalID) == "" {
+		return "Поле local_id обязательно для каждых настроек напоминания"
+	}
+	if strings.TrimSpace(plan.PetLocalID) == "" {
+		return "Поле pet_local_id обязательно для каждых настроек напоминания"
+	}
+	if plan.Type == "" || len(plan.Value) == 0 || plan.FrequencyType == "" || plan.StartDate == "" {
+		return "Обязательные поля настроек напоминания не заполнены"
+	}
+	if msg := validateReminderPlanData(plan.Type, plan.Value, plan.Notes); msg != "" {
+		return msg
+	}
+	if _, ok := loadTimeZone(plan.TZ); !ok {
+		return "Поле tz настроек напоминания отсутствует или некорректно"
+	}
+	if _, msg := parseReminderSchedule(reminderScheduleInput{
+		FrequencyType: plan.FrequencyType,
+		Weekdays:      plan.Weekdays,
+		IntervalDays:  plan.IntervalDays,
+		Times:         plan.Times,
+		StartDate:     plan.StartDate,
+		EndDate:       plan.EndDate,
+	}); msg != "" {
+		return msg
+	}
+	if plan.Reminders == nil {
+		return "Поле reminders настроек напоминания обязательно"
+	}
+	remindAts := make(map[int64]bool, len(plan.Reminders))
+	for _, reminder := range plan.Reminders {
+		if strings.TrimSpace(reminder.LocalID) == "" {
+			return "Поле local_id обязательно для каждого напоминания"
+		}
+		remindAt, err := time.Parse(time.RFC3339, reminder.RemindAt)
+		if err != nil {
+			return "Некорректный формат remind_at напоминания"
+		}
+		if reminder.Notes != nil && len(*reminder.Notes) > maxEventFieldLen {
+			return "Поле notes напоминания не должно превышать 500 символов"
+		}
+		if remindAts[remindAt.Unix()] {
+			return "Моменты напоминаний одних настроек должны быть различны"
+		}
+		remindAts[remindAt.Unix()] = true
+	}
+	return ""
 }
 
 // ImportLocalDataHandler обрабатывает POST /import/local-data — единый
@@ -257,8 +310,8 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Pets == nil || req.Events == nil {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля pets и events обязательны и не должны быть null")
+	if req.Pets == nil || req.Events == nil || req.ReminderPlans == nil {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля pets, events и reminder_plans обязательны и не должны быть null")
 		return
 	}
 
@@ -292,6 +345,31 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 		eventLocalIDs[event.LocalID] = true
 	}
 
+	planLocalIDs := make(map[string]models.ImportReminderPlan, len(req.ReminderPlans))
+	reminderLocalIDs := make(map[string]bool)
+	for _, plan := range req.ReminderPlans {
+		if msg := validateImportReminderPlan(plan); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		if !localIDs[plan.PetLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id настроек напоминания не совпадает ни с одним local_id питомцев запроса")
+			return
+		}
+		if _, exists := planLocalIDs[plan.LocalID]; exists {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id настроек напоминаний должно быть уникальным в пределах запроса")
+			return
+		}
+		planLocalIDs[plan.LocalID] = plan
+		for _, reminder := range plan.Reminders {
+			if reminderLocalIDs[reminder.LocalID] {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле local_id напоминаний должно быть уникальным в пределах запроса")
+				return
+			}
+			reminderLocalIDs[reminder.LocalID] = true
+		}
+	}
+
 	if req.Profile != nil {
 		if msg := validateImportProfile(*req.Profile); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -303,6 +381,9 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 	// опциональные массивы, каждый со своим local_id (уникальным в пределах
 	// своего массива) и pet_local_id, обязанным совпадать с одним из
 	// pets[].local_id этого же запроса (см. "Ведпаспорт — Backend").
+	// planReferences — настройки напоминаний, на которые уже ссылается
+	// прививка либо лекарство: источник настроек один.
+	planReferences := make(map[string]bool, len(req.ReminderPlans))
 	vaccinationLocalIDs := make(map[string]bool, len(req.Vaccinations))
 	for _, v := range req.Vaccinations {
 		if msg := validateImportVaccination(v); msg != "" {
@@ -318,6 +399,40 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		vaccinationLocalIDs[v.LocalID] = true
+
+		// Настройки напоминания на следующую дату уже созданы клиентом
+		// локально: сервер переносит их как есть, но источник проверяет —
+		// на настройки ссылается одна запись, а расписание разовое.
+		if v.NextReminderPlanLocalID != nil && *v.NextReminderPlanLocalID != "" {
+			plan, found := planLocalIDs[*v.NextReminderPlanLocalID]
+			if !found {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле next_reminder_plan_local_id прививки не совпадает ни с одним local_id настроек напоминаний запроса")
+				return
+			}
+			if plan.FrequencyType != models.ReminderFrequencyOnce {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Настройки напоминания вакцинации должны иметь вид частоты once")
+				return
+			}
+			if planReferences[plan.LocalID] {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "На одни настройки напоминания не может ссылаться несколько записей")
+				return
+			}
+			planReferences[plan.LocalID] = true
+		}
+		if v.AdministeredEventLocalID != nil && *v.AdministeredEventLocalID != "" && !eventLocalIDs[*v.AdministeredEventLocalID] {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле administered_event_local_id прививки не совпадает ни с одним local_id событий запроса")
+			return
+		}
+		if (v.AdministeredEventLocalID == nil || *v.AdministeredEventLocalID == "") && v.AddEventOnAdministered != nil && *v.AddEventOnAdministered {
+			// Факт на дату введения создаётся при переносе: у переноса нет
+			// часового пояса, поэтому момент трактуется как UTC; он не может
+			// быть в будущем (правило факта).
+			date, _ := parseDateOnly(v.AdministeredDate)
+			if msg := validateFactDate(combineDateAndTime(date, v.EventTime, time.UTC)); msg != "" {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Дата введения вакцинации не может быть в будущем")
+				return
+			}
+		}
 	}
 
 	diseaseLocalIDs := make(map[string]bool, len(req.Diseases))
@@ -386,6 +501,23 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		medicationLocalIDs[m.LocalID] = true
+
+		if m.ReminderPlanLocalID != nil && *m.ReminderPlanLocalID != "" {
+			plan, found := planLocalIDs[*m.ReminderPlanLocalID]
+			if !found {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле reminder_plan_local_id лекарства не совпадает ни с одним local_id настроек напоминаний запроса")
+				return
+			}
+			if plan.FrequencyType == models.ReminderFrequencyOnce || plan.Type != "medication" {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Настройки напоминания лекарства не могут быть разовыми и должны иметь type=medication")
+				return
+			}
+			if planReferences[plan.LocalID] {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "На одни настройки напоминания не может ссылаться несколько записей")
+				return
+			}
+			planReferences[plan.LocalID] = true
+		}
 	}
 
 	result, err := database.ImportLocalData(userID, req)

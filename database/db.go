@@ -19,6 +19,10 @@ type dbExecutor interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// Executor — экспортируемое имя dbExecutor для кода вне пакета, который
+// выполняет составные операции в транзакции (см. RunInTx).
+type Executor = dbExecutor
+
 func InitDB() {
 	var err error
 	connStr := os.Getenv("DATABASE_URL")

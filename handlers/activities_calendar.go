@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"database/sql"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,11 +33,13 @@ func parseSingleDateParam(w http.ResponseWriter, r *http.Request) (date time.Tim
 }
 
 // GetActivitiesCalendarHandler обрабатывает GET /activities/calendar —
-// количество событий по каждому дню диапазона по всем не мягко удалённым
-// питомцам пользователя, без содержимого самих событий (см. "Просмотр
-// календаря — Backend", раздел A). Параметр pet_id не принимается и не
-// возвращает 404 — пользователь без питомцев/событий получает 200 с
-// count: 0 по всем дням. День события — его календарный день в поясе tz.
+// количество элементов (фактов и незавершённых напоминаний) по каждому дню
+// диапазона по всем не мягко удалённым питомцам пользователя и признак
+// has_reminders (в этот день есть незавершённое напоминание), без
+// содержимого самих элементов (см. "Просмотр календаря — Backend", раздел
+// A). Параметр pet_id не принимается и не возвращает 404 — пользователь без
+// питомцев/событий получает 200 с count: 0 по всем дням. День элемента — его
+// календарный день в поясе tz.
 func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
@@ -58,9 +62,14 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start, end := localDaysBounds(fromDate, toDate, loc)
-	aggregates, err := database.CountEventsByUserIDGroupedByDay(userID, start, end, loc)
+	eventCounts, err := database.CountEventsByUserIDGroupedByDay(userID, start, end, loc)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта событий")
+		return
+	}
+	reminderCounts, err := database.CountRemindersByUserIDGroupedByDay(userID, start, end, loc)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта напоминаний")
 		return
 	}
 
@@ -68,11 +77,10 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	currentDate := fromDate
 	for !currentDate.After(toDate) {
 		dateStr := currentDate.Format("2006-01-02")
-		agg := aggregates[dateStr]
 		items = append(items, models.ActivitiesCalendarItem{
-			Date:             dateStr,
-			Count:            agg.Count,
-			HasNotifications: agg.HasNotifications,
+			Date:         dateStr,
+			Count:        eventCounts[dateStr] + reminderCounts[dateStr],
+			HasReminders: reminderCounts[dateStr] > 0,
 		})
 		currentDate = currentDate.AddDate(0, 0, 1)
 	}
@@ -80,11 +88,65 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, models.ActivitiesCalendarResponse{Items: items})
 }
 
-// GetActivitiesDayHandler обрабатывает GET /activities/day — все события всех
-// не мягко удалённых питомцев пользователя за один календарный день в
-// часовом поясе tz (по умолчанию UTC),
-// отсортированные по date_time по возрастанию (см. "Просмотр календаря —
-// Backend", раздел B). Параметр pet_id не принимается и не возвращает 404.
+// reminderCalendarItems превращает строки напоминаний календаря в элементы
+// ответа (item_type=reminder): заметка — собственная заметка напоминания, а
+// при её отсутствии — заметка настроек; files_count — число файлов настроек
+// плюс собственных файлов напоминания.
+func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.ActivitiesDayItem, error) {
+	planIDs := make([]uuid.UUID, len(rows))
+	reminderIDs := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		planIDs[i] = row.PlanID
+		reminderIDs[i] = row.ID
+	}
+	planFileCounts, err := database.CountFilesForOwners(reminderPlanFileOwnerType, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	ownFileCounts, err := database.CountFilesForOwners(reminderFileOwnerType, reminderIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]models.ActivitiesDayItem, 0, len(rows))
+	for _, row := range rows {
+		planID := row.PlanID.String()
+		items = append(items, models.ActivitiesDayItem{
+			ItemType:   models.ActivityItemTypeReminder,
+			ID:         row.ID.String(),
+			PlanID:     &planID,
+			Date:       row.RemindAt.UTC().Format(time.RFC3339),
+			Type:       row.Type,
+			Notes:      effectiveReminderNotes(row.ReminderNotes, row.PlanNotes),
+			Value:      row.Value,
+			FilesCount: planFileCounts[row.PlanID] + ownFileCounts[row.ID],
+			PetID:      row.PetID.String(),
+			PetName:    row.PetName,
+		})
+	}
+	return items, nil
+}
+
+// effectiveReminderNotes возвращает заметку напоминания: собственную, если
+// она непустая, иначе заметку настроек; nil, если нет ни той, ни другой.
+func effectiveReminderNotes(reminderNotes, planNotes sql.NullString) *string {
+	if reminderNotes.Valid && reminderNotes.String != "" {
+		notes := reminderNotes.String
+		return &notes
+	}
+	if planNotes.Valid {
+		notes := planNotes.String
+		return &notes
+	}
+	return nil
+}
+
+// GetActivitiesDayHandler обрабатывает GET /activities/day — все факты и все
+// незавершённые напоминания всех не мягко удалённых питомцев пользователя за
+// один календарный день в часовом поясе tz, отсортированные по моменту (для
+// напоминания — remind_at) по возрастанию, при равенстве — по id (см.
+// "Просмотр календаря — Backend", раздел B). Параметр pet_id не принимается и
+// не возвращает 404.
 func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
@@ -123,81 +185,49 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]models.ActivitiesDayEventItem, 0, len(eventsWithPet))
+	items := make([]models.ActivitiesDayItem, 0, len(eventsWithPet))
 	for _, e := range eventsWithPet {
 		var notes *string
 		if e.Event.Notes.Valid {
 			notes = &e.Event.Notes.String
 		}
-		items = append(items, models.ActivitiesDayEventItem{
-			ID:                   e.Event.ID.String(),
-			Date:                 e.Event.Date.UTC().Format(time.RFC3339),
-			Type:                 e.Event.Type,
-			Notes:                notes,
-			Value:                e.Event.Value,
-			FilesCount:           filesCounts[e.Event.ID],
-			PetID:                e.Event.PetID.String(),
-			PetName:              e.PetName,
-			NotificationsEnabled: e.Event.NotificationsEnabled,
+		items = append(items, models.ActivitiesDayItem{
+			ItemType:   models.ActivityItemTypeEvent,
+			ID:         e.Event.ID.String(),
+			Date:       e.Event.Date.UTC().Format(time.RFC3339),
+			Type:       e.Event.Type,
+			Notes:      notes,
+			Value:      e.Event.Value,
+			FilesCount: filesCounts[e.Event.ID],
+			PetID:      e.Event.PetID.String(),
+			PetName:    e.PetName,
 		})
 	}
+
+	reminderRows, err := database.GetRemindersByUserIDInRange(userID, start, end)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения напоминаний")
+		return
+	}
+	reminderItems, err := reminderCalendarItems(reminderRows)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов напоминаний")
+		return
+	}
+	items = append(items, reminderItems...)
+
+	// Моменты у фактов и напоминаний отдаются одним форматом RFC3339 (UTC,
+	// секундная точность), поэтому сортировка по строке эквивалентна
+	// сортировке по времени.
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Date != items[j].Date {
+			return items[i].Date < items[j].Date
+		}
+		return items[i].ID < items[j].ID
+	})
 
 	writeJSON(w, http.StatusOK, models.ActivitiesDayResponse{
 		Date:  date.Format("2006-01-02"),
 		Items: items,
 	})
-}
-
-// GetActivitiesNearestHandler обрабатывает GET /activities/nearest — одно
-// ближайшее предстоящее событие (date_time >= now()) среди всех не мягко
-// удалённых питомцев пользователя, без ограничения по дате и без привязки к
-// конкретному питомцу (см. "Просмотр календаря — Backend", раздел D).
-// Параметр pet_id не принимается и не возвращает 404 — пользователь без
-// предстоящих событий получает 200 с item: null.
-func GetActivitiesNearestHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
-		return
-	}
-
-	userID, ok := requireUserID(w, r)
-	if !ok {
-		return
-	}
-
-	eventWithPet, err := database.GetNearestUpcomingEvent(userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения события")
-		return
-	}
-
-	if eventWithPet == nil {
-		writeJSON(w, http.StatusOK, models.ActivitiesNearestResponse{Item: nil})
-		return
-	}
-
-	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, []uuid.UUID{eventWithPet.Event.ID})
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов событий")
-		return
-	}
-
-	var notes *string
-	if eventWithPet.Event.Notes.Valid {
-		notes = &eventWithPet.Event.Notes.String
-	}
-
-	item := models.ActivitiesDayEventItem{
-		ID:                   eventWithPet.Event.ID.String(),
-		Date:                 eventWithPet.Event.Date.UTC().Format(time.RFC3339),
-		Type:                 eventWithPet.Event.Type,
-		Notes:                notes,
-		Value:                eventWithPet.Event.Value,
-		FilesCount:           filesCounts[eventWithPet.Event.ID],
-		PetID:                eventWithPet.Event.PetID.String(),
-		PetName:              eventWithPet.PetName,
-		NotificationsEnabled: eventWithPet.Event.NotificationsEnabled,
-	}
-
-	writeJSON(w, http.StatusOK, models.ActivitiesNearestResponse{Item: &item})
 }

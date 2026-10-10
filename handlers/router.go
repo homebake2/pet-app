@@ -23,12 +23,17 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/activities", GetActivitiesHandler)
 	mux.HandleFunc("/activities/calendar", GetActivitiesCalendarHandler)
 	mux.HandleFunc("/activities/day", GetActivitiesDayHandler)
-	mux.HandleFunc("/activities/nearest", GetActivitiesNearestHandler)
 	mux.HandleFunc("/import/local-data", ImportLocalDataHandler)
+	// Напоминания (см. handlers/reminders.go). Точный путь
+	// /reminders/upcoming выигрывает у поддерева /reminders/ в ServeMux.
+	mux.HandleFunc("/reminder-plans", ReminderPlansHandler)
+	mux.HandleFunc("/reminder-plans/", ReminderPlanByIDHandler)
+	mux.HandleFunc("/reminders/upcoming", RemindersUpcomingHandler)
+	mux.HandleFunc("/reminders/", ReminderByIDHandler)
 	// Ведпаспорт (медкарта питомца, см. handlers/vetpassport.go): списки/
 	// создание живут в PetByIDHandler (/pet/{id}/vaccinations и т.п., через
 	// petChildResourceHandlers), здесь регистрируются только PATCH/DELETE по
-	// собственному id сущности (и POST/DELETE /medications/{id}/events).
+	// собственному id сущности (и POST/DELETE /medications/{id}/reminders).
 	mux.HandleFunc("/vaccinations/", VaccinationByIDHandler)
 	mux.HandleFunc("/diseases/", DiseaseByIDHandler)
 	mux.HandleFunc("/vet-visits/", VetVisitByIDHandler)

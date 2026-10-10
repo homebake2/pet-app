@@ -405,7 +405,7 @@
     "/activities": {
       "get": {
         "summary": "/activities",
-        "description": "Возвращает 404, если питомец не найден или не принадлежит текущему профилю. Диапазон from..to не должен превышать 366 дней, иначе 400 VALIDATION_ERROR. from/to и группировка событий по дням — в часовом поясе tz (по умолчанию UTC).",
+        "description": "Возвращает 404, если питомец не найден или не принадлежит текущему профилю. Диапазон from..to не должен превышать 366 дней, иначе 400 VALIDATION_ERROR. from/to и группировка событий по дням — в часовом поясе tz (обязательный параметр). Отдаёт только факты (напоминания читаются через GET /activities/day и GET /reminders/{id}).",
         "tags": [
           "activities-controller"
         ],
@@ -1259,7 +1259,7 @@
     "/events/stats": {
       "get": {
         "summary": "/events/stats",
-        "description": "Агрегированные ряды событий питомца для графиков динамики. Свёртка выполняется на сервере по реестру метрик. from/to — локальные календарные даты часового пояса клиента (параметр tz, как у GET /activities; по умолчанию UTC): период — полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса. Интервалы bucket — локальные сутки, календарные недели (с понедельника) и месяцы этого пояса, включая дни перехода на летнее/зимнее время; bucket_start — локальная дата начала интервала. Диапазон не должен превышать 366 дней. Интервалы без событий обязательно присутствуют в ответе (value=null, count=0). Запрос типа с value_kind=label (other) даёт 400.",
+        "description": "Агрегированные ряды событий питомца для графиков динамики. Свёртка выполняется на сервере по реестру метрик. from/to — локальные календарные даты часового пояса клиента (параметр tz, как у GET /activities; обязательный параметр): период — полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса. Интервалы bucket — локальные сутки, календарные недели (с понедельника) и месяцы этого пояса, включая дни перехода на летнее/зимнее время; bucket_start — локальная дата начала интервала. Диапазон не должен превышать 366 дней. Интервалы без событий обязательно присутствуют в ответе (value=null, count=0). Запрос типа с value_kind=label (other) даёт 400.",
         "tags": [
           "event-controller"
         ],
@@ -1573,7 +1573,7 @@
     "/activities/calendar": {
       "get": {
         "summary": "/activities/calendar",
-        "description": "Количество событий по каждому дню диапазона по всем питомцам пользователя, без содержимого событий. Диапазон from..to не должен превышать 366 дней. from/to и день события — в часовом поясе tz (по умолчанию UTC).",
+        "description": "Количество элементов (фактов и незавершённых напоминаний) по каждому дню диапазона по всем питомцам пользователя, без содержимого элементов, и признак has_reminders. Диапазон from..to не должен превышать 366 дней. from/to и день элемента — в часовом поясе tz (обязательный параметр).",
         "tags": [
           "activities-controller"
         ],
@@ -1652,7 +1652,7 @@
     "/activities/day": {
       "get": {
         "summary": "/activities/day",
-        "description": "Все события всех питомцев пользователя за один календарный день date в часовом поясе tz (по умолчанию UTC), отсортированные по date по возрастанию.",
+        "description": "Все факты и незавершённые напоминания всех питомцев пользователя за один календарный день date в часовом поясе tz (обязательный параметр), отсортированные по date по возрастанию, при равенстве — по id. Прошедшее незавершённое напоминание остаётся в календаре, пока пользователь его не закроет.",
         "tags": [
           "activities-controller"
         ],
@@ -1816,52 +1816,6 @@
         }
       }
     },
-    "/activities/nearest": {
-      "get": {
-        "summary": "/activities/nearest",
-        "description": "Одно, самое ближайшее по времени будущее событие среди всех питомцев пользователя (date_time >= now()), без ограничения по дате и без привязки к конкретному питомцу. Если такого события нет — item равен null.",
-        "tags": [
-          "activities-controller"
-        ],
-        "operationId": "get-activities-nearest",
-        "x-stoplight": {
-          "id": "f11e001fnear"
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetActivitiesNearestResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal Server Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "parameters": []
-    },
     "/pet/{id}/vaccinations": {
       "parameters": [
         {
@@ -1962,7 +1916,7 @@
       },
       "post": {
         "summary": "/pet/{id}/vaccinations",
-        "description": "Создание прививки для питомца. Опционально создаёт связанные события type=other (add_event_on_administered/add_event_on_next) с подписью value.label = event_label, а если он не передан — \"Вакцинация: \" + name (обрезается до 50 символов). Заголовок Idempotency-Key: повторная отправка с тем же ключом для того же питомца возвращает 201 с id ранее созданной записи, новая запись не создаётся. Дата и event_time связанных событий трактуются как местное время часового пояса tz (по умолчанию UTC).",
+        "description": "Создание прививки для питомца. Опционально создаёт связанные записи с подписью value.label = event_label, а если он не передан — \"Вакцинация: \" + name (обрезается до 50 символов): факт type=other на дату введения (add_event_on_administered) и напоминание на дату следующей прививки (add_reminder_on_next). Заголовок Idempotency-Key: повторная отправка с тем же ключом для того же питомца возвращает 201 с id ранее созданной записи, новая запись не создаётся. Дата и event_time трактуются как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "vaccination-controller"
         ],
@@ -2042,7 +1996,7 @@
       ],
       "patch": {
         "summary": "/vaccinations/{id}",
-        "description": "Частичное обновление прививки — обновляются только переданные поля. Связь «один флаг — одно событие»: add_event_on_administered/add_event_on_next=true обновляет уже существующее связанное событие на месте (дата, подпись; время суток — event_time, а если он не передан, прежнее) и создаёт новое, только если связанного события нет или оно удалено; =false мягко удаляет связанное событие и очищает administered_event_id/next_event_id. Если флаг не передан, но изменилась administered_date/next_date, существующее связанное событие переносится на новую дату. next_date=null (или пустая строка) очищает дату и мягко удаляет событие-напоминание на неё. Дата и event_time связанных событий (а также сохраняемое прежнее время суток) трактуются как местное время часового пояса tz (по умолчанию UTC).",
+        "description": "Частичное обновление прививки — обновляются только переданные поля. Связь «один флаг — одна запись»: add_event_on_administered=true обновляет связанный факт на месте и создаёт новый, только если факта нет или он удалён; =false мягко удаляет факт. add_reminder_on_next=true обновляет настройки напоминания либо создаёт их, если настроек нет; =false жёстко удаляет настройки и очищает next_plan_id. Если флаг не передан, но изменилась administered_date/next_date/event_time, существующие записи переносятся на новый момент. next_date=null (или пустая строка) очищает дату и жёстко удаляет настройки напоминания на неё. Дата и event_time трактуются как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "vaccination-controller"
         ],
@@ -2063,7 +2017,7 @@
         },
         "responses": {
           "200": {
-            "description": "Прививка обновлена. В теле — актуальные id связанных событий после синхронизации (null — события нет): клиенту они нужны, чтобы перепланировать или отменить системное уведомление события следующей вакцинации.",
+            "description": "Прививка обновлена. В теле — актуальные id связанного факта и настроек напоминания после синхронизации (null — записи нет).",
             "content": {
               "application/json": {
                 "schema": {
@@ -2106,7 +2060,7 @@
       },
       "delete": {
         "summary": "/vaccinations/{id}",
-        "description": "Мягкое удаление прививки. Связанные события (administered_event_id/next_event_id), если есть, также мягко удаляются.",
+        "description": "Мягкое удаление прививки. Связанный факт (administered_event_id), если есть, также мягко удаляется; связанные настройки напоминания (next_plan_id) жёстко удаляются вместе с напоминанием.",
         "tags": [
           "vaccination-controller"
         ],
@@ -2932,7 +2886,7 @@
       ],
       "get": {
         "summary": "/pet/{id}/medications",
-        "description": "Список курсов лекарств питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0). next_dose вычисляется, трактуя даты и times расписания как местное время часового пояса tz (по умолчанию UTC).",
+        "description": "Список курсов лекарств питомца с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0). next_dose вычисляется, трактуя даты и times расписания как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "medication-controller"
         ],
@@ -3021,7 +2975,7 @@
       },
       "post": {
         "summary": "/pet/{id}/medications",
-        "description": "Создание курса лекарств для питомца. Опционально создаёт связанный набор событий-напоминаний сразу (add_event=true, недопустимо при frequency_type=as_needed) — либо можно создать его позже через POST /medications/{id}/events. Заголовок Idempotency-Key: повторная отправка с тем же ключом для того же питомца возвращает 201 с id ранее созданной записи, новая запись не создаётся. Даты и times расписания трактуются как местное время часового пояса tz (по умолчанию UTC).",
+        "description": "Создание курса лекарств для питомца. Опционально создаёт набор напоминаний сразу (add_reminders=true, недопустимо при frequency_type=as_needed) — либо можно создать его позже через POST /medications/{id}/reminders. Если расчёт не даёт будущих моментов, курс сохраняется без набора (не ошибка). Заголовок Idempotency-Key: повторная отправка с тем же ключом для того же питомца возвращает 201 с id ранее созданной записи, новая запись не создаётся. Даты и times расписания трактуются как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "medication-controller"
         ],
@@ -3101,7 +3055,7 @@
       ],
       "patch": {
         "summary": "/medications/{id}",
-        "description": "Частичное обновление курса лекарств — обновляются только переданные поля. event_ids доступен только на чтение и не может быть изменён этим методом. При regenerate_events=true даты и times расписания трактуются как местное время часового пояса tz (по умолчанию UTC).",
+        "description": "Частичное обновление курса лекарств — обновляются только переданные поля. reminder_plan_id доступен только на чтение. name и dosage применяются к настройкам существующего набора. При regenerate_reminders=true расписание применяется к настройкам набора; если новое расписание не даёт будущих моментов — 400. Даты и times трактуются как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "medication-controller"
         ],
@@ -3189,7 +3143,370 @@
         }
       }
     },
-    "/medications/{id}/events": {
+    "/reminder-plans": {
+      "post": {
+        "summary": "/reminder-plans",
+        "description": "Создаёт настройки напоминания (source=manual) и по одному напоминанию на каждый будущий момент расписания (не более 60). Клиентский id заменяет Idempotency-Key: повтор с тем же id для своих настроек возвращает 201 с тем же телом, чужой id — 409. Расписание без будущих моментов — 400.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "post-reminder-plan",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ScheduleTimeZone"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReminderPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderPlanResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reminder-plans/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/reminder-plans/{id}",
+        "description": "Настройки напоминания целиком (форма «Изменить все»).",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "get-reminder-plan",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderPlanResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "/reminder-plans/{id}",
+        "description": "Изменить все напоминания. Если переданное расписание отличается от сохранённого, будущие незавершённые напоминания (remind_at > now()) жёстко удаляются вместе с собственными файлами и создаются заново; прошедшие незавершённые и закрытые не затрагиваются. Для настроек с source != manual type/value/notes не принимаются (400), расписание применяется к лекарству/вакцинации в той же транзакции.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "patch-reminder-plan",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ScheduleTimeZone"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReminderPlanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/reminder-plans/{id}",
+        "description": "Жёстко удаляет настройки, все их напоминания (в том числе закрытые) и файлы.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "delete-reminder-plan",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reminders/upcoming": {
+      "get": {
+        "summary": "/reminders/upcoming",
+        "description": "Ближайшие по времени незавершённые напоминания (remind_at >= now()) по всем не мягко удалённым питомцам пользователя, по возрастанию remind_at, при равенстве — по id. Клиент приводит по ним локальные уведомления устройства в соответствие с сервером.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "get-reminders-upcoming",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум элементов в ответе. По умолчанию 64.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64,
+              "default": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetUpcomingRemindersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reminders/{id}": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/reminders/{id}",
+        "description": "Одно незавершённое напоминание (форма «Изменить это»). Закрытое, чужое или несуществующее — 404.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "get-reminder",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReminderResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/reminders/{id}",
+        "description": "Удаляет одно напоминание: закрывает его без факта (close_reason=deleted) и удаляет собственные файлы. Если незавершённых напоминаний у настроек не осталось, удаляются и сами настройки.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "delete-reminder",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reminders/{id}/complete": {
       "parameters": [
         {
           "schema": {
@@ -3202,12 +3519,277 @@
         }
       ],
       "post": {
-        "summary": "/medications/{id}/events",
-        "description": "(До-)создаёт связанные события приёма препарата по расписанию, вычисленному из frequency_type/weekdays/interval_days/times/start_date/end_date курса (не более 60 событий за одну операцию). Недоступно при frequency_type=as_needed. Возвращает актуальный список event_ids курса. Даты и times расписания трактуются как местное время часового пояса tz (по умолчанию UTC).",
+        "summary": "/reminders/{id}/complete",
+        "description": "Закрывает прошедшее напоминание: done=true создаёт факт (event) с данными настроек и date=remind_at, done=false закрывает без факта. Будущее напоминание — 409. Повтор для закрытого как done/skipped, пока настройки существуют, возвращает 200 с тем же fact_event_id; если настроек уже нет — 404.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "post-reminder-complete",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteReminderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteReminderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reminders/{id}/detach": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "post": {
+        "summary": "/reminders/{id}/detach",
+        "description": "«Изменить это» с изменением данных или времени: напоминание закрывается без факта (close_reason=replaced), вместо него создаётся новая независимая запись — факт (event) либо новые настройки (plan, source=manual). Питомец новой записи должен совпадать с питомцем напоминания. Для настроек vaccination замена недоступна (409); для medication type обязан совпасть (400). Повтор после успеха возвращает ранее созданную запись вместо 404.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "post-reminder-detach",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "description": "UUID v4, генерируется клиентом один раз на попытку замены; невалидный UUID v4 — 400.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "description": "Часовой пояс IANA. Обязателен, если в теле передан plan; неизвестное имя пояса и значение Local — 400.",
+            "schema": {
+              "type": "string",
+              "example": "Europe/Moscow"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetachReminderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetachReminderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pet/{id}/reminders/upcoming": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "get": {
+        "summary": "/pet/{id}/reminders/upcoming",
+        "description": "Ближайшие незавершённые напоминания одного питомца (remind_at >= now()) для виджета главного экрана, по возрастанию remind_at, при равенстве — по id. Горизонта по времени нет.",
+        "tags": [
+          "reminder-controller"
+        ],
+        "operationId": "get-pet-reminders-upcoming",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Максимум элементов в ответе. По умолчанию 3.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 3
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetPetUpcomingRemindersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/medications/{id}/reminders": {
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ],
+      "post": {
+        "summary": "/medications/{id}/reminders",
+        "description": "Создаёт набор напоминаний курса (настройки source=medication и до 60 напоминаний) по расписанию из frequency_type/weekdays/interval_days/times/start_date/end_date курса. Недоступно при frequency_type=as_needed (400); если набор уже есть — 409; если будущих моментов нет — 400. Возвращает актуальный курс с reminder_plan_id. Даты и times трактуются как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "medication-controller"
         ],
-        "operationId": "post-medication-events",
+        "operationId": "post-medication-reminders",
         "parameters": [
           {
             "$ref": "#/components/parameters/ScheduleTimeZone"
@@ -3267,12 +3849,12 @@
         }
       },
       "delete": {
-        "summary": "/medications/{id}/events",
-        "description": "ВНИМАНИЕ: в отличие от всех остальных операций удаления в этом API, физически (hard delete) удаляет все события, связанные с этим курсом лекарств, а не помечает их как удалённые. Это единственное исключение из soft-delete во всём проекте — используйте с осторожностью, отменить это действие нельзя.",
+        "summary": "/medications/{id}/reminders",
+        "description": "ВНИМАНИЕ: физически (hard delete) удаляет настройки напоминания курса вместе со всеми напоминаниями и файлами; отменить действие нельзя. Факты приёма, созданные ранее отметкой «выполнено», не затрагиваются. Если набора нет — 404.",
         "tags": [
           "medication-controller"
         ],
-        "operationId": "delete-medication-events",
+        "operationId": "delete-medication-reminders",
         "responses": {
           "204": {
             "description": "No Content"
@@ -3469,8 +4051,7 @@
           "date",
           "type",
           "value",
-          "files_count",
-          "notifications_enabled"
+          "files_count"
         ],
         "properties": {
           "id": {
@@ -3508,10 +4089,6 @@
             "x-stoplight": {
               "id": "f11e0007fc"
             }
-          },
-          "notifications_enabled": {
-            "type": "boolean",
-            "description": "Сохранённое значение столбца event.notifications_enabled, отдаётся как есть."
           }
         }
       },
@@ -4128,7 +4705,8 @@
             "x-stoplight": {
               "id": "7hv3zsnes6z19"
             },
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Момент события (факта). Не позднее текущего момента UTC плюс допуск 5 минут — иначе 400 (см. «Добавление события — Backend»). Запланированные события создаются через POST /reminder-plans."
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum",
@@ -4145,11 +4723,6 @@
           },
           "value": {
             "$ref": "#/components/schemas/EventValue"
-          },
-          "notifications_enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Опционально, по умолчанию false. Допустимо true только если date строго в будущем относительно момента обработки запроса (см. «Добавление события — Backend»)."
           }
         }
       },
@@ -4462,8 +5035,7 @@
           "value",
           "pet_id",
           "pet_name",
-          "files",
-          "notifications_enabled"
+          "files"
         ],
         "properties": {
           "id": {
@@ -4518,10 +5090,6 @@
             "x-stoplight": {
               "id": "f11e0008files"
             }
-          },
-          "notifications_enabled": {
-            "type": "boolean",
-            "description": "Сохранённое значение столбца event.notifications_enabled, отдаётся как есть."
           }
         }
       },
@@ -4570,7 +5138,8 @@
           },
           "date": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Если передана, не может быть позднее текущего момента UTC плюс допуск 5 минут — иначе 400 (см. «Редактирование события — Backend»)."
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
@@ -4582,10 +5151,6 @@
           "value": {
             "$ref": "#/components/schemas/EventValue",
             "description": "При PATCH объект value заменяется целиком; слияние вложенных полей не поддерживается."
-          },
-          "notifications_enabled": {
-            "type": "boolean",
-            "description": "Опционально, независимо от других полей. Итоговое сочетание (переданное значение либо уже сохранённое) проверяется против итоговой даты события (см. «Редактирование события — Backend»)."
           }
         }
       },
@@ -4730,7 +5295,8 @@
             "format": "date-time",
             "x-stoplight": {
               "id": "g548951mfjy0i"
-            }
+            },
+            "description": "Событие в импорте — факт: дата не позже текущего момента UTC плюс допуск 5 минут, как в POST /events."
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum",
@@ -4747,11 +5313,6 @@
             "x-stoplight": {
               "id": "5z8g4fgn6axfr"
             }
-          },
-          "notifications_enabled": {
-            "type": "boolean",
-            "default": false,
-            "description": "Опционально, валидируется как в POST /events (см. «Импорт локальных данных — Backend»)."
           }
         }
       },
@@ -4763,7 +5324,8 @@
         "type": "object",
         "required": [
           "pets",
-          "events"
+          "events",
+          "reminder_plans"
         ],
         "properties": {
           "profile": {
@@ -4790,7 +5352,8 @@
             },
             "items": {
               "$ref": "#/components/schemas/ImportLocalDataEvent"
-            }
+            },
+            "description": "События в импорте — факты: дата не позже текущего момента UTC плюс допуск 5 минут, как в POST /events."
           },
           "vaccinations": {
             "type": "array",
@@ -4826,6 +5389,13 @@
             "items": {
               "$ref": "#/components/schemas/ImportMedication"
             }
+          },
+          "reminder_plans": {
+            "type": "array",
+            "description": "Переносимые настройки напоминаний с их незавершёнными напоминаниями (может быть пустым). pet_local_id должен совпадать с одним из pets[].local_id этого же запроса. Источник настроек сервер определяет по ссылкам medications[].reminder_plan_local_id и vaccinations[].next_reminder_plan_local_id, остальные — manual.",
+            "items": {
+              "$ref": "#/components/schemas/ImportReminderPlan"
+            }
           }
         }
       },
@@ -4850,7 +5420,9 @@
           "diseases",
           "vet_visits",
           "allergies",
-          "medications"
+          "medications",
+          "reminder_plans_imported",
+          "reminder_plans"
         ],
         "properties": {
           "pets_imported": {
@@ -4939,6 +5511,17 @@
             "description": "Сопоставление local_id -> серверный id для каждого перенесённого курса лекарств, в порядке medications запроса. Используется клиентом для фонового переноса файлов курса.",
             "items": {
               "$ref": "#/components/schemas/ImportedMedication"
+            }
+          },
+          "reminder_plans_imported": {
+            "type": "integer",
+            "description": "Количество перенесённых настроек напоминаний."
+          },
+          "reminder_plans": {
+            "type": "array",
+            "description": "Сопоставление local_id -> серверный id для каждых перенесённых настроек, в порядке reminder_plans запроса; внутри — сопоставление для их напоминаний. Используется клиентом для фонового переноса файлов (reminder_plan_file и reminder_file).",
+            "items": {
+              "$ref": "#/components/schemas/ImportedReminderPlan"
             }
           }
         }
@@ -5302,7 +5885,7 @@
             "x-stoplight": {
               "id": "57b6c19c6ebf4"
             },
-            "description": "Тип владельца файла из реестра типов владельцев, например pet_photo, event_file, vaccination_file, disease_file, vet_visit_file, allergy_file, medication_file"
+            "description": "Тип владельца файла из реестра типов владельцев, например pet_photo, event_file, vaccination_file, disease_file, vet_visit_file, allergy_file, medication_file, reminder_plan_file, reminder_file"
           },
           "owner_id": {
             "type": "string",
@@ -5440,77 +6023,6 @@
           }
         }
       },
-      "ActivitiesDayEventItem": {
-        "title": "ActivitiesDayEventItem",
-        "x-stoplight": {
-          "id": "f11e0009day"
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "date",
-          "type",
-          "value",
-          "files_count",
-          "pet_id",
-          "pet_name",
-          "notifications_enabled"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "x-stoplight": {
-              "id": "f11e000ada"
-            }
-          },
-          "date": {
-            "type": "string",
-            "format": "date-time",
-            "x-stoplight": {
-              "id": "f11e000bda"
-            }
-          },
-          "type": {
-            "$ref": "#/components/schemas/GetEventEnum",
-            "x-stoplight": {
-              "id": "f11e000cda"
-            }
-          },
-          "notes": {
-            "type": "string",
-            "x-stoplight": {
-              "id": "f11e000dda"
-            }
-          },
-          "value": {
-            "$ref": "#/components/schemas/EventValue"
-          },
-          "files_count": {
-            "type": "integer",
-            "x-stoplight": {
-              "id": "f11e000eda"
-            }
-          },
-          "pet_id": {
-            "type": "string",
-            "format": "uuid",
-            "x-stoplight": {
-              "id": "f11e000fda"
-            }
-          },
-          "pet_name": {
-            "type": "string",
-            "x-stoplight": {
-              "id": "f11e0010da"
-            }
-          },
-          "notifications_enabled": {
-            "type": "boolean",
-            "description": "Сохранённое значение столбца event.notifications_enabled, отдаётся как есть."
-          }
-        }
-      },
       "ActivitiesCalendarItem": {
         "title": "ActivitiesCalendarItem",
         "x-stoplight": {
@@ -5520,7 +6032,7 @@
         "required": [
           "date",
           "count",
-          "has_notifications"
+          "has_reminders"
         ],
         "properties": {
           "date": {
@@ -5534,11 +6046,12 @@
             "type": "integer",
             "x-stoplight": {
               "id": "f11e0013cal"
-            }
+            },
+            "description": "Количество элементов дня: фактов плюс незавершённых напоминаний."
           },
-          "has_notifications": {
+          "has_reminders": {
             "type": "boolean",
-            "description": "Признак того, что хотя бы одно событие этого дня (по всем питомцам пользователя) имеет notifications_enabled = true. Производное агрегатное значение дня, а не поле конкретного события."
+            "description": "Признак того, что в этот день (по всем питомцам пользователя) есть хотя бы одно незавершённое напоминание. Производное агрегатное значение дня, а не поле конкретного элемента."
           }
         }
       },
@@ -5584,33 +6097,10 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ActivitiesDayEventItem"
+              "$ref": "#/components/schemas/ActivitiesDayItem"
             },
             "x-stoplight": {
               "id": "f11e0018day"
-            }
-          }
-        }
-      },
-      "GetActivitiesNearestResponse": {
-        "title": "GetActivitiesNearestResponse",
-        "x-stoplight": {
-          "id": "f11e0016near"
-        },
-        "type": "object",
-        "required": [
-          "item"
-        ],
-        "properties": {
-          "item": {
-            "nullable": true,
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ActivitiesDayEventItem"
-              }
-            ],
-            "x-stoplight": {
-              "id": "f11e0017near"
             }
           }
         }
@@ -5715,17 +6205,17 @@
             "type": "string",
             "format": "uuid",
             "nullable": true,
-            "description": "id события, связанного с этой прививкой на дату введения; null, если такое событие не создавалось."
-          },
-          "next_event_id": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true,
-            "description": "id события-напоминания о следующей прививке; null, если такое событие не создавалось."
+            "description": "id факта, связанного с этой прививкой на дату введения; null, если факт не создавался."
           },
           "files_count": {
             "type": "integer",
             "description": "Количество прикреплённых файлов прививки (0, если файлов нет)."
+          },
+          "next_plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "id настроек напоминания на дату следующей прививки; null, если напоминание не создавалось либо его настроек уже нет (напоминание удалено или отмечено в календаре)."
           }
         }
       },
@@ -5752,23 +6242,23 @@
           },
           "add_event_on_administered": {
             "type": "boolean",
-            "description": "Если true — сервер дополнительно создаёт событие type=other на дату введения (administered_date) с подписью event_label (по умолчанию \"Вакцинация: \" + name)."
-          },
-          "add_event_on_next": {
-            "type": "boolean",
-            "description": "Если true и передан next_date — сервер дополнительно создаёт событие-напоминание на дату next_date."
+            "description": "Если true — сервер дополнительно создаёт факт (событие type=other) на дату введения (administered_date) с подписью event_label (по умолчанию \"Вакцинация: \" + name). Момент факта не может быть позднее текущего — иначе 400."
           },
           "event_time": {
             "type": "string",
             "format": "time",
             "nullable": true,
-            "description": "Время суток для создаваемых событий (administered/next). Не хранится в самой прививке. Трактуется как местное время часового пояса из query-параметра tz (по умолчанию UTC)."
+            "description": "Время суток для создаваемых записей (факт и напоминание). Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz."
           },
           "event_label": {
             "type": "string",
             "maxLength": 150,
             "nullable": true,
-            "description": "Опциональная, уже локализованная клиентом подпись связанных событий (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется \"Вакцинация: \" + name. Не хранится в самой прививке."
+            "description": "Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется \"Вакцинация: \" + name. Не хранится в самой прививке."
+          },
+          "add_reminder_on_next": {
+            "type": "boolean",
+            "description": "Если true и передан next_date — сервер дополнительно создаёт напоминание на дату next_date (настройки с source=vaccination и одним напоминанием). Момент напоминания обязан быть строго в будущем — иначе 400."
           }
         }
       },
@@ -5787,27 +6277,28 @@
           "next_date": {
             "type": "string",
             "format": "date",
-            "nullable": true
+            "nullable": true,
+            "description": "null (или пустая строка) очищает дату следующей вакцинации и жёстко удаляет настройки напоминания на неё."
           },
           "add_event_on_administered": {
             "type": "boolean",
-            "description": "true — обновить существующее связанное событие на дату введения либо создать его, если связанного события нет/оно удалено; false — мягко удалить связанное событие."
-          },
-          "add_event_on_next": {
-            "type": "boolean",
-            "description": "true — обновить существующее событие-напоминание на next_date либо создать его, если его нет/оно удалено (при отсутствии next_date событие не создаётся, существующее удаляется); false — мягко удалить связанное событие."
+            "description": "true — обновить существующий связанный факт на дату введения либо создать его, если факта нет/он удалён; false — мягко удалить связанный факт. Момент факта не может быть позднее текущего — иначе 400."
           },
           "event_time": {
             "type": "string",
             "format": "time",
             "nullable": true,
-            "description": "Время суток связанных событий. Если не передано при обновлении существующего события — сохраняется его прежнее время. Трактуется как местное время часового пояса из query-параметра tz (по умолчанию UTC)."
+            "description": "Время суток связанных записей. Если не передано при обновлении существующей записи — сохраняется её прежнее время. Трактуется как местное время часового пояса из обязательного query-параметра tz."
           },
           "event_label": {
             "type": "string",
             "maxLength": 150,
             "nullable": true,
-            "description": "Опциональная, уже локализованная клиентом подпись связанных событий (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется \"Вакцинация: \" + name. Не хранится в самой прививке."
+            "description": "Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется \"Вакцинация: \" + name. Не хранится в самой прививке."
+          },
+          "add_reminder_on_next": {
+            "type": "boolean",
+            "description": "true — обновить существующее напоминание на next_date (при изменении next_date/event_time настройки переносятся на новый момент) либо создать его, если настроек нет/они удалены (без next_date напоминание не создаётся); false — жёстко удалить настройки напоминания. Новый момент обязан быть строго в будущем — иначе 400."
           }
         }
       },
@@ -5826,13 +6317,13 @@
             "type": "string",
             "format": "uuid",
             "nullable": true,
-            "description": "Id события, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует."
+            "description": "Id факта, созданного на дату введения (add_event_on_administered=true), иначе null. Повтор запроса с тем же Idempotency-Key возвращает только id — тогда поле отсутствует."
           },
-          "next_event_id": {
+          "next_plan_id": {
             "type": "string",
             "format": "uuid",
             "nullable": true,
-            "description": "Id события-напоминания на дату следующей вакцинации (add_event_on_next=true), иначе null. Событие создаётся с notifications_enabled=true, если его момент строго в будущем: системное уведомление планирует клиент под этим id. При повторе с тем же Idempotency-Key поле отсутствует."
+            "description": "Id настроек напоминания на дату следующей вакцинации (add_reminder_on_next=true), иначе null. Локальное уведомление клиент планирует по напоминаниям настроек. При повторе с тем же Idempotency-Key поле отсутствует."
           }
         }
       },
@@ -5841,7 +6332,7 @@
         "type": "object",
         "required": [
           "administered_event_id",
-          "next_event_id"
+          "next_plan_id"
         ],
         "properties": {
           "administered_event_id": {
@@ -5849,7 +6340,7 @@
             "format": "uuid",
             "nullable": true
           },
-          "next_event_id": {
+          "next_plan_id": {
             "type": "string",
             "format": "uuid",
             "nullable": true
@@ -6228,7 +6719,7 @@
           "name",
           "dosage",
           "frequency_type",
-          "event_ids",
+          "reminder_plan_id",
           "files_count"
         ],
         "properties": {
@@ -6290,15 +6781,6 @@
             "nullable": true,
             "description": "Дата окончания курса; null = без даты окончания (бессрочно). Всегда null при frequency_type=as_needed."
           },
-          "event_ids": {
-            "type": "array",
-            "maxItems": 60,
-            "description": "id уже созданных событий приёма препарата, в порядке дат приёма. Заполняется через POST /medications/{id}/events.",
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
           "note": {
             "type": "string",
             "maxLength": 1000,
@@ -6308,11 +6790,17 @@
             "type": "string",
             "format": "date-time",
             "nullable": true,
-            "description": "Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор событий (event_ids). null при frequency_type=as_needed или если весь расчитанный график уже в прошлом. Даты и times расписания трактуются как местное время часового пояса из query-параметра tz (по умолчанию UTC)."
+            "description": "Минимальный момент (дата+время) расписания курса, который >= текущего момента, вычисленный по текущим frequency_type/weekdays/interval_days/times/start_date/end_date независимо от того, создан ли набор напоминаний (reminder_plan_id). null при frequency_type=as_needed или если весь рассчитанный график уже в прошлом. Даты и times расписания трактуются как местное время часового пояса из обязательного query-параметра tz."
           },
           "files_count": {
             "type": "integer",
             "description": "Количество прикреплённых файлов курса лечения (0, если файлов нет)."
+          },
+          "reminder_plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "id настроек напоминания набора приёмов; null, если набора нет или его настроек уже нет (все напоминания закрыты либо набор удалён). Признак «есть набор напоминаний» — reminder_plan_id не null."
           }
         }
       },
@@ -6374,10 +6862,10 @@
             "maxLength": 1000,
             "nullable": true
           },
-          "add_event": {
+          "add_reminders": {
             "type": "boolean",
             "default": false,
-            "description": "Создать набор событий-напоминаний сразу при создании курса. Недопустимо при frequency_type=as_needed."
+            "description": "Создать набор напоминаний сразу при создании курса. Недопустимо при frequency_type=as_needed."
           }
         }
       },
@@ -6434,10 +6922,10 @@
             "maxLength": 1000,
             "nullable": true
           },
-          "regenerate_events": {
+          "regenerate_reminders": {
             "type": "boolean",
             "default": false,
-            "description": "Если поля расписания меняются и у курса уже есть event_ids — true пересоздаёт события по новому расписанию (жёсткое удаление старых + создание новых), false/отсутствие — сохраняет существующие события как есть."
+            "description": "Если поля расписания меняются и у курса есть набор напоминаний (reminder_plan_id) — true применяет новое расписание к настройкам набора (жёсткое удаление будущих незавершённых напоминаний + создание новых), false/отсутствие — сохраняет набор как есть. При переходе в frequency_type=as_needed при наличии набора обязателен true (набор удаляется целиком)."
           }
         }
       },
@@ -6488,9 +6976,6 @@
           "add_event_on_administered": {
             "type": "boolean"
           },
-          "add_event_on_next": {
-            "type": "boolean"
-          },
           "event_time": {
             "type": "string",
             "format": "time",
@@ -6499,12 +6984,15 @@
           "administered_event_local_id": {
             "type": "string",
             "nullable": true,
-            "description": "local_id связанного local-события из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки."
+            "description": "local_id связанного local-события (факта) из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки."
           },
-          "next_event_local_id": {
+          "add_reminder_on_next": {
+            "type": "boolean"
+          },
+          "next_reminder_plan_local_id": {
             "type": "string",
             "nullable": true,
-            "description": "local_id связанного local-события-напоминания из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем next_event_id прививки."
+            "description": "local_id настроек напоминания из reminder_plans[] этого же запроса; после импорта сервер свяжет их с полем next_plan_id прививки и запишет настройкам source=vaccination."
           }
         }
       },
@@ -6693,13 +7181,10 @@
             "maxLength": 1000,
             "nullable": true
           },
-          "event_local_ids": {
-            "type": "array",
-            "maxItems": 60,
-            "description": "local_id уже переданных в этом же запросе local-событий приёма (events[].local_id), для связывания без пересчёта расписания на сервере.",
-            "items": {
-              "type": "string"
-            }
+          "reminder_plan_local_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "local_id настроек набора напоминаний из reminder_plans[] этого же запроса, для связывания без пересчёта расписания на сервере; после импорта настройкам записывается source=medication."
           }
         }
       },
@@ -6787,6 +7272,752 @@
             "format": "uuid"
           }
         }
+      },
+      "ActivitiesItemTypeEnum": {
+        "title": "ActivitiesItemTypeEnum",
+        "type": "string",
+        "enum": [
+          "event",
+          "reminder"
+        ],
+        "description": "event — факт (уже произошедшее событие), reminder — незавершённое напоминание."
+      },
+      "ActivitiesDayItem": {
+        "title": "ActivitiesDayItem",
+        "type": "object",
+        "description": "Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id — id настроек. У факта plan_id отсутствует.",
+        "required": [
+          "item_type",
+          "id",
+          "date",
+          "type",
+          "value",
+          "files_count",
+          "pet_id",
+          "pet_name"
+        ],
+        "properties": {
+          "item_type": {
+            "$ref": "#/components/schemas/ActivitiesItemTypeEnum"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id настроек напоминания; присутствует только при item_type=reminder."
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          },
+          "files_count": {
+            "type": "integer"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string"
+          }
+        }
+      },
+      "ReminderFrequencyTypeEnum": {
+        "title": "ReminderFrequencyTypeEnum",
+        "type": "string",
+        "enum": [
+          "once",
+          "daily",
+          "specific_days",
+          "every_n_days"
+        ],
+        "description": "once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней."
+      },
+      "ReminderSourceEnum": {
+        "title": "ReminderSourceEnum",
+        "type": "string",
+        "enum": [
+          "manual",
+          "medication",
+          "vaccination"
+        ],
+        "description": "Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации."
+      },
+      "ReminderPlanRequest": {
+        "title": "ReminderPlanRequest",
+        "type": "object",
+        "description": "Создание настроек напоминания: данные события (type/value/notes) и расписание. Поля, не относящиеся к выбранному frequency_type, не передаются.",
+        "required": [
+          "id",
+          "pet_id",
+          "type",
+          "value",
+          "frequency_type",
+          "times",
+          "start_date"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Идентификатор настроек, назначается клиентом (UUID v4). Служит ключом идемпотентности создания."
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "frequency_type": {
+            "$ref": "#/components/schemas/ReminderFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "description": "Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 2,
+            "maximum": 365,
+            "description": "Интервал в днях. Обязателен, если и только если frequency_type=every_n_days."
+          },
+          "times": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "description": "От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.",
+            "items": {
+              "type": "string",
+              "format": "time"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата начала расписания; при frequency_type=once — дата напоминания."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся."
+          }
+        }
+      },
+      "UpdateReminderPlanRequest": {
+        "title": "UpdateReminderPlanRequest",
+        "type": "object",
+        "description": "Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно. Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum",
+            "description": "Если передан, value обязателен в этом же запросе. Для настроек с source != manual не принимается."
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue",
+            "description": "Заменяется целиком. Для настроек с source != manual не принимается."
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Пустая строка очищает значение. Для настроек с source != manual не принимается."
+          },
+          "frequency_type": {
+            "$ref": "#/components/schemas/ReminderFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "description": "Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 2,
+            "maximum": 365,
+            "description": "Интервал в днях. Обязателен, если и только если frequency_type=every_n_days."
+          },
+          "times": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "description": "От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.",
+            "items": {
+              "type": "string",
+              "format": "time"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата начала расписания; при frequency_type=once — дата напоминания."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся."
+          }
+        }
+      },
+      "ReminderRef": {
+        "title": "ReminderRef",
+        "type": "object",
+        "required": [
+          "id",
+          "remind_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Момент напоминания в UTC."
+          }
+        }
+      },
+      "ReminderPlanResponse": {
+        "title": "ReminderPlanResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "pet_id",
+          "pet_name",
+          "type",
+          "value",
+          "frequency_type",
+          "times",
+          "start_date",
+          "source",
+          "reminders",
+          "files",
+          "future_reminders_with_files_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "frequency_type": {
+            "$ref": "#/components/schemas/ReminderFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "description": "Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 2,
+            "maximum": 365,
+            "description": "Интервал в днях. Обязателен, если и только если frequency_type=every_n_days."
+          },
+          "times": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "description": "От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.",
+            "items": {
+              "type": "string",
+              "format": "time"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата начала расписания; при frequency_type=once — дата напоминания."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся."
+          },
+          "source": {
+            "$ref": "#/components/schemas/ReminderSourceEnum"
+          },
+          "source_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "medication.id либо vaccination.id; null при source=manual."
+          },
+          "source_title": {
+            "type": "string",
+            "nullable": true,
+            "description": "Название лекарства либо вакцинации; null при source=manual."
+          },
+          "reminders": {
+            "type": "array",
+            "description": "Незавершённые напоминания настроек.",
+            "items": {
+              "$ref": "#/components/schemas/ReminderRef"
+            }
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 10,
+            "description": "Файлы настроек (owner_type=reminder_plan_file), в порядке position.",
+            "items": {
+              "$ref": "#/components/schemas/EventFile"
+            }
+          },
+          "future_reminders_with_files_count": {
+            "type": "integer",
+            "description": "Число незавершённых напоминаний с remind_at > now(), у которых есть собственные файлы; по нему клиент предупреждает о потере файлов при пересоздании расписания."
+          }
+        }
+      },
+      "ReminderResponse": {
+        "title": "ReminderResponse",
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "remind_at",
+          "type",
+          "value",
+          "pet_id",
+          "pet_name",
+          "plan_source",
+          "plan_files",
+          "files",
+          "plan_unclosed_count"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "description": "Собственная заметка напоминания, а при её отсутствии — заметка настроек."
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string"
+          },
+          "plan_source": {
+            "$ref": "#/components/schemas/ReminderSourceEnum"
+          },
+          "plan_source_title": {
+            "type": "string",
+            "nullable": true,
+            "description": "Название лекарства либо вакцинации; null при plan_source=manual."
+          },
+          "plan_files": {
+            "type": "array",
+            "maxItems": 10,
+            "description": "Файлы настроек.",
+            "items": {
+              "$ref": "#/components/schemas/EventFile"
+            }
+          },
+          "files": {
+            "type": "array",
+            "maxItems": 10,
+            "description": "Собственные файлы напоминания (owner_type=reminder_file).",
+            "items": {
+              "$ref": "#/components/schemas/EventFile"
+            }
+          },
+          "plan_unclosed_count": {
+            "type": "integer",
+            "description": "Сколько незавершённых напоминаний у настроек, включая это; по нему клиент решает, предлагать ли выбор «это / все»."
+          }
+        }
+      },
+      "CompleteReminderRequest": {
+        "title": "CompleteReminderRequest",
+        "type": "object",
+        "required": [
+          "done"
+        ],
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "description": "true — «выполнено» (создаётся факт), false — «не выполнено»."
+          }
+        }
+      },
+      "CompleteReminderResponse": {
+        "title": "CompleteReminderResponse",
+        "type": "object",
+        "required": [
+          "fact_event_id"
+        ],
+        "properties": {
+          "fact_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Id факта, созданного при done=true; null при done=false."
+          }
+        }
+      },
+      "DetachReminderRequest": {
+        "title": "DetachReminderRequest",
+        "type": "object",
+        "description": "Ровно одно из event и plan: оба или ни одного — 400. Для plan обязателен query-параметр tz.",
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/GetEventRequest"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/ReminderPlanRequest"
+          }
+        }
+      },
+      "DetachReminderResponse": {
+        "title": "DetachReminderResponse",
+        "type": "object",
+        "description": "Присутствует ровно одно из event и plan — то, что было передано в запросе.",
+        "properties": {
+          "event": {
+            "$ref": "#/components/schemas/GetEventIdResponseRequest"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/ReminderPlanResponse"
+          }
+        }
+      },
+      "UpcomingReminderItem": {
+        "title": "UpcomingReminderItem",
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "remind_at",
+          "pet_id",
+          "pet_name",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          }
+        }
+      },
+      "GetUpcomingRemindersResponse": {
+        "title": "GetUpcomingRemindersResponse",
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpcomingReminderItem"
+            }
+          }
+        }
+      },
+      "PetUpcomingReminderItem": {
+        "title": "PetUpcomingReminderItem",
+        "type": "object",
+        "required": [
+          "id",
+          "plan_id",
+          "remind_at",
+          "type"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          }
+        }
+      },
+      "GetPetUpcomingRemindersResponse": {
+        "title": "GetPetUpcomingRemindersResponse",
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetUpcomingReminderItem"
+            }
+          }
+        }
+      },
+      "ImportReminderPlan": {
+        "title": "ImportReminderPlan",
+        "type": "object",
+        "required": [
+          "local_id",
+          "pet_local_id",
+          "type",
+          "value",
+          "frequency_type",
+          "times",
+          "start_date",
+          "tz",
+          "reminders"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID настроек в локальном хранилище; временный ключ ссылки внутри запроса и ключ соответствия в ответе, не сохраняется."
+          },
+          "pet_local_id": {
+            "type": "string",
+            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          },
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "frequency_type": {
+            "$ref": "#/components/schemas/ReminderFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "description": "Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 2,
+            "maximum": 365,
+            "description": "Интервал в днях. Обязателен, если и только если frequency_type=every_n_days."
+          },
+          "times": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "description": "От 1 до 4 различных времён суток HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.",
+            "items": {
+              "type": "string",
+              "format": "time"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата начала расписания; при frequency_type=once — дата напоминания."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся."
+          },
+          "tz": {
+            "type": "string",
+            "example": "Europe/Moscow",
+            "description": "Часовой пояс IANA расписания настроек. Обязателен."
+          },
+          "reminders": {
+            "type": "array",
+            "description": "Незавершённые локальные напоминания. Переносятся как есть, расписание не пересчитывается, потолок 60 и правило «момент в будущем» не применяются. Закрытые напоминания не переносятся.",
+            "items": {
+              "$ref": "#/components/schemas/ImportReminder"
+            }
+          }
+        }
+      },
+      "ImportReminder": {
+        "title": "ImportReminder",
+        "type": "object",
+        "required": [
+          "local_id",
+          "remind_at"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string",
+            "description": "Клиентский UUID напоминания; ключ соответствия в ответе, не сохраняется."
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Собственная заметка напоминания (например, доза по времени приёма лекарства)."
+          }
+        }
+      },
+      "ImportedReminder": {
+        "title": "ImportedReminder",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ImportedReminderPlan": {
+        "title": "ImportedReminderPlan",
+        "type": "object",
+        "required": [
+          "local_id",
+          "id",
+          "reminders"
+        ],
+        "properties": {
+          "local_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reminders": {
+            "type": "array",
+            "description": "Соответствие local_id -> серверный id для напоминаний этих настроек, в порядке запроса.",
+            "items": {
+              "$ref": "#/components/schemas/ImportedReminder"
+            }
+          }
+        }
       }
     },
     "securitySchemes": {
@@ -6831,8 +8062,8 @@
       "TimeZone": {
         "name": "tz",
         "in": "query",
-        "required": false,
-        "description": "Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события (и интервал day/week/month у GET /events/stats) — как день его момента времени date в этом поясе. По умолчанию — UTC. Неизвестное имя пояса — 400 VALIDATION_ERROR.",
+        "required": true,
+        "description": "Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.",
         "schema": {
           "type": "string",
           "example": "Europe/Moscow"
@@ -6841,8 +8072,8 @@
       "ScheduleTimeZone": {
         "name": "tz",
         "in": "query",
-        "required": false,
-        "description": "Часовой пояс клиента — имя IANA (например, Europe/Moscow). Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные события создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. По умолчанию — UTC (прежнее поведение для клиентов, которые tz не передают). Неизвестное имя пояса — 400 VALIDATION_ERROR.",
+        "required": true,
+        "description": "Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, event_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.",
         "schema": {
           "type": "string",
           "example": "Europe/Moscow"

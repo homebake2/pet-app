@@ -181,7 +181,7 @@ func TestPetAndEventLifecycle(t *testing.T) {
 
 	today := time.Now().UTC().Format("2006-01-02")
 	activities := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/activities?pet_id=%s&from=%s&to=%s", pet.ID, today, today),
+		fmt.Sprintf("/activities?pet_id=%s&from=%s&to=%s&tz=UTC", pet.ID, today, today),
 		nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, activities.status)
 	var activitiesBody struct {

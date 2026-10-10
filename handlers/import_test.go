@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -129,8 +130,9 @@ func TestImportLocalDataHandler_InvalidPetRejected(t *testing.T) {
 	badPet := models.ImportLocalDataPet{LocalID: "local-1", Name: "", Species: "cat"}
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{badPet},
-		Events: []models.ImportLocalDataEvent{},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{badPet},
+		Events:        []models.ImportLocalDataEvent{},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -149,8 +151,9 @@ func TestImportLocalDataHandler_InvalidEventRejected(t *testing.T) {
 	badEvent := models.ImportLocalDataEvent{LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "not-a-type", Value: eventValue(`{"amount":4.2}`)}
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{pet},
-		Events: []models.ImportLocalDataEvent{badEvent},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{pet},
+		Events:        []models.ImportLocalDataEvent{badEvent},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -158,10 +161,9 @@ func TestImportLocalDataHandler_InvalidEventRejected(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// notifications_enabled в элементе events[] валидируется так же, как в
-// POST /events: true допустим только с датой строго в будущем (см. «Импорт
-// локальных данных — Backend»).
-func TestImportLocalDataHandler_EventNotificationsEnabledPastDateRejected(t *testing.T) {
+// События в импорте — факты: дата не позднее текущего момента (с допуском
+// 5 минут), как в POST /events.
+func TestImportLocalDataHandler_EventFutureDateRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
@@ -169,10 +171,9 @@ func TestImportLocalDataHandler_EventNotificationsEnabledPastDateRejected(t *tes
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
-	notificationsEnabled := true
 	badEvent := models.ImportLocalDataEvent{
-		LocalID: "event-1", PetLocalID: "local-1", Date: "2024-01-01T12:00:00Z", Type: "weight",
-		Value: eventValue(`{"amount":4.2}`), NotificationsEnabled: &notificationsEnabled,
+		LocalID: "event-1", PetLocalID: "local-1", Date: time.Now().Add(time.Hour).UTC().Format(time.RFC3339), Type: "weight",
+		Value: eventValue(`{"amount":4.2}`),
 	}
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
@@ -208,8 +209,9 @@ func TestImportLocalDataHandler_InvalidEventValueRejected(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			r := importRequest(t, models.ImportLocalDataRequest{
-				Pets:   []models.ImportLocalDataPet{validImportPet("local-1")},
-				Events: []models.ImportLocalDataEvent{c.event},
+				ReminderPlans: []models.ImportReminderPlan{},
+				Pets:          []models.ImportLocalDataPet{validImportPet("local-1")},
+				Events:        []models.ImportLocalDataEvent{c.event},
 			}, true, testImportIdempotencyKey)
 			ImportLocalDataHandler(w, r)
 
@@ -230,8 +232,9 @@ func TestImportLocalDataHandler_EventPetLocalIDMismatchRejected(t *testing.T) {
 	event := validImportEvent("event-1", "does-not-exist")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{pet},
-		Events: []models.ImportLocalDataEvent{event},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{pet},
+		Events:        []models.ImportLocalDataEvent{event},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -251,8 +254,9 @@ func TestImportLocalDataHandler_DuplicatePetLocalIDRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{validImportPet("dup"), validImportPet("dup")},
-		Events: []models.ImportLocalDataEvent{},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{validImportPet("dup"), validImportPet("dup")},
+		Events:        []models.ImportLocalDataEvent{},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -271,7 +275,8 @@ func TestImportLocalDataHandler_DuplicateEventLocalIDRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets: []models.ImportLocalDataPet{validImportPet("local-1")},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{validImportPet("local-1")},
 		Events: []models.ImportLocalDataEvent{
 			validImportEvent("dup-event", "local-1"),
 			validImportEvent("dup-event", "local-1"),
@@ -292,9 +297,10 @@ func TestImportLocalDataHandler_InvalidProfileRejected(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:    []models.ImportLocalDataPet{},
-		Events:  []models.ImportLocalDataEvent{},
-		Profile: &models.ImportLocalDataProfile{FirstName: ""},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{},
+		Events:        []models.ImportLocalDataEvent{},
+		Profile:       &models.ImportLocalDataProfile{FirstName: ""},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -315,16 +321,19 @@ func TestImportLocalDataHandler_IdempotencyKeyReplaysStoredResult(t *testing.T) 
 			"pets_imported", "events_imported", "profile_imported", "pets_mapping", "events_mapping",
 			"vaccinations_imported", "diseases_imported", "vet_visits_imported", "allergies_imported", "medications_imported",
 			"vaccinations_mapping", "diseases_mapping", "vet_visits_mapping", "allergies_mapping", "medications_mapping",
+			"reminder_plans_imported", "reminder_plans_mapping",
 		}).
 			AddRow(2, 1, true, `[{"local_id":"whatever","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+storedEventID+`"}]`,
-				0, 0, 0, 0, 0, nil, nil, nil, nil, nil))
+				0, 0, 0, 0, 0, nil, nil, nil, nil, nil,
+				1, `[{"local_id":"plan-1","id":"`+storedEventID+`","reminders":[{"local_id":"r-1","id":"`+testPetID+`"}]}]`))
 
 	w := httptest.NewRecorder()
 	// Тело повторного запроса умышленно отличается от первого раза — должен
 	// вернуться ранее сохранённый результат, без повторной валидации/записи.
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{validImportPet("whatever")},
-		Events: []models.ImportLocalDataEvent{},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{validImportPet("whatever")},
+		Events:        []models.ImportLocalDataEvent{},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -340,6 +349,12 @@ func TestImportLocalDataHandler_IdempotencyKeyReplaysStoredResult(t *testing.T) 
 		VetVisits:    []models.ImportedVetVisit{},
 		Allergies:    []models.ImportedAllergy{},
 		Medications:  []models.ImportedMedication{},
+
+		ReminderPlansImported: 1,
+		ReminderPlans: []models.ImportedReminderPlan{{
+			LocalID: "plan-1", ID: storedEventID,
+			Reminders: []models.ImportedReminder{{LocalID: "r-1", ID: testPetID}},
+		}},
 	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -361,15 +376,16 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 	const insertedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
 		WithArgs(1, 1, false, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+insertedEventID+`"}]`,
-			0, 0, 0, 0, 0, `[]`, `[]`, `[]`, `[]`, `[]`, testUserID, testImportIdempotencyKey).
+			0, 0, 0, 0, 0, `[]`, `[]`, `[]`, `[]`, `[]`, 0, `[]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
 	event := validImportEvent("event-1", "local-1")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{pet},
-		Events: []models.ImportLocalDataEvent{event},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{pet},
+		Events:        []models.ImportLocalDataEvent{event},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -385,6 +401,8 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 		VetVisits:    []models.ImportedVetVisit{},
 		Allergies:    []models.ImportedAllergy{},
 		Medications:  []models.ImportedMedication{},
+
+		ReminderPlans: []models.ImportedReminderPlan{},
 	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -408,16 +426,17 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 	const insertedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
 		WithArgs(1, 1, true, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+insertedEventID+`"}]`,
-			0, 0, 0, 0, 0, `[]`, `[]`, `[]`, `[]`, `[]`, testUserID, testImportIdempotencyKey).
+			0, 0, 0, 0, 0, `[]`, `[]`, `[]`, `[]`, `[]`, 0, `[]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	pet := validImportPet("local-1")
 	event := validImportEvent("event-1", "local-1")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:    []models.ImportLocalDataPet{pet},
-		Events:  []models.ImportLocalDataEvent{event},
-		Profile: &models.ImportLocalDataProfile{FirstName: "Иван"},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{pet},
+		Events:        []models.ImportLocalDataEvent{event},
+		Profile:       &models.ImportLocalDataProfile{FirstName: "Иван"},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
@@ -433,6 +452,8 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 		VetVisits:    []models.ImportedVetVisit{},
 		Allergies:    []models.ImportedAllergy{},
 		Medications:  []models.ImportedMedication{},
+
+		ReminderPlans: []models.ImportedReminderPlan{},
 	}, resp)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -452,11 +473,155 @@ func TestImportLocalDataHandler_DBErrorRollsBackAndReturns500(t *testing.T) {
 	pet := validImportPet("local-1")
 	w := httptest.NewRecorder()
 	r := importRequest(t, models.ImportLocalDataRequest{
-		Pets:   []models.ImportLocalDataPet{pet},
-		Events: []models.ImportLocalDataEvent{},
+		ReminderPlans: []models.ImportReminderPlan{},
+		Pets:          []models.ImportLocalDataPet{pet},
+		Events:        []models.ImportLocalDataEvent{},
 	}, true, testImportIdempotencyKey)
 	ImportLocalDataHandler(w, r)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// validImportReminderPlan — минимальные корректные настройки напоминания для
+// переноса: разовое, один незавершённый момент.
+func validImportReminderPlan(localID, petLocalID string) models.ImportReminderPlan {
+	return models.ImportReminderPlan{
+		LocalID:       localID,
+		PetLocalID:    petLocalID,
+		Type:          "medication",
+		Value:         eventValue(`{"name":"Нурофен"}`),
+		FrequencyType: "daily",
+		Times:         []string{"09:00"},
+		StartDate:     "2024-01-01",
+		TZ:            "Europe/Moscow",
+		Reminders: []models.ImportReminder{
+			{LocalID: localID + "-r1", RemindAt: "2024-01-01T06:00:00Z"},
+		},
+	}
+}
+
+// Расписание при переносе не пересчитывается, поэтому правило «в расписании
+// есть будущий момент» к настройкам не применяется: прошедшие моменты
+// переносятся как есть, но остальная валидация совпадает с
+// POST /reminder-plans.
+func TestImportLocalDataHandler_ReminderPlanInvalidRejected(t *testing.T) {
+	missingTZ := validImportReminderPlan("plan-1", "local-1")
+	missingTZ.TZ = ""
+	unknownTZ := validImportReminderPlan("plan-1", "local-1")
+	unknownTZ.TZ = "Mars/Olympus"
+	badType := validImportReminderPlan("plan-1", "local-1")
+	badType.Type = "unknown"
+	onceWithTwoTimes := validImportReminderPlan("plan-1", "local-1")
+	onceWithTwoTimes.FrequencyType = "once"
+	onceWithTwoTimes.Times = []string{"09:00", "10:00"}
+	badRemindAt := validImportReminderPlan("plan-1", "local-1")
+	badRemindAt.Reminders[0].RemindAt = "not-a-date"
+	unknownPet := validImportReminderPlan("plan-1", "no-such-pet")
+	noReminders := validImportReminderPlan("plan-1", "local-1")
+	noReminders.Reminders = nil
+
+	cases := []struct {
+		name string
+		plan models.ImportReminderPlan
+	}{
+		{"нет tz", missingTZ},
+		{"неизвестный tz", unknownTZ},
+		{"недопустимый type", badType},
+		{"once с двумя временами", onceWithTwoTimes},
+		{"некорректный remind_at", badRemindAt},
+		{"несуществующий pet_local_id", unknownPet},
+		{"reminders не передан", noReminders},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := setupMockDB(t)
+			expectTokensValid(mock, testUserID)
+			mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+				WithArgs(testUserID, testImportIdempotencyKey).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			w := httptest.NewRecorder()
+			r := importRequest(t, models.ImportLocalDataRequest{
+				Pets:          []models.ImportLocalDataPet{validImportPet("local-1")},
+				Events:        []models.ImportLocalDataEvent{},
+				ReminderPlans: []models.ImportReminderPlan{c.plan},
+			}, true, testImportIdempotencyKey)
+			ImportLocalDataHandler(w, r)
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// Ссылка прививки/лекарства на настройки должна указывать на элемент
+// reminder_plans запроса; на одни настройки ссылается одна запись; источник
+// проверяется по виду расписания и типу.
+func TestImportLocalDataHandler_ReminderPlanReferencesRejected(t *testing.T) {
+	dailyPlan := validImportReminderPlan("plan-1", "local-1")
+	oncePlan := validImportReminderPlan("plan-1", "local-1")
+	oncePlan.FrequencyType = "once"
+	oncePlan.Type = "other"
+	oncePlan.Value = eventValue(`{"label":"Прививка"}`)
+	planRef := "plan-1"
+
+	medication := func(planRef *string) models.ImportMedication {
+		return models.ImportMedication{
+			LocalID: "med-1", PetLocalID: "local-1", Name: "Нурофен", Dosage: "1 таб",
+			FrequencyType: "as_needed", ReminderPlanLocalID: planRef,
+		}
+	}
+	vaccination := func(planRef *string) models.ImportVaccination {
+		return models.ImportVaccination{
+			LocalID: "vac-1", PetLocalID: "local-1", Name: "Бешенство", AdministeredDate: "2024-01-01",
+			NextDate: strPtr("2024-02-01"), NextReminderPlanLocalID: planRef,
+		}
+	}
+	unknownRef := "no-such-plan"
+
+	cases := []struct {
+		name string
+		req  models.ImportLocalDataRequest
+	}{
+		{"лекарство ссылается на несуществующие настройки", models.ImportLocalDataRequest{
+			ReminderPlans: []models.ImportReminderPlan{dailyPlan},
+			Medications:   []models.ImportMedication{medication(&unknownRef)},
+		}},
+		{"прививка ссылается на несуществующие настройки", models.ImportLocalDataRequest{
+			ReminderPlans: []models.ImportReminderPlan{oncePlan},
+			Vaccinations:  []models.ImportVaccination{vaccination(&unknownRef)},
+		}},
+		{"настройки прививки не разовые", models.ImportLocalDataRequest{
+			ReminderPlans: []models.ImportReminderPlan{dailyPlan},
+			Vaccinations:  []models.ImportVaccination{vaccination(&planRef)},
+		}},
+		{"настройки лекарства разовые", models.ImportLocalDataRequest{
+			ReminderPlans: []models.ImportReminderPlan{oncePlan},
+			Medications:   []models.ImportMedication{medication(&planRef)},
+		}},
+		{"на настройки ссылаются прививка и лекарство", models.ImportLocalDataRequest{
+			ReminderPlans: []models.ImportReminderPlan{oncePlan},
+			Vaccinations:  []models.ImportVaccination{vaccination(&planRef)},
+			Medications:   []models.ImportMedication{medication(&planRef)},
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := setupMockDB(t)
+			expectTokensValid(mock, testUserID)
+			mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+				WithArgs(testUserID, testImportIdempotencyKey).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			req := c.req
+			req.Pets = []models.ImportLocalDataPet{validImportPet("local-1")}
+			req.Events = []models.ImportLocalDataEvent{}
+			w := httptest.NewRecorder()
+			ImportLocalDataHandler(w, importRequest(t, req, true, testImportIdempotencyKey))
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
 }

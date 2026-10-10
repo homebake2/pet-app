@@ -37,15 +37,13 @@ const (
 	MedicationMaxWeekday        = 7
 	MedicationMinTimesCount     = 1
 	MedicationMaxTimesCount     = 4
-	MedicationMaxEventIDsCount  = 60
-	MedicationScheduleEventsCap = 60
 	// MedicationScheduleMaxLookaheadDays — предохранитель от бесконечного
-	// перебора дат в расчёте расписания (см. "Расчёт расписания", шаг 2):
-	// теоретический случай, недостижимый на валидных weekdays/interval_days.
+	// перебора дат в расчёте next_dose: теоретический случай, недостижимый на
+	// валидных weekdays/interval_days.
 	MedicationScheduleMaxLookaheadDays = 730
 )
 
-// MedicationFreeds7uquencyType* — значения MedicationFrequencyTypeEnum.
+// MedicationFrequency* — значения MedicationFrequencyTypeEnum.
 const (
 	MedicationFrequencyDaily        = "daily"
 	MedicationFrequencySpecificDays = "specific_days"
@@ -110,8 +108,10 @@ type VaccinationDB struct {
 	AdministeredDate    time.Time
 	NextDate            sql.NullTime
 	AdministeredEventID uuid.NullUUID
-	NextEventID         uuid.NullUUID
-	DeletedAt           sql.NullTime
+	// NextPlanID — настройки напоминания на дату следующей вакцинации;
+	// NULL, если напоминания нет либо его настроек уже нет.
+	NextPlanID uuid.NullUUID
+	DeletedAt  sql.NullTime
 }
 
 // CreateVaccinationRequest — тело запроса POST /pet/{id}/vaccinations.
@@ -120,12 +120,12 @@ type CreateVaccinationRequest struct {
 	AdministeredDate       string  `json:"administered_date"`
 	NextDate               *string `json:"next_date,omitempty"`
 	AddEventOnAdministered *bool   `json:"add_event_on_administered,omitempty"`
-	AddEventOnNext         *bool   `json:"add_event_on_next,omitempty"`
-	// EventTime — время суток для создаваемых событий; не хранится в самой
+	AddReminderOnNext      *bool   `json:"add_reminder_on_next,omitempty"`
+	// EventTime — время суток для создаваемых записей; не хранится в самой
 	// прививке (см. описание GetVaccinationRequest.event_time в spec.json).
 	EventTime *string `json:"event_time,omitempty"`
 	// EventLabel — опциональная, уже локализованная клиентом подпись
-	// создаваемых событий (value.label, обрезается сервером до 50 рун). Если
+	// создаваемых записей (value.label, обрезается сервером до 50 рун). Если
 	// не передана — "Вакцинация: " + name. Не хранится в самой прививке.
 	EventLabel *string `json:"event_label,omitempty"`
 }
@@ -138,7 +138,7 @@ type UpdateVaccinationRequest struct {
 	AdministeredDate       *string `json:"administered_date,omitempty"`
 	NextDate               *string `json:"next_date,omitempty"`
 	AddEventOnAdministered *bool   `json:"add_event_on_administered,omitempty"`
-	AddEventOnNext         *bool   `json:"add_event_on_next,omitempty"`
+	AddReminderOnNext      *bool   `json:"add_reminder_on_next,omitempty"`
 	EventTime              *string `json:"event_time,omitempty"`
 	// EventLabel — см. CreateVaccinationRequest.EventLabel.
 	EventLabel *string `json:"event_label,omitempty"`
@@ -151,7 +151,7 @@ type VaccinationResponse struct {
 	AdministeredDate    string  `json:"administered_date"`
 	NextDate            *string `json:"next_date,omitempty"`
 	AdministeredEventID *string `json:"administered_event_id,omitempty"`
-	NextEventID         *string `json:"next_event_id,omitempty"`
+	NextPlanID          *string `json:"next_plan_id,omitempty"`
 	FilesCount          int     `json:"files_count"`
 }
 
@@ -355,11 +355,11 @@ type MedicationDB struct {
 	Times        []MedicationTimeSlot
 	StartDate    sql.NullTime
 	EndDate      sql.NullTime
-	// EventIDs хранится как text[] (строковые UUID) в БД, см. миграцию
-	// 000017_vetpassport_entities — проще читать/писать через lib/pq.
-	EventIDs  []string
-	Note      sql.NullString
-	DeletedAt sql.NullTime
+	// ReminderPlanID — настройки напоминания набора приёмов; NULL, если
+	// набора нет либо его настроек уже нет.
+	ReminderPlanID uuid.NullUUID
+	Note           sql.NullString
+	DeletedAt      sql.NullTime
 	// CreatedAt — вторичный ключ сортировки списка (по next_dose возр., затем
 	// created_at убыв.), см. GetPetMedicationsHandler.
 	CreatedAt time.Time
@@ -379,7 +379,7 @@ type CreateMedicationRequest struct {
 	StartDate     *string              `json:"start_date,omitempty"`
 	EndDate       *string              `json:"end_date,omitempty"`
 	Note          *string              `json:"note,omitempty"`
-	AddEvent      *bool                `json:"add_event,omitempty"`
+	AddReminders  *bool                `json:"add_reminders,omitempty"`
 }
 
 // UpdateMedicationRequest — тело запроса PATCH /medications/{id}
@@ -401,7 +401,7 @@ type UpdateMedicationRequest struct {
 	// ветпаспорта), отсутствие поля не изменяет его.
 	Note *string `json:"note,omitempty"`
 
-	RegenerateEvents *bool `json:"regenerate_events,omitempty"`
+	RegenerateReminders *bool `json:"regenerate_reminders,omitempty"`
 }
 
 type MedicationResponse struct {
@@ -416,30 +416,30 @@ type MedicationResponse struct {
 	StartDate     *string               `json:"start_date,omitempty"`
 	EndDate       *string               `json:"end_date,omitempty"`
 	NextDose      *string               `json:"next_dose,omitempty"`
-	EventIDs      []string              `json:"event_ids"`
-	Note          *string               `json:"note,omitempty"`
-	FilesCount    int                   `json:"files_count"`
+	// ReminderPlanID — настройки напоминания набора; null, если набора нет.
+	ReminderPlanID *string `json:"reminder_plan_id"`
+	Note           *string `json:"note,omitempty"`
+	FilesCount     int     `json:"files_count"`
 }
 
 type MedicationListResponse struct {
 	Items []MedicationResponse `json:"items"`
 }
 
-// VaccinationEventIDs — id связанных событий прививки (null — события нет).
-// Клиенту нужны реальные id, чтобы запланировать и потом отменить системное
-// уведомление события следующей вакцинации (см. «Вакцинации — Frontend»).
-type VaccinationEventIDs struct {
+// VaccinationLinkIDs — id связанных с прививкой записей: факт на дату
+// введения и настройки напоминания на следующую дату (null — записи нет).
+type VaccinationLinkIDs struct {
 	AdministeredEventID *string `json:"administered_event_id"`
-	NextEventID         *string `json:"next_event_id"`
+	NextPlanID          *string `json:"next_plan_id"`
 }
 
 // VaccinationCreatedResponse — тело ответа 201 Created для POST
-// /pet/{id}/vaccinations: id прививки и id созданных ею событий. Повтор
-// запроса с тем же Idempotency-Key возвращает только id (события клиент
-// получит из списка прививок).
+// /pet/{id}/vaccinations: id прививки и id созданных ею записей. Повтор
+// запроса с тем же Idempotency-Key возвращает только id (связанные записи
+// клиент получит из списка прививок).
 type VaccinationCreatedResponse struct {
 	ID string `json:"id"`
-	VaccinationEventIDs
+	VaccinationLinkIDs
 }
 
 // IDResponse — тело ответа 201 Created для POST /pet/{id}/vaccinations|diseases|vet-visits|allergies|medications

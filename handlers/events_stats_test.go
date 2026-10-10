@@ -6,6 +6,7 @@ import (
 	"myauthservice/models"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// statsPath строит путь GET /events/stats; tz обязателен, поэтому, если он не
+// задан в query явно, подставляется UTC.
 func statsPath(query string) string {
+	if !strings.Contains(query, "tz=") {
+		query += "&tz=UTC"
+	}
 	return "/events/stats?pet_id=" + testPetID + "&" + query
 }
 
@@ -310,19 +316,16 @@ func statsBucketStartsOf(t *testing.T, w *httptest.ResponseRecorder) []string {
 	return starts
 }
 
-// Без tz — прежнее поведение: сутки по UTC.
-func TestGetEventStatsHandler_DefaultTimeZoneIsUTC(t *testing.T) {
+// tz обязателен: без него 400 VALIDATION_ERROR, значения по умолчанию нет.
+func TestGetEventStatsHandler_MissingTimeZone(t *testing.T) {
 	mock := setupMockDB(t)
-	expectTokensValid(mock, testUserID)
-	expectOwnedPet(mock)
-	expectStatsQuery(mock, "water", "2024-01-01T00:00:00Z", "2024-01-03T00:00:00Z",
-		[]string{"2024-01-01T00:00:00Z", "2024-01-02T00:00:00Z"}).
-		WillReturnRows(sqlmock.NewRows([]string{"bucket_number", "split_value", "event_count", "amount_sum"}))
 
 	w := httptest.NewRecorder()
-	GetEventStatsHandler(w, eventRequest(t, http.MethodGet, statsPath("from=2024-01-01&to=2024-01-02&bucket=day&types=water"), nil, true))
+	path := "/events/stats?pet_id=" + testPetID + "&from=2024-01-01&to=2024-01-02&bucket=day&types=water"
+	GetEventStatsHandler(w, eventRequest(t, http.MethodGet, path, nil, true))
 
-	assert.Equal(t, []string{"2024-01-01", "2024-01-02"}, statsBucketStartsOf(t, w))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "VALIDATION_ERROR")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

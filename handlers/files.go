@@ -1,6 +1,4 @@
-// Package handlers: generic-механизм файлов сущностей (см.
-// artifacts/PET/pages/integrations/obschie-trebovaniya-fayly-sushchnostei.md).
-// Три endpoint'а (upload-url/complete/delete) параметризованы owner_type и
+// Package handlers: generic-механизм файлов сущностей. Три endpoint'а (upload-url/complete/delete) параметризованы owner_type и
 // работают через статический «реестр типов владельцев» (ownerTypeRegistry) —
 // добавление нового owner_type означает добавление записи в реестр, а не
 // ветки if/switch здесь.
@@ -72,6 +70,11 @@ type ownerTypeSpec struct {
 	// maxCount — лимит кардинальности «до N»; не используется (игнорируется)
 	// для cardinalityExactlyOne.
 	maxCount int
+	// effectiveMaxCount, если задан, вычисляет лимит кардинальности для
+	// конкретного владельца вместо статического maxCount: у настроек
+	// напоминания и самого напоминания файлы вместе должны помещаться в один
+	// факт (до 10), поэтому лимит одного зависит от числа файлов другого.
+	effectiveMaxCount func(ownerID uuid.UUID) (int, error)
 	// checkOwnership возвращает true, если ownerID существует и принадлежит
 	// userID (для pet_photo — ещё и не удалён). Ошибка — сбой БД (500);
 	// false без ошибки — единый 404 (см. «Общие требования: IDOR и владение
@@ -106,6 +109,40 @@ var ownerTypeRegistry = map[string]ownerTypeSpec{
 			"application/pdf": true,
 		},
 		checkOwnership: database.CheckEventFileOwnership,
+	},
+	// Напоминания (см. handlers/reminders.go): файлы настроек относятся ко
+	// всем напоминаниям, собственные файлы — к одному. Чтобы файлы настроек
+	// и напоминания всегда помещались в один факт или одну запись (до 10),
+	// лимит каждого уменьшается на число файлов другого.
+	reminderPlanFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            models.ReminderFilesMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckReminderPlanFileOwnership,
+		effectiveMaxCount: func(planID uuid.UUID) (int, error) {
+			maxOwn, err := database.MaxOwnReminderFilesCountForPlan(planID)
+			if err != nil {
+				return 0, err
+			}
+			return models.ReminderFilesMaxCount - maxOwn, nil
+		},
+	},
+	reminderFileOwnerType: {
+		cardinality:         cardinalityUpToN,
+		maxCount:            models.ReminderFilesMaxCount,
+		allowedContentTypes: vetPassportFileContentTypes,
+		checkOwnership:      database.CheckReminderFileOwnership,
+		effectiveMaxCount: func(reminderID uuid.UUID) (int, error) {
+			planID, err := database.ReminderPlanIDOfReminder(reminderID)
+			if err != nil {
+				return 0, err
+			}
+			planFiles, err := database.CountFilesForOwner(reminderPlanFileOwnerType, planID)
+			if err != nil {
+				return 0, err
+			}
+			return models.ReminderFilesMaxCount - planFiles, nil
+		},
 	},
 	// Ведпаспорт (медкарта питомца, см. handlers/vetpassport.go): 5 новых
 	// owner_type, все с кардинальностью «до 10», симметрично event_file.
@@ -290,7 +327,15 @@ func FilesCompleteHandler(w http.ResponseWriter, r *http.Request, fileIDStr stri
 			return
 		}
 	case cardinalityUpToN:
-		limitReached, err := database.ConfirmFileUpToN(file.ID, file.OwnerType, file.OwnerID, spec.maxCount)
+		limit := spec.maxCount
+		if spec.effectiveMaxCount != nil {
+			limit, err = spec.effectiveMaxCount(file.OwnerID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подтвердить загрузку файла")
+				return
+			}
+		}
+		limitReached, err := database.ConfirmFileUpToN(file.ID, file.OwnerType, file.OwnerID, limit)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подтвердить загрузку файла")
 			return
@@ -329,7 +374,7 @@ func FilesDeleteHandler(w http.ResponseWriter, r *http.Request, fileIDStr string
 		return
 	}
 
-	objectKey, err := database.DeleteFileByID(file.ID)
+	objectKey, objectOrphaned, err := database.DeleteFileByID(file.ID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			// Гонка: файл удалён между resolveOwnedFile и этим вызовом —
@@ -341,7 +386,12 @@ func FilesDeleteHandler(w http.ResponseWriter, r *http.Request, fileIDStr string
 		return
 	}
 
-	bestEffortDeleteObject(r.Context(), objectKey)
+	// Строки file могут ссылаться на один и тот же объект (файлы настроек
+	// напоминания, ставшие файлами факта): объект удаляется из S3 только
+	// вместе с последней ссылкой.
+	if objectOrphaned {
+		bestEffortDeleteObject(r.Context(), objectKey)
+	}
 
 	w.WriteHeader(http.StatusNoContent)
 }

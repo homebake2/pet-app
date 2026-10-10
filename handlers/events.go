@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"myauthservice/database"
 	"myauthservice/eventreg"
 	"myauthservice/models"
@@ -160,13 +161,12 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 			*notes = eventDB.Notes.String
 		}
 		activityEvent := models.ActivityEvent{
-			ID:                   eventDB.ID.String(),
-			Date:                 eventDate.Format(time.RFC3339),
-			Type:                 eventDB.Type,
-			Notes:                notes,
-			Value:                eventDB.Value,
-			FilesCount:           filesCounts[eventDB.ID],
-			NotificationsEnabled: eventDB.NotificationsEnabled,
+			ID:         eventDB.ID.String(),
+			Date:       eventDate.Format(time.RFC3339),
+			Type:       eventDB.Type,
+			Notes:      notes,
+			Value:      eventDB.Value,
+			FilesCount: filesCounts[eventDB.ID],
 		}
 		eventsByDay[dateStr] = append(eventsByDay[dateStr], activityEvent)
 	}
@@ -196,13 +196,12 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 
 // PetEventItem - одно событие в ответе GET /pet/{id}/events (GetEventResponse).
 type PetEventItem struct {
-	ID                   string          `json:"id"`
-	Date                 string          `json:"date"`
-	Type                 string          `json:"type"`
-	Notes                *string         `json:"notes,omitempty"`
-	Value                json.RawMessage `json:"value"`
-	FilesCount           int             `json:"files_count"`
-	NotificationsEnabled bool            `json:"notifications_enabled"`
+	ID         string          `json:"id"`
+	Date       string          `json:"date"`
+	Type       string          `json:"type"`
+	Notes      *string         `json:"notes,omitempty"`
+	Value      json.RawMessage `json:"value"`
+	FilesCount int             `json:"files_count"`
 }
 
 // PetEventsResponse - тело ответа GET /pet/{id}/events.
@@ -302,13 +301,12 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 			notes = &eventDB.Notes.String
 		}
 		items = append(items, PetEventItem{
-			ID:                   eventDB.ID.String(),
-			Date:                 eventDB.Date.Format(time.RFC3339),
-			Type:                 eventDB.Type,
-			Notes:                notes,
-			Value:                eventDB.Value,
-			FilesCount:           filesCounts[eventDB.ID],
-			NotificationsEnabled: eventDB.NotificationsEnabled,
+			ID:         eventDB.ID.String(),
+			Date:       eventDB.Date.Format(time.RFC3339),
+			Type:       eventDB.Type,
+			Notes:      notes,
+			Value:      eventDB.Value,
+			FilesCount: filesCounts[eventDB.ID],
 		})
 	}
 
@@ -430,7 +428,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if msg := validateNotificationsEnabledForDate(req.NotificationsEnabled, parsedDate); msg != "" {
+	if msg := validateFactDate(parsedDate); msg != "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 		return
 	}
@@ -508,11 +506,21 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 // владения для files не требуется — она уже выполнена при выборке самого
 // события.
 func writeEventResponse(w http.ResponseWriter, r *http.Request, status int, eventDB *models.EventDB, petID uuid.UUID, petName string) {
-	response := eventResponseFromDB(eventDB, petID, petName)
-	if !attachEventFiles(w, r, eventDB.ID, &response) {
+	response, ok := buildEventResponse(w, r, eventDB, petID, petName)
+	if !ok {
 		return
 	}
 	writeJSON(w, status, response)
+}
+
+// buildEventResponse строит EventResponse события с полем `files`; при
+// ошибке сама пишет 500 и возвращает ok=false.
+func buildEventResponse(w http.ResponseWriter, r *http.Request, eventDB *models.EventDB, petID uuid.UUID, petName string) (models.EventResponse, bool) {
+	response := eventResponseFromDB(eventDB, petID, petName)
+	if !attachEventFiles(w, r, eventDB.ID, &response) {
+		return response, false
+	}
+	return response, true
 }
 
 // attachEventFiles заполняет поле Files ответа события подтверждёнными
@@ -527,21 +535,29 @@ func attachEventFiles(w http.ResponseWriter, r *http.Request, eventID uuid.UUID,
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения файлов события")
 		return false
 	}
-	if len(files) == 0 {
-		return true
-	}
-
-	if storage == nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Хранилище файлов не сконфигурировано")
+	items, err := presignFileItems(r, files)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подписать ссылку на файл события")
 		return false
 	}
+	response.Files = items
+	return true
+}
 
+// presignFileItems превращает строки file в элементы `files` ответа с
+// временными presigned-ссылками. Результат — всегда не-nil срез.
+func presignFileItems(r *http.Request, files []models.FileDB) ([]models.EventFileItem, error) {
 	items := make([]models.EventFileItem, 0, len(files))
+	if len(files) == 0 {
+		return items, nil
+	}
+	if storage == nil {
+		return nil, fmt.Errorf("хранилище файлов не сконфигурировано")
+	}
 	for _, f := range files {
 		url, err := storage.PresignGetURL(r.Context(), f.ObjectKey)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось подписать ссылку на файл события")
-			return false
+			return nil, err
 		}
 		var filename *string
 		if f.Filename.Valid {
@@ -554,8 +570,7 @@ func attachEventFiles(w http.ResponseWriter, r *http.Request, eventID uuid.UUID,
 			Filename:    filename,
 		})
 	}
-	response.Files = items
-	return true
+	return items, nil
 }
 
 func eventResponseFromDB(eventDB *models.EventDB, petID uuid.UUID, petName string) models.EventResponse {
@@ -564,14 +579,13 @@ func eventResponseFromDB(eventDB *models.EventDB, petID uuid.UUID, petName strin
 		notes = &eventDB.Notes.String
 	}
 	return models.EventResponse{
-		ID:                   eventDB.ID.String(),
-		Date:                 eventDB.Date.Format(time.RFC3339),
-		Type:                 eventDB.Type,
-		Value:                eventDB.Value,
-		Notes:                notes,
-		PetID:                petID.String(),
-		PetName:              petName,
-		NotificationsEnabled: eventDB.NotificationsEnabled,
+		ID:      eventDB.ID.String(),
+		Date:    eventDB.Date.Format(time.RFC3339),
+		Type:    eventDB.Type,
+		Value:   eventDB.Value,
+		Notes:   notes,
+		PetID:   petID.String(),
+		PetName: petName,
 	}
 }
 
@@ -609,7 +623,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil && req.NotificationsEnabled == nil {
+	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Необходимо указать хотя бы одно поле для обновления")
 		return
 	}
@@ -697,27 +711,17 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		dateTime = &parsedDate
 	}
 
-	// Итоговое сочетание notifications_enabled/date проверяется только если
-	// хотя бы одно из этих двух полей присутствует в запросе — иначе уже
-	// сохранённое сочетание не пересматривается только из-за изменения
-	// других полей (type/value/notes), см. «Редактирование события —
-	// Backend».
-	if req.Date != nil || req.NotificationsEnabled != nil {
-		finalDateTime := eventDB.Date
-		if dateTime != nil {
-			finalDateTime = *dateTime
-		}
-		finalNotificationsEnabled := &eventDB.NotificationsEnabled
-		if req.NotificationsEnabled != nil {
-			finalNotificationsEnabled = req.NotificationsEnabled
-		}
-		if msg := validateNotificationsEnabledForDate(finalNotificationsEnabled, finalDateTime); msg != "" {
+	// Дата факта проверяется только если она есть в запросе — иначе уже
+	// сохранённая дата не пересматривается только из-за изменения других
+	// полей (type/value/notes), см. «Редактирование события — Backend».
+	if dateTime != nil {
+		if msg := validateFactDate(*dateTime); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
 	}
 
-	if err := database.UpdateEvent(eventID, req, dateTime, req.Type, req.Notes, req.Value, req.NotificationsEnabled); err != nil {
+	if err := database.UpdateEvent(eventID, dateTime, req.Type, req.Notes, req.Value); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при обновлении события")
 		return
 	}

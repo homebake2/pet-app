@@ -139,7 +139,8 @@ func PetHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // PetByIDHandler обрабатывает /pet/{id} (получение, изменение, удаление)
-// и /pet/{id}/events (получение событий питомца).
+// /pet/{id}/events (получение событий питомца) и
+// /pet/{id}/reminders/upcoming (ближайшие напоминания питомца).
 func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 	segments := pathSegments(r, "/pet/")
 
@@ -154,6 +155,20 @@ func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		GetPetEventsHandler(w, r, petID)
+		return
+	}
+
+	if len(segments) == 3 && segments[1] == "reminders" && segments[2] == "upcoming" {
+		petID, err := uuid.Parse(segments[0])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный id питомца")
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
+			return
+		}
+		GetPetUpcomingRemindersHandler(w, r, petID)
 		return
 	}
 
@@ -550,10 +565,12 @@ func DeletePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.DeletePet(petID, userID); err != nil {
+	orphanKeys, err := database.DeletePet(petID, userID)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления питомца")
 		return
 	}
+	deleteOrphanedObjects(r.Context(), orphanKeys)
 
 	w.WriteHeader(http.StatusNoContent)
 }

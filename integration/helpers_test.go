@@ -93,6 +93,66 @@ func doRequest(t *testing.T, method, path string, body any, token string, extraH
 	return doRequestAgainstSpec(t, spec, "open-api/spec.json", method, path, body, token, extraHeaders...)
 }
 
+// doUnvalidatedRequest выполняет HTTP-запрос, намеренно НЕ сверяя запрос со
+// спекой, — для сценариев, где проверяется реакция сервера на запрос,
+// невалидный по контракту (отсутствует обязательный параметр tz, значение
+// вне допустимого диапазона и т.п.). Ответ по-прежнему сверяется со спекой.
+func doUnvalidatedRequest(t *testing.T, method, path string, body any, token string, extraHeaders ...map[string]string) apiResponse {
+	t.Helper()
+
+	var bodyBytes []byte
+	if body != nil {
+		b, err := json.Marshal(body)
+		require.NoError(t, err)
+		bodyBytes = b
+	}
+	newReq := func() *http.Request {
+		req, err := http.NewRequest(method, server.URL+path, bytes.NewReader(bodyBytes))
+		require.NoError(t, err)
+		if bodyBytes != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		for _, headers := range extraHeaders {
+			for k, v := range headers {
+				req.Header.Set(k, v)
+			}
+		}
+		return req
+	}
+
+	pathOnly, _, _ := strings.Cut(path, "?")
+	item, op, pathParams, template := findRouteIn(spec, method, pathOnly)
+	require.NotNilf(t, op, "в open-api/spec.json нет операции для %s %s", method, pathOnly)
+
+	resp, err := http.DefaultClient.Do(newReq())
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+
+	route := &routers.Route{Spec: spec, Path: template, PathItem: item, Method: method, Operation: op}
+	reqValidationInput := &openapi3filter.RequestValidationInput{
+		Request:    newReq(),
+		PathParams: pathParams,
+		Route:      route,
+		Options:    &openapi3filter.Options{AuthenticationFunc: openapi3filter.NoopAuthenticationFunc},
+	}
+	respValidationInput := &openapi3filter.ResponseValidationInput{
+		RequestValidationInput: reqValidationInput,
+		Status:                 resp.StatusCode,
+		Header:                 resp.Header,
+	}
+	respValidationInput.SetBodyBytes(respBody)
+	if err := openapi3filter.ValidateResponse(context.Background(), respValidationInput); err != nil {
+		t.Errorf("ответ %s %s (статус %d) не соответствует open-api/spec.json: %v\nbody: %s", method, path, resp.StatusCode, err, respBody)
+	}
+
+	return apiResponse{status: resp.StatusCode, header: resp.Header.Clone(), body: respBody}
+}
+
 // doRequestAgainstSpec — реализация doRequest для произвольной спеки: клиентской
 // (spec.json) или административной (admin-spec.json, см. doAdminRequest).
 func doRequestAgainstSpec(t *testing.T, apiSpec *openapi3.T, specName, method, path string, body any, token string, extraHeaders ...map[string]string) apiResponse {

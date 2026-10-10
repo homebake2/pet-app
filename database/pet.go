@@ -515,31 +515,38 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 	return err
 }
 
-func DeletePet(petID uuid.UUID, userID string) error {
-	query := `
-		UPDATE pet
-		SET deleted_at = $1
-		WHERE id = $2 AND user_id = $3
-	`
-
-	now := time.Now().UTC()
-
-	result, err := DB.Exec(query, now, petID, userID)
-	if err != nil {
-		log.Println("DeletePet error:", err)
+// DeletePet мягко удаляет питомца и в той же транзакции жёстко удаляет все
+// его настройки напоминаний вместе с напоминаниями и файлами (напоминания
+// удалённого питомца никому не нужны, а у настроек нет истории). Возвращает
+// ключи объектов S3, на которые не осталось ссылок: вызывающий код удаляет
+// их из хранилища после фиксации транзакции.
+func DeletePet(petID uuid.UUID, userID string) (orphanObjectKeys []string, err error) {
+	err = RunInTx(func(tx *sql.Tx) error {
+		result, err := tx.Exec(`
+			UPDATE pet
+			SET deleted_at = $1
+			WHERE id = $2 AND user_id = $3
+		`, time.Now().UTC(), petID, userID)
+		if err != nil {
+			return err
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return sql.ErrNoRows
+		}
+		orphanObjectKeys, err = DeleteReminderPlansByPetWith(tx, petID)
 		return err
-	}
-
-	rows, err := result.RowsAffected()
+	})
 	if err != nil {
-		return err
+		if err != sql.ErrNoRows {
+			log.Println("DeletePet error:", err)
+		}
+		return nil, err
 	}
-
-	if rows == 0 {
-		return sql.ErrNoRows
-	}
-
-	return nil
+	return orphanObjectKeys, nil
 }
 
 // GetPetIdDBByIDAndUserID - получить питомца по id и user_id (проверка принадлежности к пользователю)

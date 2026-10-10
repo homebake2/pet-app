@@ -10,38 +10,42 @@ import (
 	"myauthservice/openapi"
 )
 
-// parseTimeZoneParam разбирает необязательный query-параметр tz — имя
-// часового пояса IANA (например, "Europe/Moscow"), в котором клиент видит
-// календарь. Календарные даты from/to/date эндпоинтов GET /activities,
-// GET /activities/calendar и GET /activities/day трактуются как локальные
-// даты этого пояса, а календарный день события определяется по его
-// date_time, переведённому в этот пояс (см. "Просмотр календаря — Backend").
-// Тот же параметр принимают создание/редактирование прививок и курсов
-// лекарств (и GET списка курсов — для next_dose): календарные даты и время
-// суток запроса (event_time, times) там — местное время этого пояса, см.
-// combineDateAndTime.
-// Отсутствующий параметр означает UTC — прежнее поведение для клиентов,
-// которые tz ещё не передают. При ошибке сама пишет 400 и возвращает
-// ok=false.
-func parseTimeZoneParam(w http.ResponseWriter, r *http.Request) (loc *time.Location, ok bool) {
-	name := r.URL.Query().Get("tz")
-	if name == "" {
-		return time.UTC, true
-	}
+// timeZoneErrorMessage — сообщение 400 для отсутствующего или некорректного
+// часового пояса.
+const timeZoneErrorMessage = "Обязательный параметр tz отсутствует или некорректен (ожидается имя IANA, например Europe/Moscow)"
 
-	// "Local" — пояс процесса сервера, а не клиента: time.LoadLocation его
-	// принимает, но для клиента он бессмыслен.
-	if name == "Local" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный часовой пояс tz (ожидается имя IANA, например Europe/Moscow)")
+// loadTimeZone разбирает имя часового пояса IANA (например,
+// "Europe/Moscow"). Пустое имя, неизвестное имя и значение "Local" (пояс
+// процесса сервера, а не клиента — для клиента бессмысленный) — ошибка:
+// значения по умолчанию у пояса нет.
+func loadTimeZone(name string) (*time.Location, bool) {
+	if name == "" || name == "Local" {
 		return nil, false
 	}
-
 	loc, err := time.LoadLocation(name)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный часовой пояс tz (ожидается имя IANA, например Europe/Moscow)")
 		return nil, false
 	}
+	return loc, true
+}
 
+// parseTimeZoneParam разбирает обязательный query-параметр tz — имя
+// часового пояса IANA, в котором клиент видит календарь. Календарные даты
+// from/to/date эндпоинтов GET /activities, GET /activities/calendar и
+// GET /activities/day трактуются как локальные даты этого пояса, а
+// календарный день события определяется по его date_time, переведённому в
+// этот пояс (см. "Просмотр календаря — Backend"). Тот же параметр принимают
+// GET /events/stats, создание/редактирование прививок, лекарств и настроек
+// напоминаний (и GET списка лекарств — для next_dose): календарные даты и
+// время суток запроса там — местное время этого пояса. Отсутствующий
+// параметр — ошибка валидации, а не молчаливая подстановка UTC. При ошибке
+// сама пишет 400 и возвращает ok=false.
+func parseTimeZoneParam(w http.ResponseWriter, r *http.Request) (loc *time.Location, ok bool) {
+	loc, ok = loadTimeZone(r.URL.Query().Get("tz"))
+	if !ok {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, timeZoneErrorMessage)
+		return nil, false
+	}
 	return loc, true
 }
 

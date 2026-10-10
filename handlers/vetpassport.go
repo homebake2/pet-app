@@ -10,9 +10,9 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
@@ -102,15 +102,15 @@ func isValidTimeOfDay(s string) bool {
 // combineDateAndTime строит момент времени из календарной даты и
 // опционального времени суток (по умолчанию — полночь), трактуя их как
 // местное время пояса loc: клиент присылает дату и "HH:MM" так, как их видит
-// пользователь, а пояс — параметром tz (см. parseTimeZoneParam; без него
-// loc=UTC). Используется при создании/переносе событий, связанных с
-// прививкой/приёмом лекарства. Несуществующее местное время (час, пропавший
-// при переходе на летнее время) time.Date нормализует сдвигом вперёд.
+// пользователь, а пояс — параметром tz (см. parseTimeZoneParam).
+// Используется при создании/переносе записей, связанных с прививкой.
+// Несуществующее местное время и повторяющийся час при переходе на
+// летнее/зимнее время разрешаются правилами localMoment.
 func combineDateAndTime(date time.Time, timeOfDay *string, loc *time.Location) time.Time {
 	if timeOfDay == nil || *timeOfDay == "" {
-		return time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
+		return localMoment(date, "00:00", loc)
 	}
-	return parseMedicationDateTime(date, *timeOfDay, loc)
+	return localMoment(date, *timeOfDay, loc)
 }
 
 // eventDateString — момент времени в формате поля date запроса создания
@@ -158,94 +158,145 @@ func otherEventValue(label string) (json.RawMessage, error) {
 	return json.Marshal(map[string]string{"label": truncateRunes(label, otherEventLabelMaxRunes)})
 }
 
-// createOtherEvent создаёт событие type=other со значением
-// {"label": <label, обрезано до 50 рун>} на заданный момент времени —
+// vaccinationFactMoment строит момент факта на дату введения и проверяет
+// правило факта: он не может быть позднее текущего момента (с допуском на
+// расхождение часов). Возвращает reminderHTTPError с кодом 400.
+func vaccinationFactMoment(date time.Time, timeOfDay *string, loc *time.Location) (time.Time, error) {
+	moment := combineDateAndTime(date, timeOfDay, loc)
+	if msg := validateFactDate(moment); msg != "" {
+		return time.Time{}, newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Дата введения вакцинации не может быть в будущем")
+	}
+	return moment, nil
+}
+
+// createVaccinationFact создаёт факт type=other со значением
+// {"label": <label, обрезано до 50 рун>} на дату введения прививки —
 // побочный эффект POST/PATCH /pet/{id}/vaccinations при
-// add_event_on_administered/add_event_on_next=true (см. "Ведпаспорт —
-// Backend"). Ошибка возвращается вызывающему (в отличие от
-// createPetWeightEvent) — создание события здесь входит в основной
-// контракт ответа (administered_event_id/next_event_id), а не является
-// вспомогательной статистикой.
-//
-// remind=true включает событию notifications_enabled, но только если его
-// момент строго в будущем (то же правило, что у POST /events): системное
-// уведомление планирует сам клиент, сервер лишь хранит признак.
-func createOtherEvent(petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string, remind bool) (uuid.UUID, error) {
+// add_event_on_administered=true. Ошибка возвращается вызывающему: создание
+// факта входит в основной контракт ответа (administered_event_id).
+func createVaccinationFact(exec database.Executor, petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
 	value, err := otherEventValue(label)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	moment := combineDateAndTime(date, timeOfDay, loc)
-	notificationsEnabled := remind && moment.After(time.Now())
-	req := models.CreateEventRequest{
-		PetID:                petID.String(),
-		Date:                 eventDateString(moment),
-		Type:                 "other",
-		Value:                value,
-		NotificationsEnabled: &notificationsEnabled,
-	}
-	return database.InsertEvent(petID, req, "")
-}
-
-// createMedicationEvent создаёт одно событие type=medication со значением
-// {"name": <medication.name>} на заданную дату/время (местное время пояса
-// loc) и заметкой notes —
-// используется расчётом расписания (см. handlers/medication_schedule.go) для
-// (до-/пере-)создания событий приёма.
-func createMedicationEvent(petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, name string, notes string) (uuid.UUID, error) {
-	value, err := json.Marshal(map[string]string{"name": name})
+	moment, err := vaccinationFactMoment(date, timeOfDay, loc)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	req := models.CreateEventRequest{
+	return database.InsertEventWith(exec, petID, models.CreateEventRequest{
 		PetID: petID.String(),
-		Date:  eventDateString(combineDateAndTime(date, timeOfDay, loc)),
-		Type:  "medication",
-		Notes: &notes,
+		Date:  eventDateString(moment),
+		Type:  "other",
 		Value: value,
-	}
-	return database.InsertEvent(petID, req, "")
+	}, "")
 }
 
-// createMedicationEventFromSlot материализует один слот расписания
-// (см. computeMedicationScheduleSlots) в строку event: notes = slot.DoseNote,
-// либо, если он не задан, dosageFallback (medication.dosage) — см. "Расчёт
-// расписания", шаг 3.
-func createMedicationEventFromSlot(petID uuid.UUID, slot medicationScheduleSlot, loc *time.Location, name, dosageFallback string) (uuid.UUID, error) {
-	notes := dosageFallback
-	if slot.DoseNote != nil && *slot.DoseNote != "" {
-		notes = *slot.DoseNote
+// vaccinationReminderMoment строит момент напоминания на дату следующей
+// вакцинации и проверяет, что он строго в будущем; возвращает
+// нормализованное время суток для хранения в настройках.
+func vaccinationReminderMoment(nextDate time.Time, timeOfDay *string, loc *time.Location, now time.Time) (moment time.Time, normalizedTime string, err error) {
+	normalizedTime = "00:00"
+	if timeOfDay != nil && *timeOfDay != "" {
+		normalizedTime = normalizeTimeOfDay(*timeOfDay)
 	}
-	t := slot.Time
-	return createMedicationEvent(petID, slot.Date, &t, loc, name, notes)
+	moment = localMoment(nextDate, normalizedTime, loc)
+	if !moment.After(now) {
+		return time.Time{}, "", newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Момент напоминания на дату следующей вакцинации должен быть в будущем")
+	}
+	return moment, normalizedTime, nil
 }
 
-// syncVaccinationEvent приводит одно связанное событие прививки (на дату
-// введения либо на дату следующей вакцинации) в соответствие с PATCH — см.
-// «Вакцинации — Backend», раздел «Редактирование»: связь «один флаг — одно
-// событие», поэтому существующее событие обновляется на месте, а не
+// createVaccinationReminderPlan создаёт настройки напоминания на дату
+// следующей вакцинации: source=vaccination, разовое расписание на
+// next_date, одно напоминание. Возвращает id настроек.
+func createVaccinationReminderPlan(exec database.Executor, petID, vaccinationID uuid.UUID, nextDate time.Time, timeOfDay *string, loc *time.Location, tz, label string, now time.Time) (uuid.UUID, error) {
+	value, err := otherEventValue(label)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	moment, normalizedTime, err := vaccinationReminderMoment(nextDate, timeOfDay, loc, now)
+	if err != nil {
+		return uuid.Nil, err
+	}
+	planID := uuid.New()
+	plan := models.ReminderPlanDB{
+		ID:            planID,
+		PetID:         petID,
+		Source:        models.ReminderSourceVaccination,
+		SourceID:      uuid.NullUUID{UUID: vaccinationID, Valid: true},
+		Type:          "other",
+		Value:         value,
+		FrequencyType: models.ReminderFrequencyOnce,
+		Times:         []string{normalizedTime},
+		StartDate:     nextDate,
+		TZ:            tz,
+	}
+	if err := database.InsertReminderPlanWith(exec, plan, []models.ReminderMoment{{RemindAt: moment.UTC()}}); err != nil {
+		return uuid.Nil, err
+	}
+	return planID, nil
+}
+
+// rescheduleVaccinationReminderPlan переносит существующие настройки
+// напоминания вакцинации на новый момент (разовое расписание — как
+// изменение расписания в «Напоминания — Backend», эндпоинт C): будущее
+// незавершённое напоминание заменяется, закрытые и прошедшие не
+// затрагиваются. Новый момент обязан быть строго в будущем. Возвращает ключи
+// объектов S3 без ссылок.
+func rescheduleVaccinationReminderPlan(exec database.Executor, plan models.ReminderPlanDB, nextDate time.Time, timeOfDay *string, loc *time.Location, tz string, now time.Time) ([]string, error) {
+	_, normalizedTime, err := vaccinationReminderMoment(nextDate, timeOfDay, loc, now)
+	if err != nil {
+		return nil, err
+	}
+	spec := reminderScheduleSpec{
+		FrequencyType: models.ReminderFrequencyOnce,
+		Times:         []reminderTimeSlot{{Time: normalizedTime}},
+		StartDate:     nextDate,
+	}
+	closed, err := database.ListClosedRemindMomentsWith(exec, plan.ID)
+	if err != nil {
+		return nil, err
+	}
+	moments := computeReminderMoments(spec, loc, now, closed, models.ReminderMaxMomentsPerOperation)
+	if len(moments) == 0 {
+		return nil, newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Момент напоминания на дату следующей вакцинации должен быть в будущем")
+	}
+	orphanKeys, err := database.DeleteFutureOpenRemindersWith(exec, plan.ID, now)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := database.InsertRemindersWith(exec, plan.ID, moments); err != nil {
+		return nil, err
+	}
+	err = database.UpdateReminderPlanWith(exec, plan.ID, database.ReminderPlanUpdate{Schedule: planScheduleFromSpec(spec, tz)})
+	return orphanKeys, err
+}
+
+// syncVaccinationFact приводит факт прививки на дату введения в соответствие
+// с PATCH — см. «Вакцинации — Backend», раздел «Редактирование»: связь «один
+// флаг — одна запись», поэтому существующий факт обновляется на месте, а не
 // пересоздаётся.
 //
-//   - flag=false (явно) либо у прививки больше нет соответствующей даты —
-//     связанное событие мягко удаляется, ссылка очищается;
-//   - flag=true и связанное событие существует (не удалено) — обновляются
-//     его дата/время и подпись; время суток, не переданное в этом запросе,
-//     сохраняется прежним (то, которое событие имеет в поясе loc);
-//   - flag=true, а связанного события нет (или оно уже удалено, например,
-//     из календаря) — создаётся новое;
-//   - flag не передан — событие не создаётся и не удаляется; если в запросе
-//     изменилась дата (dateChanged) или передано время, существующее
-//     событие переносится на новую дату/время.
+//   - flag=false (явно) либо у прививки больше нет даты введения — связанный
+//     факт мягко удаляется, ссылка очищается;
+//   - flag=true и связанный факт существует (не удалён) — обновляются его
+//     дата/время и подпись; время суток, не переданное в этом запросе,
+//     сохраняется прежним (то, которое факт имеет в поясе loc);
+//   - flag=true, а связанного факта нет (или он уже удалён, например, из
+//     календаря) — создаётся новый;
+//   - flag не передан — факт не создаётся и не удаляется; если в запросе
+//     изменилась дата (dateChanged) или передано время, существующий факт
+//     переносится на новую дату/время.
 //
-// Дата и время суток трактуются как местное время пояса loc (параметр tz
-// запроса, по умолчанию UTC).
+// Итоговый момент факта не может быть позднее текущего (правило факта).
+// Дата и время суток трактуются как местное время пояса loc.
 //
-// Возвращает новое значение ссылки на событие для UpdateVaccination, либо
+// Возвращает новое значение ссылки на факт для UpdateVaccinationWith, либо
 // nil, если ссылку менять не нужно.
-func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *bool, date sql.NullTime, dateChanged bool, eventTime *string, loc *time.Location, label string, remind bool) (*uuid.NullUUID, error) {
+func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID uuid.NullUUID, flag *bool, date sql.NullTime, dateChanged bool, eventTime *string, loc *time.Location, label string) (*uuid.NullUUID, error) {
 	var existing *models.EventDB
 	if currentEventID.Valid {
-		event, err := database.GetEventByIDForUpdate(currentEventID.UUID)
+		event, err := database.GetEventByIDForUpdateWith(exec, currentEventID.UUID)
 		if err != nil && err != sql.ErrNoRows {
 			return nil, err
 		}
@@ -265,7 +316,7 @@ func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *b
 
 	if !wantEvent {
 		if existing != nil {
-			if err := database.DeleteEvent(existing.ID); err != nil && err != sql.ErrNoRows {
+			if err := database.DeleteEventWith(exec, existing.ID); err != nil && err != sql.ErrNoRows {
 				return nil, err
 			}
 		}
@@ -278,7 +329,7 @@ func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *b
 	hasEventTime := eventTime != nil && *eventTime != ""
 
 	if existing == nil {
-		newEventID, err := createOtherEvent(petID, date.Time, eventTime, loc, label, remind)
+		newEventID, err := createVaccinationFact(exec, petID, date.Time, eventTime, loc, label)
 		if err != nil {
 			return nil, err
 		}
@@ -293,27 +344,122 @@ func syncVaccinationEvent(petID uuid.UUID, currentEventID uuid.NullUUID, flag *b
 	if hasEventTime {
 		timeOfDay = *eventTime
 	}
-	dateTime := combineDateAndTime(date.Time, &timeOfDay, loc).UTC()
+	dateTime, err := vaccinationFactMoment(date.Time, &timeOfDay, loc)
+	if err != nil {
+		return nil, err
+	}
+	dateTime = dateTime.UTC()
 	var value *json.RawMessage
-	var notificationsEnabled *bool
 	if flag != nil {
 		v, err := otherEventValue(label)
 		if err != nil {
 			return nil, err
 		}
 		value = &v
-		if remind {
-			// Явный флаг при редактировании заново включает напоминание
-			// (клиент перепланирует системное уведомление на новый момент) —
-			// но только для будущего момента, как и при создании.
-			enabled := dateTime.After(time.Now())
-			notificationsEnabled = &enabled
-		}
 	}
-	if err := database.UpdateEvent(existing.ID, models.UpdateEventRequest{}, &dateTime, nil, nil, value, notificationsEnabled); err != nil {
+	if err := database.UpdateEventWith(exec, existing.ID, &dateTime, nil, nil, value); err != nil {
 		return nil, err
 	}
 	return nil, nil
+}
+
+// syncVaccinationReminderPlan приводит настройки напоминания на дату
+// следующей вакцинации в соответствие с PATCH — см. «Вакцинации — Backend»,
+// раздел «Редактирование»:
+//
+//   - next_date очищена — настройки жёстко удаляются независимо от флага;
+//   - add_reminder_on_next=false — настройки жёстко удаляются;
+//   - add_reminder_on_next=true без next_date — настройки удаляются (не
+//     ошибка);
+//   - add_reminder_on_next=true, настроек нет — создаются новые (момент
+//     обязан быть в будущем);
+//   - настройки есть и переданы next_date либо event_time — расписание
+//     переносится на новый момент (подпись при этом меняется только вместе с
+//     флагом true).
+//
+// Возвращает новое значение ссылки на настройки для UpdateVaccinationWith,
+// либо nil, если ссылку менять не нужно, и ключи объектов S3 без ссылок.
+func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccination *models.VaccinationDB, req models.UpdateVaccinationRequest, effectiveNextDate sql.NullTime, loc *time.Location, tz, label string, now time.Time) (link *uuid.NullUUID, orphanKeys []string, err error) {
+	var existing *database.ReminderPlanFull
+	if vaccination.NextPlanID.Valid {
+		plan, lookupErr := database.GetReminderPlanForUserWith(exec, vaccination.NextPlanID.UUID, userID, true)
+		if lookupErr != nil && lookupErr != sql.ErrNoRows {
+			return nil, nil, lookupErr
+		}
+		if lookupErr == nil {
+			existing = plan
+		}
+	}
+
+	deleteExisting := func() (*uuid.NullUUID, []string, error) {
+		if existing == nil {
+			return nil, nil, nil
+		}
+		keys, err := database.DeleteReminderPlanWith(exec, existing.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &uuid.NullUUID{}, keys, nil
+	}
+
+	nextDateCleared := req.NextDate != nil && *req.NextDate == ""
+	flag := req.AddReminderOnNext
+	if nextDateCleared || (flag != nil && !*flag) || (flag != nil && *flag && !effectiveNextDate.Valid) {
+		return deleteExisting()
+	}
+
+	hasEventTime := req.EventTime != nil && *req.EventTime != ""
+	nextDateGiven := req.NextDate != nil && *req.NextDate != ""
+
+	if existing == nil {
+		if flag == nil || !*flag {
+			return nil, nil, nil
+		}
+		planID, err := createVaccinationReminderPlan(exec, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, req.EventTime, loc, tz, label, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		return &uuid.NullUUID{UUID: planID, Valid: true}, nil, nil
+	}
+
+	if flag != nil && *flag {
+		value, err := otherEventValue(label)
+		if err != nil {
+			return nil, nil, err
+		}
+		if err := database.UpdateReminderPlanWith(exec, existing.ID, database.ReminderPlanUpdate{Value: &value}); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	if (nextDateGiven || hasEventTime) && effectiveNextDate.Valid {
+		timeOfDay := req.EventTime
+		if !hasEventTime && len(existing.Times) > 0 {
+			t := existing.Times[0]
+			timeOfDay = &t
+		}
+		keys, err := rescheduleVaccinationReminderPlan(exec, existing.ReminderPlanDB, effectiveNextDate.Time, timeOfDay, loc, tz, now)
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, keys, nil
+	}
+	return nil, nil, nil
+}
+
+// writeVetPassportTxError превращает ошибку транзакции в ответ: ошибки с
+// HTTP-статусом — как есть, sql.ErrNoRows — 404, остальное — 500.
+func writeVetPassportTxError(w http.ResponseWriter, err error, notFoundMessage, internalMessage string) {
+	var httpErr *reminderHTTPError
+	if errors.As(err, &httpErr) {
+		writeError(w, httpErr.status, httpErr.code, httpErr.message)
+		return
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, notFoundMessage)
+		return
+	}
+	writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, internalMessage)
 }
 
 // resolvePetForVetPassportCreate проверяет, что питомец petID существует,
@@ -383,9 +529,9 @@ func vaccinationResponseFromDB(v models.VaccinationDB, filesCount int) models.Va
 		s := v.AdministeredEventID.UUID.String()
 		resp.AdministeredEventID = &s
 	}
-	if v.NextEventID.Valid {
-		s := v.NextEventID.UUID.String()
-		resp.NextEventID = &s
+	if v.NextPlanID.Valid {
+		s := v.NextPlanID.UUID.String()
+		resp.NextPlanID = &s
 	}
 	return resp
 }
@@ -477,6 +623,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	if !ok {
 		return
 	}
+	tz := r.URL.Query().Get("tz")
 
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
@@ -487,61 +634,56 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 
 	administeredDate, _ := parseDateOnly(req.AdministeredDate)
 	eventLabel := vaccinationEventLabel(req.EventLabel, req.Name)
+	now := time.Now().UTC()
 
-	var administeredEventID, nextEventID uuid.NullUUID
-	if req.AddEventOnAdministered != nil && *req.AddEventOnAdministered {
-		id, err := createOtherEvent(petID, administeredDate, req.EventTime, loc, eventLabel, false)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие прививки")
-			return
+	// Факт на дату введения, прививка и настройки напоминания создаются в
+	// одной транзакции: проигравший гонку параллельных запросов с одним
+	// Idempotency-Key не оставляет после себя ни фактов, ни напоминаний.
+	var newID uuid.UUID
+	var administeredEventID, nextPlanID uuid.NullUUID
+	err := database.RunInTx(func(tx *sql.Tx) error {
+		if req.AddEventOnAdministered != nil && *req.AddEventOnAdministered {
+			id, err := createVaccinationFact(tx, petID, administeredDate, req.EventTime, loc, eventLabel)
+			if err != nil {
+				return err
+			}
+			administeredEventID = uuid.NullUUID{UUID: id, Valid: true}
 		}
-		administeredEventID = uuid.NullUUID{UUID: id, Valid: true}
-	}
-	if req.AddEventOnNext != nil && *req.AddEventOnNext && req.NextDate != nil && *req.NextDate != "" {
-		nextDate, _ := parseDateOnly(*req.NextDate)
-		id, err := createOtherEvent(petID, nextDate, req.EventTime, loc, eventLabel, true)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие-напоминание прививки")
-			return
-		}
-		nextEventID = uuid.NullUUID{UUID: id, Valid: true}
-	}
 
-	newID, err := database.InsertVaccination(petID, req, administeredEventID, nextEventID, idempotencyKey)
+		id, err := database.InsertVaccinationWith(tx, petID, req, administeredEventID, idempotencyKey)
+		if err != nil {
+			return err
+		}
+		newID = id
+
+		if req.AddReminderOnNext != nil && *req.AddReminderOnNext && req.NextDate != nil && *req.NextDate != "" {
+			nextDate, _ := parseDateOnly(*req.NextDate)
+			planID, err := createVaccinationReminderPlan(tx, petID, newID, nextDate, req.EventTime, loc, tz, eventLabel, now)
+			if err != nil {
+				return err
+			}
+			nextPlanID = uuid.NullUUID{UUID: planID, Valid: true}
+			return database.SetVaccinationLinksWith(tx, newID, administeredEventID, nextPlanID)
+		}
+		return nil
+	})
 	if err != nil {
-		if idempotencyKey != "" && database.IsUniqueViolation(err) {
-			// Параллельный запрос с тем же ключом успел вставить прививку
-			// первым: события, созданные этим запросом, остались бы
-			// «сиротами» без связи с прививкой — удаляем их.
-			orphanEventIDs := []string{}
-			if administeredEventID.Valid {
-				orphanEventIDs = append(orphanEventIDs, administeredEventID.UUID.String())
-			}
-			if nextEventID.Valid {
-				orphanEventIDs = append(orphanEventIDs, nextEventID.UUID.String())
-			}
-			if len(orphanEventIDs) > 0 {
-				if delErr := database.HardDeleteEventsByIDs(orphanEventIDs); delErr != nil {
-					log.Println("CreateVaccinationHandler: не удалось удалить события проигравшего гонку запроса:", delErr)
-				}
-			}
-			if replayVetPassportCreate(w, database.VaccinationTable, petID, idempotencyKey) {
-				return
-			}
+		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.VaccinationTable, petID, idempotencyKey) {
+			return
 		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать прививку")
+		writeVetPassportTxError(w, err, "Прививка не найдена", "Не удалось создать прививку")
 		return
 	}
 
 	writeJSON(w, http.StatusCreated, models.VaccinationCreatedResponse{
-		ID:                  newID.String(),
-		VaccinationEventIDs: vaccinationEventIDs(administeredEventID, nextEventID),
+		ID:                 newID.String(),
+		VaccinationLinkIDs: vaccinationLinkIDs(administeredEventID, nextPlanID),
 	})
 }
 
-// vaccinationEventIDs преобразует ссылки на связанные события в тело ответа
+// vaccinationLinkIDs преобразует ссылки на связанные записи в тело ответа
 // (невалидная ссылка — null).
-func vaccinationEventIDs(administered, next uuid.NullUUID) models.VaccinationEventIDs {
+func vaccinationLinkIDs(administered, nextPlan uuid.NullUUID) models.VaccinationLinkIDs {
 	toPtr := func(id uuid.NullUUID) *string {
 		if !id.Valid {
 			return nil
@@ -549,7 +691,7 @@ func vaccinationEventIDs(administered, next uuid.NullUUID) models.VaccinationEve
 		s := id.UUID.String()
 		return &s
 	}
-	return models.VaccinationEventIDs{AdministeredEventID: toPtr(administered), NextEventID: toPtr(next)}
+	return models.VaccinationLinkIDs{AdministeredEventID: toPtr(administered), NextPlanID: toPtr(nextPlan)}
 }
 
 // VaccinationByIDHandler обрабатывает /vaccinations/{id}: PATCH/DELETE.
@@ -640,6 +782,7 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 	if !ok {
 		return
 	}
+	tz := r.URL.Query().Get("tz")
 
 	effectiveName := vaccination.Name
 	if req.Name != nil {
@@ -661,31 +804,46 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		}
 	}
 
-	administeredEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.AdministeredEventID, req.AddEventOnAdministered, effectiveAdministeredDate, req.AdministeredDate != nil, req.EventTime, loc, eventLabel, false)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось синхронизировать событие прививки")
-		return
-	}
-	nextEventID, err := syncVaccinationEvent(vaccination.PetID, vaccination.NextEventID, req.AddEventOnNext, effectiveNextDate, req.NextDate != nil, req.EventTime, loc, eventLabel, true)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось синхронизировать событие-напоминание прививки")
-		return
-	}
+	now := time.Now().UTC()
+	currentAdministered, currentNext := vaccination.AdministeredEventID, vaccination.NextPlanID
+	var orphanKeys []string
+	err = database.RunInTx(func(tx *sql.Tx) error {
+		locked, err := database.GetVaccinationByIDWith(tx, id, true)
+		if err != nil {
+			return err
+		}
 
-	if err := database.UpdateVaccination(id, req, administeredEventID, nextEventID); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления прививки")
+		administeredLink, err := syncVaccinationFact(tx, locked.PetID, locked.AdministeredEventID, req.AddEventOnAdministered, effectiveAdministeredDate, req.AdministeredDate != nil, req.EventTime, loc, eventLabel)
+		if err != nil {
+			return err
+		}
+		nextLink, keys, err := syncVaccinationReminderPlan(tx, userID, locked, req, effectiveNextDate, loc, tz, eventLabel, now)
+		if err != nil {
+			return err
+		}
+		orphanKeys = keys
+
+		if err := database.UpdateVaccinationWith(tx, id, req, administeredLink, nextLink); err != nil {
+			return err
+		}
+
+		// nil от sync-функций — ссылка не менялась, остаётся прежней.
+		currentAdministered, currentNext = locked.AdministeredEventID, locked.NextPlanID
+		if administeredLink != nil {
+			currentAdministered = *administeredLink
+		}
+		if nextLink != nil {
+			currentNext = *nextLink
+		}
+		return nil
+	})
+	if err != nil {
+		writeVetPassportTxError(w, err, "Прививка не найдена", "Не удалось обновить прививку")
 		return
 	}
+	deleteOrphanedObjects(r.Context(), orphanKeys)
 
-	// nil от syncVaccinationEvent — ссылка не менялась, остаётся прежней.
-	currentAdministered, currentNext := vaccination.AdministeredEventID, vaccination.NextEventID
-	if administeredEventID != nil {
-		currentAdministered = *administeredEventID
-	}
-	if nextEventID != nil {
-		currentNext = *nextEventID
-	}
-	writeJSON(w, http.StatusOK, vaccinationEventIDs(currentAdministered, currentNext))
+	writeJSON(w, http.StatusOK, vaccinationLinkIDs(currentAdministered, currentNext))
 }
 
 func DeleteVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
@@ -711,28 +869,34 @@ func DeleteVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Прививка не найдена")
 		return
 	}
-	if err := database.SoftDeleteVaccination(id); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Прививка не найдена")
-			return
+
+	// Удаление прививки мягко удаляет связанный факт на дату введения и
+	// жёстко удаляет настройки напоминания на следующую дату (см.
+	// «Вакцинации — Backend», раздел «Удаление») — в одной транзакции.
+	var orphanKeys []string
+	err = database.RunInTx(func(tx *sql.Tx) error {
+		if err := database.SoftDeleteVaccinationWith(tx, id); err != nil {
+			return err
 		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления прививки")
+		if vaccination.AdministeredEventID.Valid {
+			if err := database.DeleteEventWith(tx, vaccination.AdministeredEventID.UUID); err != nil && err != sql.ErrNoRows {
+				return err
+			}
+		}
+		if vaccination.NextPlanID.Valid {
+			keys, err := database.DeleteReminderPlanWith(tx, vaccination.NextPlanID.UUID)
+			if err != nil {
+				return err
+			}
+			orphanKeys = keys
+		}
+		return nil
+	})
+	if err != nil {
+		writeVetPassportTxError(w, err, "Прививка не найдена", "Ошибка удаления прививки")
 		return
 	}
-	// Удаление прививки мягко удаляет и связанные события-напоминания (см.
-	// «Вакцинации — Backend», раздел «Удаление»). Best-effort: прививка уже
-	// удалена, повтор запроса дал бы 404, поэтому сбой здесь не превращаем
-	// в ошибку ответа.
-	linkedEventIDs := []string{}
-	if vaccination.AdministeredEventID.Valid {
-		linkedEventIDs = append(linkedEventIDs, vaccination.AdministeredEventID.UUID.String())
-	}
-	if vaccination.NextEventID.Valid {
-		linkedEventIDs = append(linkedEventIDs, vaccination.NextEventID.UUID.String())
-	}
-	if err := database.SoftDeleteEventsByIDs(linkedEventIDs); err != nil {
-		log.Println("DeleteVaccinationHandler: не удалось удалить связанные события:", err)
-	}
+	deleteOrphanedObjects(r.Context(), orphanKeys)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -1384,11 +1548,11 @@ func medicationResponseFromDB(m models.MedicationDB, filesCount int, now time.Ti
 		Name:          m.Name,
 		Dosage:        m.Dosage,
 		FrequencyType: m.FrequencyType,
-		EventIDs:      m.EventIDs,
 		FilesCount:    filesCount,
 	}
-	if resp.EventIDs == nil {
-		resp.EventIDs = []string{}
+	if m.ReminderPlanID.Valid {
+		s := m.ReminderPlanID.UUID.String()
+		resp.ReminderPlanID = &s
 	}
 	if m.Weekdays != nil {
 		w := m.Weekdays
@@ -1516,8 +1680,8 @@ func validateCreateMedicationRequest(req models.CreateMedicationRequest) string 
 	if msg := validateMedicationFieldsConsistency(req.FrequencyType, req.Weekdays, req.IntervalDays, req.Times, req.StartDate, req.EndDate); msg != "" {
 		return msg
 	}
-	if req.AddEvent != nil && *req.AddEvent && req.FrequencyType == models.MedicationFrequencyAsNeeded {
-		return "Поле add_event недопустимо при frequency_type=as_needed"
+	if req.AddReminders != nil && *req.AddReminders && req.FrequencyType == models.MedicationFrequencyAsNeeded {
+		return "Поле add_reminders недопустимо при frequency_type=as_needed"
 	}
 	if req.Note != nil && len(*req.Note) > models.MedicationNoteMaxLen {
 		return "Поле note превышает допустимую длину"
@@ -1589,6 +1753,74 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	writeJSON(w, http.StatusOK, models.MedicationListResponse{Items: responses})
 }
 
+// medicationReminderSpec строит расписание набора напоминаний лекарства из
+// его полей расписания: слоты несут дозу по времени приёма (dose_note) как
+// собственную заметку напоминания. frequency_type лекарства не может быть
+// as_needed (у такого лекарства нет расписания).
+func medicationReminderSpec(frequencyType string, weekdays []int, intervalDays *int, times []models.MedicationTimeSlot, startDate time.Time, endDate *time.Time) reminderScheduleSpec {
+	spec := reminderScheduleSpec{
+		FrequencyType: frequencyType,
+		Weekdays:      weekdays,
+		StartDate:     startDate,
+		EndDate:       endDate,
+	}
+	if intervalDays != nil {
+		spec.IntervalDays = *intervalDays
+	}
+	for _, t := range times {
+		slot := reminderTimeSlot{Time: normalizeTimeOfDay(t.Time)}
+		if t.DoseNote != nil && *t.DoseNote != "" {
+			note := *t.DoseNote
+			slot.Notes = &note
+		}
+		spec.Times = append(spec.Times, slot)
+	}
+	return spec
+}
+
+// createMedicationReminderPlan рассчитывает расписание лекарства и создаёт
+// набор напоминаний: настройки source=medication с type=medication,
+// value={name}, notes=dosage и напоминания по моментам. ok=false, если
+// расписание не даёт ни одного будущего момента — набор не создаётся.
+func createMedicationReminderPlan(exec database.Executor, petID, medicationID uuid.UUID, name, dosage string, spec reminderScheduleSpec, loc *time.Location, tz string, now time.Time) (planID uuid.UUID, ok bool, err error) {
+	moments := computeReminderMoments(spec, loc, now, nil, models.ReminderMaxMomentsPerOperation)
+	if len(moments) == 0 {
+		return uuid.Nil, false, nil
+	}
+	value, err := json.Marshal(map[string]string{"name": name})
+	if err != nil {
+		return uuid.Nil, false, err
+	}
+	planID = uuid.New()
+	plan := planDataFromRequest(models.ReminderPlanRequest{
+		Type:  "medication",
+		Value: value,
+		Notes: &dosage,
+	}, planID, petID, spec, tz)
+	plan.Source = models.ReminderSourceMedication
+	plan.SourceID = uuid.NullUUID{UUID: medicationID, Valid: true}
+	if err := database.InsertReminderPlanWith(exec, plan, moments); err != nil {
+		return uuid.Nil, false, err
+	}
+	return planID, true, nil
+}
+
+// medicationSpecFromDB строит расписание набора напоминаний из строки
+// лекарства. Не вызывается для frequency_type=as_needed.
+func medicationSpecFromDB(m *models.MedicationDB) reminderScheduleSpec {
+	var intervalDays *int
+	if m.IntervalDays.Valid {
+		v := int(m.IntervalDays.Int64)
+		intervalDays = &v
+	}
+	var endDate *time.Time
+	if m.EndDate.Valid {
+		end := m.EndDate.Time
+		endDate = &end
+	}
+	return medicationReminderSpec(m.FrequencyType, m.Weekdays, intervalDays, m.Times, m.StartDate.Time, endDate)
+}
+
 func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1612,53 +1844,58 @@ func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.
 	if !ok {
 		return
 	}
+	tz := r.URL.Query().Get("tz")
 	if !resolvePetForVetPassportCreate(w, petID, userID) {
 		return
 	}
 	if replayVetPassportCreate(w, database.MedicationTable, petID, idempotencyKey) {
 		return
 	}
-	newID, err := database.InsertMedication(petID, req, idempotencyKey)
-	if err != nil {
-		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.MedicationTable, petID, idempotencyKey) {
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать курс лекарств")
-		return
-	}
 
-	if req.AddEvent != nil && *req.AddEvent {
+	now := time.Now().UTC()
+	var newID uuid.UUID
+	err := database.RunInTx(func(tx *sql.Tx) error {
+		id, err := database.InsertMedicationWith(tx, petID, req, idempotencyKey)
+		if err != nil {
+			return err
+		}
+		newID = id
+
+		// Если расписание не даёт ни одного будущего момента (например,
+		// end_date в прошлом), набор не создаётся, лекарство сохраняется без
+		// напоминаний — это не ошибка.
+		if req.AddReminders == nil || !*req.AddReminders {
+			return nil
+		}
 		startDate, _ := parseDateOnly(*req.StartDate)
 		var endDate *time.Time
 		if req.EndDate != nil {
 			t, _ := parseDateOnly(*req.EndDate)
 			endDate = &t
 		}
-		intervalDays := 0
-		if req.IntervalDays != nil {
-			intervalDays = *req.IntervalDays
+		spec := medicationReminderSpec(req.FrequencyType, req.Weekdays, req.IntervalDays, req.Times, startDate, endDate)
+		planID, created, err := createMedicationReminderPlan(tx, petID, newID, req.Name, req.Dosage, spec, loc, tz, now)
+		if err != nil {
+			return err
 		}
-		slots := computeMedicationScheduleSlots(req.FrequencyType, req.Weekdays, intervalDays, req.Times, startDate, endDate, models.MedicationScheduleEventsCap)
-		newEventIDs := make([]string, 0, len(slots))
-		for _, slot := range slots {
-			eventID, err := createMedicationEventFromSlot(petID, slot, loc, req.Name, req.Dosage)
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
-				return
-			}
-			newEventIDs = append(newEventIDs, eventID.String())
+		if !created {
+			return nil
 		}
-		if err := database.SetMedicationEventIDs(newID, newEventIDs); err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить события курса")
+		return database.SetMedicationReminderPlanIDWith(tx, newID, uuid.NullUUID{UUID: planID, Valid: true})
+	})
+	if err != nil {
+		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.MedicationTable, petID, idempotencyKey) {
 			return
 		}
+		writeVetPassportTxError(w, err, "Курс лекарств не найден", "Не удалось создать курс лекарств")
+		return
 	}
 
 	writeJSON(w, http.StatusCreated, models.IDResponse{ID: newID.String()})
 }
 
 // MedicationByIDHandler обрабатывает /medications/{id} (PATCH/DELETE) и
-// /medications/{id}/events (POST/DELETE).
+// /medications/{id}/reminders (POST/DELETE).
 func MedicationByIDHandler(w http.ResponseWriter, r *http.Request) {
 	segments := pathSegments(r, "/medications/")
 	if len(segments) == 0 {
@@ -1671,12 +1908,12 @@ func MedicationByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(segments) == 2 && segments[1] == "events" {
+	if len(segments) == 2 && segments[1] == "reminders" {
 		switch r.Method {
 		case http.MethodPost:
-			CreateMedicationEventsHandler(w, r, id)
+			CreateMedicationRemindersHandler(w, r, id)
 		case http.MethodDelete:
-			DeleteMedicationEventsHandler(w, r, id)
+			DeleteMedicationRemindersHandler(w, r, id)
 		default:
 			writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		}
@@ -1762,10 +1999,12 @@ func nullTimeToDateStrPtr(v sql.NullTime) *string {
 // UpdateMedicationHandler обрабатывает PATCH /medications/{id} — см.
 // "Лекарства — Backend", раздел «Редактирование»: смёрживает переданные
 // поля с текущим состоянием, валидирует итоговую согласованность с
-// frequency_type, и, если поля расписания изменились и у курса уже есть
-// event_ids, либо оставляет события как есть (regenerate_events=false),
-// либо пересоздаёт их (regenerate_events=true) — переход в as_needed с
-// непустым event_ids без regenerate_events=true запрещён (400).
+// frequency_type, и, если поля расписания изменились и у лекарства уже есть
+// набор напоминаний, либо оставляет набор как есть
+// (regenerate_reminders=false), либо пересоздаёт будущие напоминания
+// (regenerate_reminders=true) — переход в as_needed при наличии набора без
+// regenerate_reminders=true запрещён (400). name и dosage применяются к
+// настройкам набора в той же транзакции.
 func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -1814,8 +2053,9 @@ func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 	if !ok {
 		return
 	}
+	tz := r.URL.Query().Get("tz")
 
-	// Эффективные (смёрженные с текущим состоянием курса) значения полей
+	// Эффективные (смёрженные с текущим состоянием лекарства) значения полей
 	// расписания + признак того, что каждое поле реально изменилось.
 	effFreq := medication.FrequencyType
 	freqChanged := false
@@ -1873,110 +2113,146 @@ func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 	}
 
 	scheduleFieldsChanged := freqChanged || weekdaysChanged || intervalChanged || timesChanged || startDateChanged || endDateChanged
-	hasEvents := len(medication.EventIDs) > 0
-	regenerate := req.RegenerateEvents != nil && *req.RegenerateEvents
+	hasPlan := medication.ReminderPlanID.Valid
+	regenerate := req.RegenerateReminders != nil && *req.RegenerateReminders
 
-	if scheduleFieldsChanged && hasEvents && !regenerate && effFreq == models.MedicationFrequencyAsNeeded {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Переход в frequency_type=as_needed с непустым event_ids требует regenerate_events=true")
+	if scheduleFieldsChanged && hasPlan && !regenerate && effFreq == models.MedicationFrequencyAsNeeded {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Переход в frequency_type=as_needed при наличии набора напоминаний требует regenerate_reminders=true")
 		return
 	}
 
-	if err := database.UpdateMedication(id, req); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления курса лекарств")
-		return
+	effName := medication.Name
+	if req.Name != nil {
+		effName = *req.Name
+	}
+	effDosage := medication.Dosage
+	if req.Dosage != nil {
+		effDosage = *req.Dosage
 	}
 
-	if scheduleFieldsChanged && hasEvents && regenerate {
-		if err := database.HardDeleteEventsByIDs(medication.EventIDs); err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить предыдущие события курса")
-			return
+	now := time.Now().UTC()
+	var orphanKeys []string
+	err = database.RunInTx(func(tx *sql.Tx) error {
+		locked, err := database.GetMedicationByIDWith(tx, id, true)
+		if err != nil {
+			return err
 		}
-		newEventIDs := []string{}
-		if effFreq != models.MedicationFrequencyAsNeeded {
+		if err := database.UpdateMedicationWith(tx, id, req); err != nil {
+			return err
+		}
+		if !locked.ReminderPlanID.Valid {
+			return nil
+		}
+		plan, err := database.GetReminderPlanForUserWith(tx, locked.ReminderPlanID.UUID, userID, true)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		update := database.ReminderPlanUpdate{}
+		// name и dosage применяются к настройкам набора; напоминания не
+		// пересоздаются, а доза по времени приёма остаётся у своих
+		// напоминаний.
+		if req.Name != nil {
+			value, err := json.Marshal(map[string]string{"name": effName})
+			if err != nil {
+				return err
+			}
+			raw := json.RawMessage(value)
+			update.Value = &raw
+		}
+		if req.Dosage != nil {
+			update.Notes = &effDosage
+		}
+
+		if scheduleFieldsChanged && regenerate {
+			if effFreq == models.MedicationFrequencyAsNeeded {
+				// as_needed не может сосуществовать с набором напоминаний:
+				// настройки удаляются, новых не создаётся.
+				keys, err := database.DeleteReminderPlanWith(tx, plan.ID)
+				if err != nil {
+					return err
+				}
+				orphanKeys = keys
+				return nil
+			}
+
 			startDate, _ := parseDateOnly(*effStartDate)
 			var endDate *time.Time
 			if effEndDate != nil {
 				t, _ := parseDateOnly(*effEndDate)
 				endDate = &t
 			}
-			intervalDays := 0
-			if effIntervalDays != nil {
-				intervalDays = *effIntervalDays
+			spec := medicationReminderSpec(effFreq, effWeekdays, effIntervalDays, effTimes, startDate, endDate)
+			closed, err := database.ListClosedRemindMomentsWith(tx, plan.ID)
+			if err != nil {
+				return err
 			}
-			effName := medication.Name
-			if req.Name != nil {
-				effName = *req.Name
+			moments := computeReminderMoments(spec, loc, now, closed, models.ReminderMaxMomentsPerOperation)
+			if len(moments) == 0 {
+				return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Расписание не даёт ни одного момента в будущем")
 			}
-			effDosage := medication.Dosage
-			if req.Dosage != nil {
-				effDosage = *req.Dosage
+			keys, err := database.DeleteFutureOpenRemindersWith(tx, plan.ID, now)
+			if err != nil {
+				return err
 			}
-			slots := computeMedicationScheduleSlots(effFreq, effWeekdays, intervalDays, effTimes, startDate, endDate, models.MedicationScheduleEventsCap)
-			for _, slot := range slots {
-				eventID, err := createMedicationEventFromSlot(medication.PetID, slot, loc, effName, effDosage)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
-					return
-				}
-				newEventIDs = append(newEventIDs, eventID.String())
+			orphanKeys = keys
+			if _, err := database.InsertRemindersWith(tx, plan.ID, moments); err != nil {
+				return err
 			}
+			update.Schedule = planScheduleFromSpec(spec, tz)
 		}
-		if err := database.SetMedicationEventIDs(id, newEventIDs); err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить события курса")
-			return
-		}
+		return database.UpdateReminderPlanWith(tx, plan.ID, update)
+	})
+	if err != nil {
+		writeVetPassportTxError(w, err, "Курс лекарств не найден", "Ошибка обновления курса лекарств")
+		return
 	}
+	deleteOrphanedObjects(r.Context(), orphanKeys)
 
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // DeleteMedicationHandler обрабатывает DELETE /medications/{id}: мягко
-// удаляет запись курса и, если у него есть event_ids, физически удаляет
-// все связанные события (см. "Исключение из правила soft-delete").
+// удаляет запись лекарства и жёстко удаляет настройки набора напоминаний со
+// всеми напоминаниями (см. "Исключение из правила soft-delete").
 func DeleteMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	medication, err := database.GetMedicationByIDForUpdate(id)
+	medication, ok := resolveOwnedMedicationForReminders(w, id, userID)
+	if !ok {
+		return
+	}
+
+	var orphanKeys []string
+	err := database.RunInTx(func(tx *sql.Tx) error {
+		if err := database.SoftDeleteMedicationWith(tx, id); err != nil {
+			return err
+		}
+		if !medication.ReminderPlanID.Valid {
+			return nil
+		}
+		keys, err := database.DeleteReminderPlanWith(tx, medication.ReminderPlanID.UUID)
+		orphanKeys = keys
+		return err
+	})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Курс лекарств не найден")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения курса лекарств")
+		writeVetPassportTxError(w, err, "Курс лекарств не найден", "Ошибка удаления курса лекарств")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(medication.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Курс лекарств не найден")
-		return
-	}
-	if err := database.SoftDeleteMedication(id); err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Курс лекарств не найден")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка удаления курса лекарств")
-		return
-	}
-	if len(medication.EventIDs) > 0 {
-		if err := database.HardDeleteEventsByIDs(medication.EventIDs); err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить события курса")
-			return
-		}
-	}
+	deleteOrphanedObjects(r.Context(), orphanKeys)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// resolveOwnedMedicationForEvents находит курс лекарств по id и проверяет
-// владение через его питомца — общий шаг POST/DELETE
-// /medications/{id}/events.
-func resolveOwnedMedicationForEvents(w http.ResponseWriter, id uuid.UUID, userID string) (*models.MedicationDB, bool) {
+// resolveOwnedMedicationForReminders находит лекарство по id и проверяет
+// владение через его питомца — общий шаг DELETE /medications/{id} и
+// POST/DELETE /medications/{id}/reminders.
+func resolveOwnedMedicationForReminders(w http.ResponseWriter, id uuid.UUID, userID string) (*models.MedicationDB, bool) {
 	medication, err := database.GetMedicationByIDForUpdate(id)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -1998,14 +2274,13 @@ func resolveOwnedMedicationForEvents(w http.ResponseWriter, id uuid.UUID, userID
 	return medication, true
 }
 
-// CreateMedicationEventsHandler обрабатывает POST /medications/{id}/events:
-// (до-)создаёт связанные события приёма препарата по расписанию,
-// вычисленному из текущих frequency_type/weekdays/interval_days/times/
-// start_date/end_date курса (не более 60 событий, см.
-// computeMedicationScheduleSlots). Доступно только если event_ids пуст
-// (иначе 409) и frequency_type != as_needed (иначе 400) — см. "Лекарства —
-// Backend", раздел «Ручное создание набора событий».
-func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+// CreateMedicationRemindersHandler обрабатывает
+// POST /medications/{id}/reminders: создаёт набор напоминаний по расписанию,
+// вычисленному из текущих полей расписания лекарства (не больше 60
+// напоминаний). Доступно только если набора ещё нет (иначе 409) и
+// frequency_type != as_needed (иначе 400); если будущих моментов нет — 400 —
+// см. "Лекарства — Backend", раздел «Ручное создание набора напоминаний».
+func CreateMedicationRemindersHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
@@ -2014,46 +2289,42 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 	if !ok {
 		return
 	}
-	medication, ok := resolveOwnedMedicationForEvents(w, id, userID)
+	tz := r.URL.Query().Get("tz")
+	medication, ok := resolveOwnedMedicationForReminders(w, id, userID)
 	if !ok {
 		return
 	}
 
-	if len(medication.EventIDs) > 0 {
-		writeError(w, http.StatusConflict, openapi.CONFLICT, "У курса лекарств уже есть набор событий — сначала удалите его")
-		return
-	}
-	if medication.FrequencyType == models.MedicationFrequencyAsNeeded {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "У курса лекарств с frequency_type=as_needed нет расписания")
-		return
-	}
-
-	intervalDays := 0
-	if medication.IntervalDays.Valid {
-		intervalDays = int(medication.IntervalDays.Int64)
-	}
-	var endDate *time.Time
-	if medication.EndDate.Valid {
-		endDate = &medication.EndDate.Time
-	}
-	slots := computeMedicationScheduleSlots(medication.FrequencyType, medication.Weekdays, intervalDays, medication.Times, medication.StartDate.Time, endDate, models.MedicationScheduleEventsCap)
-
-	newEventIDs := make([]string, 0, len(slots))
-	for _, slot := range slots {
-		eventID, err := createMedicationEventFromSlot(medication.PetID, slot, loc, medication.Name, medication.Dosage)
+	err := database.RunInTx(func(tx *sql.Tx) error {
+		locked, err := database.GetMedicationByIDWith(tx, id, true)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать событие приёма препарата")
-			return
+			return err
 		}
-		newEventIDs = append(newEventIDs, eventID.String())
-	}
-
-	if err := database.SetMedicationEventIDs(id, newEventIDs); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить события курса")
+		if locked.ReminderPlanID.Valid {
+			return newReminderHTTPError(http.StatusConflict, openapi.CONFLICT, "У курса лекарств уже есть набор напоминаний — сначала удалите его")
+		}
+		if locked.FrequencyType == models.MedicationFrequencyAsNeeded {
+			return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "У курса лекарств с frequency_type=as_needed нет расписания")
+		}
+		planID, created, err := createMedicationReminderPlan(tx, locked.PetID, locked.ID, locked.Name, locked.Dosage, medicationSpecFromDB(locked), loc, tz, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if !created {
+			return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Расписание не даёт ни одного момента в будущем")
+		}
+		return database.SetMedicationReminderPlanIDWith(tx, id, uuid.NullUUID{UUID: planID, Valid: true})
+	})
+	if err != nil {
+		writeVetPassportTxError(w, err, "Курс лекарств не найден", "Не удалось создать набор напоминаний")
 		return
 	}
-	medication.EventIDs = newEventIDs
 
+	medication, err = database.GetMedicationByIDForUpdate(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения курса лекарств")
+		return
+	}
 	filesCounts, err := database.CountFilesForOwners(medicationFileOwnerType, []uuid.UUID{medication.ID})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов")
@@ -2063,34 +2334,37 @@ func CreateMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uu
 	writeJSON(w, http.StatusOK, medicationResponseFromDB(*medication, filesCounts[medication.ID], time.Now().UTC(), loc))
 }
 
-// DeleteMedicationEventsHandler обрабатывает DELETE /medications/{id}/events —
-// ЕДИНСТВЕННОЕ намеренное исключение из soft-delete во всём проекте: события
-// удаляются физически (hard delete), см. описание операции
-// delete-medication-events в open-api/spec.json. Требует непустого
-// event_ids (иначе 404).
-func DeleteMedicationEventsHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
+// DeleteMedicationRemindersHandler обрабатывает
+// DELETE /medications/{id}/reminders — жёстко удаляет настройки набора
+// напоминаний со всеми напоминаниями (исключение из soft-delete). Требует,
+// чтобы набор был (иначе 404).
+func DeleteMedicationRemindersHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
 		return
 	}
-	medication, ok := resolveOwnedMedicationForEvents(w, id, userID)
-	if !ok {
+	if _, ok := resolveOwnedMedicationForReminders(w, id, userID); !ok {
 		return
 	}
 
-	if len(medication.EventIDs) == 0 {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "У курса лекарств нет набора событий")
+	var orphanKeys []string
+	err := database.RunInTx(func(tx *sql.Tx) error {
+		locked, err := database.GetMedicationByIDWith(tx, id, true)
+		if err != nil {
+			return err
+		}
+		if !locked.ReminderPlanID.Valid {
+			return newReminderHTTPError(http.StatusNotFound, openapi.NOTFOUND, "У курса лекарств нет набора напоминаний")
+		}
+		keys, err := database.DeleteReminderPlanWith(tx, locked.ReminderPlanID.UUID)
+		orphanKeys = keys
+		return err
+	})
+	if err != nil {
+		writeVetPassportTxError(w, err, "Курс лекарств не найден", "Не удалось удалить набор напоминаний")
 		return
 	}
-
-	if err := database.HardDeleteEventsByIDs(medication.EventIDs); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось удалить события курса")
-		return
-	}
-	if err := database.SetMedicationEventIDs(id, nil); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось сохранить курс лекарств")
-		return
-	}
+	deleteOrphanedObjects(r.Context(), orphanKeys)
 
 	w.WriteHeader(http.StatusNoContent)
 }

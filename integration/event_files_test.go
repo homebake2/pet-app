@@ -2,7 +2,7 @@
 
 // Сквозной сценарий generic-механизма файлов сущностей на втором конкретном
 // подключении — файлы события (owner_type = "event_file", кардинальность
-// «до 10», см. artifacts/PET/pages/calendar/fayly-sobytiya-backend.md).
+// «до 10», см. «Файлы события — Backend»).
 package integration
 
 import (
@@ -105,7 +105,7 @@ func TestFilesUploadCompleteDelete_EventFileFullFlow(t *testing.T) {
 	require.Equal(t, docFilename, *event.Files[1].Filename)
 
 	// files_count в списочных эндпоинтах отражает то же количество.
-	activitiesResp := doRequest(t, http.MethodGet, "/activities?pet_id="+petID+"&from=2024-01-01&to=2024-01-01", nil, tokens.AccessToken)
+	activitiesResp := doRequest(t, http.MethodGet, "/activities?pet_id="+petID+"&from=2024-01-01&to=2024-01-01&tz=UTC", nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, activitiesResp.status)
 	var activities struct {
 		Items []struct {

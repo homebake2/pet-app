@@ -72,21 +72,17 @@ type ImportLocalDataEvent struct {
 	Type       string          `json:"type"`
 	Notes      *string         `json:"notes,omitempty"`
 	Value      json.RawMessage `json:"value"`
-	// NotificationsEnabled — опционально, валидируется так же, как в
-	// POST /events (см. «Импорт локальных данных — Backend»).
-	NotificationsEnabled *bool `json:"notifications_enabled,omitempty"`
 }
 
 // ToCreateEventRequest конвертирует элемент events[] в тот же тип запроса,
 // что принимает POST /events, подставляя уже разрешённый серверный id питомца.
 func (e ImportLocalDataEvent) ToCreateEventRequest(petID string) CreateEventRequest {
 	return CreateEventRequest{
-		PetID:                petID,
-		Date:                 e.Date,
-		Type:                 e.Type,
-		Notes:                e.Notes,
-		Value:                e.Value,
-		NotificationsEnabled: e.NotificationsEnabled,
+		PetID: petID,
+		Date:  e.Date,
+		Type:  e.Type,
+		Notes: e.Notes,
+		Value: e.Value,
 	}
 }
 
@@ -116,18 +112,20 @@ func (p ImportLocalDataProfile) ToProfile(userID string) Profile {
 // умышленно без `omitempty`/указателя: отсутствие ключа и JSON null
 // декодируются в nil-срез одинаково, и оба случая должны быть отклонены
 // валидацией хендлера (поля обязательны, хоть и могут быть пустым массивом).
+// ReminderPlans обязателен так же, как pets/events (может быть пустым).
 // Vaccinations/Diseases/VetVisits/Allergies/Medications — опциональные
 // массивы ветпаспорта (см. "Ведпаспорт — Backend"); отсутствие/null
-// трактуются как "нечего переносить", в отличие от pets/events.
+// трактуются как "нечего переносить".
 type ImportLocalDataRequest struct {
-	Profile      *ImportLocalDataProfile `json:"profile"`
-	Pets         []ImportLocalDataPet    `json:"pets"`
-	Events       []ImportLocalDataEvent  `json:"events"`
-	Vaccinations []ImportVaccination     `json:"vaccinations,omitempty"`
-	Diseases     []ImportDisease         `json:"diseases,omitempty"`
-	VetVisits    []ImportVetVisit        `json:"vet_visits,omitempty"`
-	Allergies    []ImportAllergy         `json:"allergies,omitempty"`
-	Medications  []ImportMedication      `json:"medications,omitempty"`
+	Profile       *ImportLocalDataProfile `json:"profile"`
+	Pets          []ImportLocalDataPet    `json:"pets"`
+	Events        []ImportLocalDataEvent  `json:"events"`
+	ReminderPlans []ImportReminderPlan    `json:"reminder_plans"`
+	Vaccinations  []ImportVaccination     `json:"vaccinations,omitempty"`
+	Diseases      []ImportDisease         `json:"diseases,omitempty"`
+	VetVisits     []ImportVetVisit        `json:"vet_visits,omitempty"`
+	Allergies     []ImportAllergy         `json:"allergies,omitempty"`
+	Medications   []ImportMedication      `json:"medications,omitempty"`
 }
 
 // ImportVaccination — элемент vaccinations[] в теле запроса POST /import/local-data.
@@ -138,10 +136,13 @@ type ImportVaccination struct {
 	AdministeredDate         string  `json:"administered_date"`
 	NextDate                 *string `json:"next_date,omitempty"`
 	AddEventOnAdministered   *bool   `json:"add_event_on_administered,omitempty"`
-	AddEventOnNext           *bool   `json:"add_event_on_next,omitempty"`
+	AddReminderOnNext        *bool   `json:"add_reminder_on_next,omitempty"`
 	EventTime                *string `json:"event_time,omitempty"`
 	AdministeredEventLocalID *string `json:"administered_event_local_id,omitempty"`
-	NextEventLocalID         *string `json:"next_event_local_id,omitempty"`
+	// NextReminderPlanLocalID — ссылка на элемент reminder_plans этого же
+	// запроса: уже созданные локально настройки напоминания на следующую
+	// дату (сервер расписание не пересчитывает).
+	NextReminderPlanLocalID *string `json:"next_reminder_plan_local_id,omitempty"`
 }
 
 // ToCreateVaccinationRequest конвертирует элемент vaccinations[] в тот же
@@ -152,7 +153,7 @@ func (v ImportVaccination) ToCreateVaccinationRequest() CreateVaccinationRequest
 		AdministeredDate:       v.AdministeredDate,
 		NextDate:               v.NextDate,
 		AddEventOnAdministered: v.AddEventOnAdministered,
-		AddEventOnNext:         v.AddEventOnNext,
+		AddReminderOnNext:      v.AddReminderOnNext,
 		EventTime:              v.EventTime,
 	}
 }
@@ -217,25 +218,48 @@ func (a ImportAllergy) ToCreateAllergyRequest() CreateAllergyRequest {
 }
 
 // ImportMedication — элемент medications[] в теле запроса POST /import/local-data.
-// EventLocalIDs здесь намеренно не используется сервером для генерации
-// расписания приёмов при переносе (сервер не пересчитывает event_ids на
-// импорте — см. "Ведпаспорт — Backend"/"Импорт локальных данных — Backend",
-// шаг 9: те события, что уже перечислены в event_local_ids и найдены среди
-// events[] этого же запроса, переносятся как есть в event_ids курса; сервер
-// не вызывает расчёт расписания).
+// ReminderPlanLocalID ссылается на элемент reminder_plans[] этого же запроса:
+// набор напоминаний создан клиентом локально, сервер переносит ровно его, а
+// не рассчитывает расписание заново.
 type ImportMedication struct {
-	LocalID       string               `json:"local_id"`
-	PetLocalID    string               `json:"pet_local_id"`
-	Name          string               `json:"name"`
-	Dosage        string               `json:"dosage"`
-	FrequencyType string               `json:"frequency_type"`
-	Weekdays      []int                `json:"weekdays,omitempty"`
-	IntervalDays  *int                 `json:"interval_days,omitempty"`
-	Times         []MedicationTimeSlot `json:"times,omitempty"`
-	StartDate     *string              `json:"start_date,omitempty"`
-	EndDate       *string              `json:"end_date,omitempty"`
-	Note          *string              `json:"note,omitempty"`
-	EventLocalIDs []string             `json:"event_local_ids,omitempty"`
+	LocalID             string               `json:"local_id"`
+	PetLocalID          string               `json:"pet_local_id"`
+	Name                string               `json:"name"`
+	Dosage              string               `json:"dosage"`
+	FrequencyType       string               `json:"frequency_type"`
+	Weekdays            []int                `json:"weekdays,omitempty"`
+	IntervalDays        *int                 `json:"interval_days,omitempty"`
+	Times               []MedicationTimeSlot `json:"times,omitempty"`
+	StartDate           *string              `json:"start_date,omitempty"`
+	EndDate             *string              `json:"end_date,omitempty"`
+	Note                *string              `json:"note,omitempty"`
+	ReminderPlanLocalID *string              `json:"reminder_plan_local_id,omitempty"`
+}
+
+// ImportReminder — элемент reminders[] настроек напоминания в теле запроса
+// POST /import/local-data: незавершённое локальное напоминание.
+type ImportReminder struct {
+	LocalID  string  `json:"local_id"`
+	RemindAt string  `json:"remind_at"`
+	Notes    *string `json:"notes,omitempty"`
+}
+
+// ImportReminderPlan — элемент reminder_plans[] в теле запроса
+// POST /import/local-data.
+type ImportReminderPlan struct {
+	LocalID       string           `json:"local_id"`
+	PetLocalID    string           `json:"pet_local_id"`
+	Type          string           `json:"type"`
+	Value         json.RawMessage  `json:"value"`
+	Notes         *string          `json:"notes,omitempty"`
+	FrequencyType string           `json:"frequency_type"`
+	Weekdays      []int            `json:"weekdays,omitempty"`
+	IntervalDays  *int             `json:"interval_days,omitempty"`
+	Times         []string         `json:"times"`
+	StartDate     string           `json:"start_date"`
+	EndDate       *string          `json:"end_date,omitempty"`
+	TZ            string           `json:"tz"`
+	Reminders     []ImportReminder `json:"reminders"`
 }
 
 func (m ImportMedication) ToCreateMedicationRequest() CreateMedicationRequest {
@@ -250,6 +274,22 @@ func (m ImportMedication) ToCreateMedicationRequest() CreateMedicationRequest {
 		EndDate:       m.EndDate,
 		Note:          m.Note,
 	}
+}
+
+// ImportedReminder — сопоставление local_id -> серверный id напоминания в
+// ImportedReminderPlan.
+type ImportedReminder struct {
+	LocalID string `json:"local_id"`
+	ID      string `json:"id"`
+}
+
+// ImportedReminderPlan — элемент reminder_plans ответа
+// ImportLocalDataResponse: сопоставление local_id настроек и их напоминаний
+// с серверными id (для последующего фонового переноса файлов).
+type ImportedReminderPlan struct {
+	LocalID   string             `json:"local_id"`
+	ID        string             `json:"id"`
+	Reminders []ImportedReminder `json:"reminders"`
 }
 
 // ImportedVaccination/ImportedDisease/ImportedVetVisit/ImportedAllergy/ImportedMedication
@@ -302,19 +342,21 @@ type ImportedEvent struct {
 
 // ImportLocalDataResponse — тело ответа 200 OK POST /import/local-data.
 type ImportLocalDataResponse struct {
-	PetsImported         int                   `json:"pets_imported"`
-	EventsImported       int                   `json:"events_imported"`
-	ProfileImported      bool                  `json:"profile_imported"`
-	Pets                 []ImportedPet         `json:"pets"`
-	Events               []ImportedEvent       `json:"events"`
-	VaccinationsImported int                   `json:"vaccinations_imported"`
-	DiseasesImported     int                   `json:"diseases_imported"`
-	VetVisitsImported    int                   `json:"vet_visits_imported"`
-	AllergiesImported    int                   `json:"allergies_imported"`
-	MedicationsImported  int                   `json:"medications_imported"`
-	Vaccinations         []ImportedVaccination `json:"vaccinations"`
-	Diseases             []ImportedDisease     `json:"diseases"`
-	VetVisits            []ImportedVetVisit    `json:"vet_visits"`
-	Allergies            []ImportedAllergy     `json:"allergies"`
-	Medications          []ImportedMedication  `json:"medications"`
+	PetsImported          int                    `json:"pets_imported"`
+	EventsImported        int                    `json:"events_imported"`
+	ProfileImported       bool                   `json:"profile_imported"`
+	Pets                  []ImportedPet          `json:"pets"`
+	Events                []ImportedEvent        `json:"events"`
+	VaccinationsImported  int                    `json:"vaccinations_imported"`
+	DiseasesImported      int                    `json:"diseases_imported"`
+	VetVisitsImported     int                    `json:"vet_visits_imported"`
+	AllergiesImported     int                    `json:"allergies_imported"`
+	MedicationsImported   int                    `json:"medications_imported"`
+	Vaccinations          []ImportedVaccination  `json:"vaccinations"`
+	Diseases              []ImportedDisease      `json:"diseases"`
+	VetVisits             []ImportedVetVisit     `json:"vet_visits"`
+	Allergies             []ImportedAllergy      `json:"allergies"`
+	Medications           []ImportedMedication   `json:"medications"`
+	ReminderPlansImported int                    `json:"reminder_plans_imported"`
+	ReminderPlans         []ImportedReminderPlan `json:"reminder_plans"`
 }

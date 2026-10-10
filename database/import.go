@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/lib/pq"
 )
 
 // ReserveImportIdempotencyKey резервирует пару (user_id, idempotency_key)
@@ -39,22 +38,24 @@ func ReserveImportIdempotencyKey(userID string, idempotencyKey string) (reserved
 // завершено, см. FinalizeImportIdempotencyKey) — аналогично поведению
 // GetPetIDByIdempotencyKey.
 func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (result models.ImportLocalDataResponse, hasResult bool, err error) {
-	var petsImported, eventsImported sql.NullInt64
+	var petsImported, eventsImported, reminderPlansImported sql.NullInt64
 	var vaccinationsImported, diseasesImported, vetVisitsImported, allergiesImported, medicationsImported sql.NullInt64
 	var profileImported sql.NullBool
 	var petsMapping, eventsMapping sql.NullString
-	var vaccinationsMapping, diseasesMapping, vetVisitsMapping, allergiesMapping, medicationsMapping sql.NullString
+	var vaccinationsMapping, diseasesMapping, vetVisitsMapping, allergiesMapping, medicationsMapping, reminderPlansMapping sql.NullString
 
 	err = DB.QueryRow(`
 		SELECT pets_imported, events_imported, profile_imported, pets_mapping, events_mapping,
 		       vaccinations_imported, diseases_imported, vet_visits_imported, allergies_imported, medications_imported,
-		       vaccinations_mapping, diseases_mapping, vet_visits_mapping, allergies_mapping, medications_mapping
+		       vaccinations_mapping, diseases_mapping, vet_visits_mapping, allergies_mapping, medications_mapping,
+		       reminder_plans_imported, reminder_plans_mapping
 		FROM import_local_data_idempotency_key
 		WHERE user_id = $1 AND idempotency_key = $2
 	`, userID, idempotencyKey).Scan(
 		&petsImported, &eventsImported, &profileImported, &petsMapping, &eventsMapping,
 		&vaccinationsImported, &diseasesImported, &vetVisitsImported, &allergiesImported, &medicationsImported,
 		&vaccinationsMapping, &diseasesMapping, &vetVisitsMapping, &allergiesMapping, &medicationsMapping,
+		&reminderPlansImported, &reminderPlansMapping,
 	)
 	if err != nil {
 		return models.ImportLocalDataResponse{}, false, err
@@ -109,6 +110,13 @@ func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (resu
 		}
 	}
 
+	reminderPlans := []models.ImportedReminderPlan{}
+	if reminderPlansMapping.Valid {
+		if err = json.Unmarshal([]byte(reminderPlansMapping.String), &reminderPlans); err != nil {
+			return models.ImportLocalDataResponse{}, false, err
+		}
+	}
+
 	return models.ImportLocalDataResponse{
 		PetsImported:         int(petsImported.Int64),
 		EventsImported:       int(eventsImported.Int64),
@@ -125,6 +133,9 @@ func GetImportResultByIdempotencyKey(userID string, idempotencyKey string) (resu
 		VetVisits:            vetVisits,
 		Allergies:            allergies,
 		Medications:          medications,
+
+		ReminderPlansImported: int(reminderPlansImported.Int64),
+		ReminderPlans:         reminderPlans,
 	}, true, nil
 }
 
@@ -159,15 +170,21 @@ func FinalizeImportIdempotencyKey(userID string, idempotencyKey string, result m
 	if err != nil {
 		return err
 	}
+	reminderPlansMapping, err := json.Marshal(result.ReminderPlans)
+	if err != nil {
+		return err
+	}
 	_, err = DB.Exec(`
 		UPDATE import_local_data_idempotency_key
 		SET pets_imported = $1, events_imported = $2, profile_imported = $3, pets_mapping = $4, events_mapping = $5,
 		    vaccinations_imported = $6, diseases_imported = $7, vet_visits_imported = $8, allergies_imported = $9, medications_imported = $10,
-		    vaccinations_mapping = $11, diseases_mapping = $12, vet_visits_mapping = $13, allergies_mapping = $14, medications_mapping = $15
-		WHERE user_id = $16 AND idempotency_key = $17
+		    vaccinations_mapping = $11, diseases_mapping = $12, vet_visits_mapping = $13, allergies_mapping = $14, medications_mapping = $15,
+		    reminder_plans_imported = $16, reminder_plans_mapping = $17
+		WHERE user_id = $18 AND idempotency_key = $19
 	`, result.PetsImported, result.EventsImported, result.ProfileImported, string(petsMapping), string(eventsMapping),
 		result.VaccinationsImported, result.DiseasesImported, result.VetVisitsImported, result.AllergiesImported, result.MedicationsImported,
 		string(vaccinationsMapping), string(diseasesMapping), string(vetVisitsMapping), string(allergiesMapping), string(medicationsMapping),
+		result.ReminderPlansImported, string(reminderPlansMapping),
 		userID, idempotencyKey)
 	return err
 }
@@ -218,6 +235,32 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		eventLocalIDToServerID[event.LocalID] = eventID
 	}
 
+	// Настройки напоминаний переносятся ровно с теми напоминаниями, что
+	// присланы: расписание на сервере не пересчитывается. Источник настроек
+	// записывается ниже, когда вставлены лекарства и прививки, которые на них
+	// ссылаются; до этого все настройки — manual.
+	planLocalIDToServerID := make(map[string]uuid.UUID, len(req.ReminderPlans))
+	importedReminderPlans := make([]models.ImportedReminderPlan, 0, len(req.ReminderPlans))
+	for _, plan := range req.ReminderPlans {
+		petID, ok := localIDToServerID[plan.PetLocalID]
+		if !ok {
+			err = fmt.Errorf("import: pet_local_id %q не найден среди перенесённых питомцев (reminder_plan)", plan.PetLocalID)
+			return result, err
+		}
+		var planID uuid.UUID
+		var reminderIDs []uuid.UUID
+		planID, reminderIDs, err = insertImportedReminderPlan(tx, petID, plan)
+		if err != nil {
+			return result, err
+		}
+		planLocalIDToServerID[plan.LocalID] = planID
+		imported := models.ImportedReminderPlan{LocalID: plan.LocalID, ID: planID.String(), Reminders: make([]models.ImportedReminder, 0, len(plan.Reminders))}
+		for i, reminder := range plan.Reminders {
+			imported.Reminders = append(imported.Reminders, models.ImportedReminder{LocalID: reminder.LocalID, ID: reminderIDs[i].String()})
+		}
+		importedReminderPlans = append(importedReminderPlans, imported)
+	}
+
 	profileImported := false
 	if req.Profile != nil {
 		if err = UpsertProfileWith(tx, userID, req.Profile.ToProfile(userID)); err != nil {
@@ -244,15 +287,25 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			err = lookupErr
 			return result, err
 		}
-		nextEventID, lookupErr := importVaccinationEventID(tx, petID, v.NextEventLocalID, eventLocalIDToServerID, v.AddEventOnNext, derefOrEmpty(v.NextDate), v.EventTime, v.Name)
-		if lookupErr != nil {
-			err = lookupErr
-			return result, err
+		var nextPlanID uuid.NullUUID
+		if v.NextReminderPlanLocalID != nil && *v.NextReminderPlanLocalID != "" {
+			serverID, found := planLocalIDToServerID[*v.NextReminderPlanLocalID]
+			if !found {
+				err = fmt.Errorf("import: next_reminder_plan_local_id %q не найден среди перенесённых настроек напоминаний (vaccination)", *v.NextReminderPlanLocalID)
+				return result, err
+			}
+			nextPlanID = uuid.NullUUID{UUID: serverID, Valid: true}
 		}
 		var vaccinationID uuid.UUID
-		vaccinationID, err = insertVaccinationWith(tx, petID, v.ToCreateVaccinationRequest(), administeredEventID, nextEventID, "")
+		vaccinationID, err = insertVaccinationWith(tx, petID, v.ToCreateVaccinationRequest(), administeredEventID, nextPlanID, "")
 		if err != nil {
 			return result, err
+		}
+		if nextPlanID.Valid {
+			err = SetReminderPlanSourceWith(tx, nextPlanID.UUID, models.ReminderSourceVaccination, uuid.NullUUID{UUID: vaccinationID, Valid: true})
+			if err != nil {
+				return result, err
+			}
 		}
 		vaccinationLocalIDToServerID[v.LocalID] = vaccinationID
 	}
@@ -314,17 +367,17 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		if err != nil {
 			return result, err
 		}
-		if len(m.EventLocalIDs) > 0 {
-			eventIDs := make([]string, 0, len(m.EventLocalIDs))
-			for _, localID := range m.EventLocalIDs {
-				serverID, ok := eventLocalIDToServerID[localID]
-				if !ok {
-					err = fmt.Errorf("import: event_local_id %q не найден среди перенесённых событий (medication)", localID)
-					return result, err
-				}
-				eventIDs = append(eventIDs, serverID.String())
+		if m.ReminderPlanLocalID != nil && *m.ReminderPlanLocalID != "" {
+			planID, found := planLocalIDToServerID[*m.ReminderPlanLocalID]
+			if !found {
+				err = fmt.Errorf("import: reminder_plan_local_id %q не найден среди перенесённых настроек напоминаний (medication)", *m.ReminderPlanLocalID)
+				return result, err
 			}
-			if _, err = tx.Exec(`UPDATE medication SET event_ids = $1 WHERE id = $2`, pq.Array(eventIDs), medicationID); err != nil {
+			if err = SetMedicationReminderPlanIDWith(tx, medicationID, uuid.NullUUID{UUID: planID, Valid: true}); err != nil {
+				return result, err
+			}
+			err = SetReminderPlanSourceWith(tx, planID, models.ReminderSourceMedication, uuid.NullUUID{UUID: medicationID, Valid: true})
+			if err != nil {
 				return result, err
 			}
 		}
@@ -403,6 +456,9 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		VetVisits:            importedVetVisits,
 		Allergies:            importedAllergies,
 		Medications:          importedMedications,
+
+		ReminderPlansImported: len(req.ReminderPlans),
+		ReminderPlans:         importedReminderPlans,
 	}
 	return result, nil
 }
@@ -417,11 +473,11 @@ func derefOrEmpty(s *string) string {
 	return *s
 }
 
-// importVaccinationEventID определяет administered_event_id/next_event_id
-// импортируемой прививки: если клиент передал *_event_local_id — событие уже
-// было перенесено в этом же запросе (events[]), достаточно найти его
-// серверный id; иначе, если addEvent=true и date непусто — создаёт новое
-// событие (type=other) тем же способом, что и POST /pet/{id}/vaccinations
+// importVaccinationEventID определяет administered_event_id импортируемой
+// прививки: если клиент передал administered_event_local_id — факт уже был
+// перенесён в этом же запросе (events[]), достаточно найти его серверный id;
+// иначе, если addEvent=true и date непусто — создаёт новый факт (type=other)
+// тем же способом, что и POST /pet/{id}/vaccinations
 // (см. handlers/vetpassport.go: createOtherEvent). Дублирование построения
 // value/date здесь небольшое и оправдано отсутствием доступа пакета
 // database к пакету handlers (см. слоение: handlers -> database, не
@@ -479,4 +535,66 @@ func truncateLabel(s string, maxLen int) string {
 		return s
 	}
 	return string(r[:maxLen])
+}
+
+// insertImportedReminderPlan вставляет перенесённые настройки напоминания
+// (источник manual — реальный источник записывается после вставки лекарств и
+// прививок) и по одной строке reminder на каждое присланное напоминание.
+// Расписание не пересчитывается. Возвращает id настроек и id напоминаний в
+// порядке plan.Reminders.
+func insertImportedReminderPlan(exec dbExecutor, petID uuid.UUID, plan models.ImportReminderPlan) (uuid.UUID, []uuid.UUID, error) {
+	startDate, err := time.Parse("2006-01-02", plan.StartDate)
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
+	var endDate sql.NullTime
+	if plan.EndDate != nil && *plan.EndDate != "" {
+		t, err := time.Parse("2006-01-02", *plan.EndDate)
+		if err != nil {
+			return uuid.Nil, nil, err
+		}
+		endDate = sql.NullTime{Time: t, Valid: true}
+	}
+	var intervalDays sql.NullInt64
+	if plan.IntervalDays != nil {
+		intervalDays = sql.NullInt64{Int64: int64(*plan.IntervalDays), Valid: true}
+	}
+	var notes sql.NullString
+	if plan.Notes != nil && *plan.Notes != "" {
+		notes = sql.NullString{String: *plan.Notes, Valid: true}
+	}
+	planID := uuid.New()
+	planRow := models.ReminderPlanDB{
+		ID:            planID,
+		PetID:         petID,
+		Source:        models.ReminderSourceManual,
+		Type:          plan.Type,
+		Value:         plan.Value,
+		Notes:         notes,
+		FrequencyType: plan.FrequencyType,
+		Weekdays:      plan.Weekdays,
+		IntervalDays:  intervalDays,
+		Times:         plan.Times,
+		StartDate:     startDate,
+		EndDate:       endDate,
+		TZ:            plan.TZ,
+	}
+	moments := make([]models.ReminderMoment, 0, len(plan.Reminders))
+	for _, reminder := range plan.Reminders {
+		remindAt, err := time.Parse(time.RFC3339, reminder.RemindAt)
+		if err != nil {
+			return uuid.Nil, nil, err
+		}
+		moments = append(moments, models.ReminderMoment{RemindAt: remindAt, Notes: reminder.Notes})
+	}
+	// Вставка строки настроек без напоминаний, затем напоминаний — чтобы
+	// получить их id в порядке запроса.
+	if err := InsertReminderPlanWith(exec, planRow, nil); err != nil {
+		return uuid.Nil, nil, err
+	}
+	reminderIDs, err := InsertRemindersWith(exec, planID, moments)
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
+	return planID, reminderIDs, nil
 }

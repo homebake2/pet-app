@@ -3,11 +3,10 @@
 // Сквозные сценарии двух новых эндпоинтов экрана календаря — GET
 // /activities/calendar (количество событий по дням) и GET /activities/day
 // (все события всех питомцев пользователя за один день), см.
-// artifacts/PET/pages/calendar/prosmotr-kalendarya-backend.md.
+// требования «Просмотр календаря — Backend».
 package integration
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -26,7 +25,7 @@ func TestGetActivitiesCalendar_CountsAcrossAllPetsNoGaps(t *testing.T) {
 	createEvent(t, tokens.AccessToken, dogID, "2024-01-01T12:00:00Z", "weight", map[string]any{"amount": 12.0})
 	createEvent(t, tokens.AccessToken, catID, "2024-01-03T10:00:00Z", "weight", map[string]any{"amount": 4.3})
 
-	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-03", nil, tokens.AccessToken)
+	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-03&tz=UTC", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 
 	var result struct {
@@ -49,7 +48,7 @@ func TestGetActivitiesCalendar_NoPetsReturnsAllZeros(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 
-	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02", nil, tokens.AccessToken)
+	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02&tz=UTC", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 
 	var result struct {
@@ -67,13 +66,13 @@ func TestGetActivitiesCalendar_RangeTooLong400(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 
-	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2023-01-01&to=2024-06-01", nil, tokens.AccessToken)
+	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2023-01-01&to=2024-06-01&tz=UTC", nil, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, resp.status)
 }
 
 func TestGetActivitiesCalendar_Unauthorized(t *testing.T) {
 	resetDB(t)
-	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02", nil, "")
+	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02&tz=UTC", nil, "")
 	require.Equal(t, http.StatusUnauthorized, resp.status)
 }
 
@@ -92,7 +91,7 @@ func TestGetActivitiesDay_MixesAllPetsSortedByDateTime(t *testing.T) {
 	// Другой день — не должен попасть в результат.
 	createEvent(t, tokens.AccessToken, catID, "2024-01-02T08:00:00Z", "weight", map[string]any{"amount": 4.3})
 
-	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, tokens.AccessToken)
+	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 
 	var result struct {
@@ -116,7 +115,7 @@ func TestGetActivitiesDay_EmptyIsNot404(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 
-	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, tokens.AccessToken)
+	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 
 	var result struct {
@@ -140,7 +139,7 @@ func TestGetActivitiesDay_ExcludesSoftDeletedPetAndEvent(t *testing.T) {
 	deletePet := doRequest(t, http.MethodDelete, "/pet/"+dogID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNoContent, deletePet.status)
 
-	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, tokens.AccessToken)
+	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 
 	var result struct {
@@ -155,106 +154,7 @@ func TestGetActivitiesDay_ExcludesSoftDeletedPetAndEvent(t *testing.T) {
 
 func TestGetActivitiesDay_Unauthorized(t *testing.T) {
 	resetDB(t)
-	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, "")
-	require.Equal(t, http.StatusUnauthorized, resp.status)
-}
-
-// --- GET /activities/nearest ---
-
-func TestGetActivitiesNearest_ReturnsSoonestUpcomingEventAcrossPets(t *testing.T) {
-	resetDB(t)
-	tokens := registerUser(t, uniqueLogin(t), "password123")
-	createProfile(t, tokens.AccessToken, "Іван")
-
-	catID := createPet(t, tokens.AccessToken, "Барсик")
-	dogID := createPet(t, tokens.AccessToken, "Рекс")
-
-	// Событие в прошлом не должно попасть в выборку.
-	createEvent(t, tokens.AccessToken, catID, "2020-01-01T08:00:00Z", "weight", map[string]any{"amount": 4.0})
-	// Более далёкое будущее событие.
-	createEvent(t, tokens.AccessToken, dogID, "2999-01-02T08:00:00Z", "weight", map[string]any{"amount": 12.0})
-	// Самое ближайшее будущее событие — должно быть выбрано.
-	createEvent(t, tokens.AccessToken, catID, "2999-01-01T08:00:00Z", "weight", map[string]any{"amount": 4.3})
-
-	resp := doRequest(t, http.MethodGet, "/activities/nearest", nil, tokens.AccessToken)
-	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
-
-	var result struct {
-		Item *struct {
-			PetID   string `json:"pet_id"`
-			PetName string `json:"pet_name"`
-			Date    string `json:"date"`
-		} `json:"item"`
-	}
-	resp.decode(t, &result)
-	require.NotNil(t, result.Item)
-	require.Equal(t, catID, result.Item.PetID)
-	require.Equal(t, "Барсик", result.Item.PetName)
-	require.Equal(t, "2999-01-01T08:00:00Z", result.Item.Date)
-}
-
-func TestGetActivitiesNearest_NoUpcomingEventsReturnsNullItemNot404(t *testing.T) {
-	resetDB(t)
-	tokens := registerUser(t, uniqueLogin(t), "password123")
-	createProfile(t, tokens.AccessToken, "Іван")
-	catID := createPet(t, tokens.AccessToken, "Барсик")
-	// Только событие в прошлом — нет предстоящих.
-	createEvent(t, tokens.AccessToken, catID, "2020-01-01T08:00:00Z", "weight", map[string]any{"amount": 4.0})
-
-	resp := doRequest(t, http.MethodGet, "/activities/nearest", nil, tokens.AccessToken)
-	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
-
-	var result struct {
-		Item *json.RawMessage `json:"item"`
-	}
-	resp.decode(t, &result)
-	require.Nil(t, result.Item)
-}
-
-func TestGetActivitiesNearest_NoPetsReturnsNullItem(t *testing.T) {
-	resetDB(t)
-	tokens := registerUser(t, uniqueLogin(t), "password123")
-
-	resp := doRequest(t, http.MethodGet, "/activities/nearest", nil, tokens.AccessToken)
-	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
-
-	var result struct {
-		Item *json.RawMessage `json:"item"`
-	}
-	resp.decode(t, &result)
-	require.Nil(t, result.Item)
-}
-
-func TestGetActivitiesNearest_ExcludesSoftDeletedPetAndEvent(t *testing.T) {
-	resetDB(t)
-	tokens := registerUser(t, uniqueLogin(t), "password123")
-	createProfile(t, tokens.AccessToken, "Іван")
-
-	catID := createPet(t, tokens.AccessToken, "Барсик")
-	dogID := createPet(t, tokens.AccessToken, "Рекс")
-	// Ближайшее событие принадлежит питомцу, который будет мягко удалён.
-	createEvent(t, tokens.AccessToken, dogID, "2999-01-01T08:00:00Z", "weight", map[string]any{"amount": 12.0})
-	createEvent(t, tokens.AccessToken, catID, "2999-01-02T08:00:00Z", "weight", map[string]any{"amount": 4.3})
-
-	deletePet := doRequest(t, http.MethodDelete, "/pet/"+dogID, nil, tokens.AccessToken)
-	require.Equal(t, http.StatusNoContent, deletePet.status)
-
-	resp := doRequest(t, http.MethodGet, "/activities/nearest", nil, tokens.AccessToken)
-	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
-
-	var result struct {
-		Item *struct {
-			PetID string `json:"pet_id"`
-		} `json:"item"`
-	}
-	resp.decode(t, &result)
-	require.NotNil(t, result.Item)
-	require.Equal(t, catID, result.Item.PetID)
-}
-
-func TestGetActivitiesNearest_Unauthorized(t *testing.T) {
-	resetDB(t)
-	resp := doRequest(t, http.MethodGet, "/activities/nearest", nil, "")
+	resp := doRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil, "")
 	require.Equal(t, http.StatusUnauthorized, resp.status)
 }
 

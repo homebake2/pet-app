@@ -134,19 +134,21 @@ func parseEventDate(date string) (time.Time, error) {
 	return time.Parse(time.RFC3339, date)
 }
 
-// validateNotificationsEnabledForDate проверяет правило «notifications_enabled
-// = true допустим только для события с датой строго в будущем» (см.
-// «Добавление события — Backend», «Редактирование события — Backend»,
-// «Модель значения события и реестр метрик»). now() берётся на момент
-// обработки запроса, UTC. Возвращает пустую строку, если сочетание
-// допустимо, иначе — сообщение об ошибке для ответа 400. enabled == nil или
-// *enabled == false — сочетание всегда допустимо независимо от date.
-func validateNotificationsEnabledForDate(enabled *bool, date time.Time) string {
-	if enabled == nil || !*enabled {
-		return ""
-	}
-	if !date.After(time.Now().UTC()) {
-		return "notifications_enabled = true допустим только для события с датой строго в будущем"
+// factDateTolerance — допуск на расхождение часов клиента и сервера для
+// даты факта: дата события не может быть позднее now() больше чем на это
+// значение.
+const factDateTolerance = 5 * time.Minute
+
+// validateFactDate проверяет, что дата события (факта — того, что уже
+// произошло) не позднее текущего момента (UTC, на момент обработки запроса)
+// с допуском factDateTolerance. Одно и то же правило действует для POST
+// /events, PATCH /events/{id}, импорта и фактов, которые создают другие
+// флоу (отметка напоминания «выполнено», замена напоминания, вакцинация).
+// Возвращает пустую строку, если дата допустима, иначе — сообщение об
+// ошибке для ответа 400.
+func validateFactDate(date time.Time) string {
+	if date.After(time.Now().UTC().Add(factDateTolerance)) {
+		return "Дата события не может быть в будущем: запланированные события создаются как напоминания"
 	}
 	return ""
 }

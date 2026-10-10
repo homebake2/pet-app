@@ -93,7 +93,7 @@ func TestEventStats_AggregatesByRegistry(t *testing.T) {
 
 	createEvent(t, tokens.AccessToken, petID, "2024-01-01T13:00:00Z", "urine", map[string]any{"status": "abnormal"})
 
-	path := fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-03&bucket=day&types=%s",
+	path := fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-03&bucket=day&tz=UTC&types=%s",
 		petID, "weight,temperature,feeding,activity,medication,urine")
 	resp := doRequest(t, http.MethodGet, path, nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
@@ -199,7 +199,7 @@ func TestEventStats_ExcludesDeletedEvents(t *testing.T) {
 	deleted := doRequest(t, http.MethodDelete, "/events/"+event.ID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNoContent, deleted.status)
 
-	path := fmt.Sprintf("/events/stats?pet_id=%s&from=2024-02-01&to=2024-02-01&bucket=day&types=water", petID)
+	path := fmt.Sprintf("/events/stats?pet_id=%s&from=2024-02-01&to=2024-02-01&bucket=day&tz=UTC&types=water", petID)
 	resp := doRequest(t, http.MethodGet, path, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, resp.status)
 
@@ -219,32 +219,32 @@ func TestEventStats_ValidationAndOwnership(t *testing.T) {
 
 	// Неагрегируемый тип (value_kind=label) — 400, а не пустой ответ.
 	other := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&types=other", petID),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=UTC&types=other", petID),
 		nil, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, other.status)
 
 	// from позже to.
 	reversed := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-02-01&to=2024-01-01&bucket=day", petID),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-02-01&to=2024-01-01&bucket=day&tz=UTC", petID),
 		nil, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, reversed.status)
 
 	// Диапазон свыше 366 дней.
 	tooLong := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2025-06-01&bucket=day", petID),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2025-06-01&bucket=day&tz=UTC", petID),
 		nil, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, tooLong.status)
 
 	// Несуществующий питомец — 404.
 	missing := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day", uuid.NewString()),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=UTC", uuid.NewString()),
 		nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNotFound, missing.status)
 
 	// Чужой питомец — тоже 404.
 	stranger := registerUser(t, uniqueLogin(t), "correct-password")
 	foreign := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day", petID),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=UTC", petID),
 		nil, stranger.AccessToken)
 	require.Equal(t, http.StatusNotFound, foreign.status)
 
@@ -252,13 +252,13 @@ func TestEventStats_ValidationAndOwnership(t *testing.T) {
 	deleted := doRequest(t, http.MethodDelete, "/pet/"+petID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNoContent, deleted.status)
 	afterDelete := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day", petID),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=UTC", petID),
 		nil, tokens.AccessToken)
 	require.Equal(t, http.StatusNotFound, afterDelete.status)
 
 	// Без токена — 401.
 	unauthorized := doRequest(t, http.MethodGet,
-		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day", petID),
+		fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=UTC", petID),
 		nil, "")
 	require.Equal(t, http.StatusUnauthorized, unauthorized.status)
 }
@@ -363,7 +363,7 @@ func TestEventStats_BucketsInClientTimeZone(t *testing.T) {
 	}
 
 	require.Equal(t, map[string]int{"2024-01-31": 1, "2024-02-01": 1},
-		countsByBucket("from=2024-01-31&to=2024-02-01&bucket=day"), "без tz — сутки по UTC")
+		countsByBucket("from=2024-01-31&to=2024-02-01&bucket=day&tz=UTC"), "UTC — сутки по UTC")
 	require.Equal(t, map[string]int{"2024-01-31": 0, "2024-02-01": 2},
 		countsByBucket("from=2024-01-31&to=2024-02-01&bucket=day&tz=Europe/Moscow"))
 	require.Equal(t, map[string]int{"2024-01-31": 2, "2024-02-01": 0},
@@ -379,10 +379,14 @@ func TestEventStats_BucketsInClientTimeZone(t *testing.T) {
 	// воскресенье по UTC и понедельник по Москве.
 	createEvent(t, tokens.AccessToken, petID, "2024-01-28T22:30:00Z", "water", map[string]any{"amount": 10})
 	require.Equal(t, map[string]int{"2024-01-22": 1, "2024-01-29": 2},
-		countsByBucket("from=2024-01-22&to=2024-02-04&bucket=week"))
+		countsByBucket("from=2024-01-22&to=2024-02-04&bucket=week&tz=UTC"))
 	require.Equal(t, map[string]int{"2024-01-22": 0, "2024-01-29": 3},
 		countsByBucket("from=2024-01-22&to=2024-02-04&bucket=week&tz=Europe/Moscow"))
 
 	bad := doRequest(t, http.MethodGet, fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day&tz=Not/AZone", petID), nil, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, bad.status)
+
+	// tz обязателен: без него 400 VALIDATION_ERROR, значения по умолчанию нет.
+	missingTZ := doUnvalidatedRequest(t, http.MethodGet, fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day", petID), nil, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, missingTZ.status)
 }

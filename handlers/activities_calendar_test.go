@@ -16,7 +16,7 @@ import (
 
 // calendarEventsQuery — выборка моментов событий для GET /activities/calendar
 // (группировка по дню клиента выполняется в Go).
-const calendarEventsQuery = `SELECT e\.date_time, e\.notifications_enabled\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3`
+const calendarEventsQuery = `SELECT e\.date_time\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3`
 
 // timeArgMatcher сравнивает аргумент запроса с ожидаемым моментом времени
 // через time.Equal — представление location у значения не важно.
@@ -29,11 +29,21 @@ func (m timeArgMatcher) Match(v driver.Value) bool {
 
 func timeArg(want time.Time) sqlmock.Argument { return timeArgMatcher{want: want} }
 
+// calendarRemindersQuery — выборка моментов незавершённых напоминаний для
+// GET /activities/calendar.
+const calendarRemindersQuery = `SELECT r\.remind_at\s+FROM reminder r\s+JOIN reminder_plan p ON p\.id = r\.plan_id\s+JOIN pet ON pet\.id = p\.pet_id\s+WHERE pet\.user_id = \$1 AND pet\.deleted_at IS NULL AND r\.closed_at IS NULL\s+AND r\.remind_at >= \$2 AND r\.remind_at < \$3`
+
+// reminderCalendarQuery — выборка незавершённых напоминаний с данными
+// настроек (GET /activities/day).
+const reminderCalendarQuery = `SELECT r\.id, r\.plan_id, r\.remind_at, r\.notes, p\.notes, p\.type, p\.value, p\.pet_id, pet\.name\s+FROM reminder r`
+
+var reminderCalendarColumns = []string{"id", "plan_id", "remind_at", "notes", "notes", "type", "value", "pet_id", "name"}
+
 type calendarResponse struct {
 	Items []struct {
-		Date             string `json:"date"`
-		Count            int    `json:"count"`
-		HasNotifications bool   `json:"has_notifications"`
+		Date         string `json:"date"`
+		Count        int    `json:"count"`
+		HasReminders bool   `json:"has_reminders"`
 	} `json:"items"`
 }
 
@@ -53,20 +63,28 @@ func TestGetActivitiesCalendarHandler_MissingParams(t *testing.T) {
 
 func TestGetActivitiesCalendarHandler_FromAfterTo(t *testing.T) {
 	w := httptest.NewRecorder()
-	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2024-01-10&to=2024-01-01", nil))
+	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2024-01-10&to=2024-01-01&tz=UTC", nil))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestGetActivitiesCalendarHandler_RangeTooLong(t *testing.T) {
 	w := httptest.NewRecorder()
-	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2023-01-01&to=2024-06-01", nil))
+	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2023-01-01&to=2024-06-01&tz=UTC", nil))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestGetActivitiesCalendarHandler_Unauthorized(t *testing.T) {
 	w := httptest.NewRecorder()
-	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02", nil))
+	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02&tz=UTC", nil))
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+// tz обязателен: без него 400 VALIDATION_ERROR, значения по умолчанию нет.
+func TestGetActivitiesCalendarHandler_MissingTimeZone(t *testing.T) {
+	w := httptest.NewRecorder()
+	GetActivitiesCalendarHandler(w, doRequest(http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02", nil))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "VALIDATION_ERROR")
 }
 
 func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
@@ -76,28 +94,59 @@ func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
 		WithArgs(testUserID,
 			timeArg(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
 			timeArg(time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC))).
-		WillReturnRows(sqlmock.NewRows([]string{"date_time", "notifications_enabled"}).
-			AddRow(time.Date(2024, 1, 2, 8, 0, 0, 0, time.UTC), false).
-			AddRow(time.Date(2024, 1, 2, 9, 0, 0, 0, time.UTC), true).
-			AddRow(time.Date(2024, 1, 2, 23, 59, 0, 0, time.UTC), false))
+		WillReturnRows(sqlmock.NewRows([]string{"date_time"}).
+			AddRow(time.Date(2024, 1, 2, 8, 0, 0, 0, time.UTC)).
+			AddRow(time.Date(2024, 1, 2, 23, 59, 0, 0, time.UTC)).
+			AddRow(time.Date(2024, 1, 3, 10, 0, 0, 0, time.UTC)))
+	mock.ExpectQuery(calendarRemindersQuery).
+		WithArgs(testUserID,
+			timeArg(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
+			timeArg(time.Date(2024, 1, 4, 0, 0, 0, 0, time.UTC))).
+		WillReturnRows(sqlmock.NewRows([]string{"remind_at"}).
+			AddRow(time.Date(2024, 1, 2, 9, 0, 0, 0, time.UTC)).
+			AddRow(time.Date(2024, 1, 3, 12, 0, 0, 0, time.UTC)))
 
 	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-03", nil, true)
+	r := eventRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-03&tz=UTC", nil, true)
 	GetActivitiesCalendarHandler(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp calendarResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 3)
+	// День без элементов: count=0, has_reminders=false.
 	assert.Equal(t, "2024-01-01", resp.Items[0].Date)
 	assert.Equal(t, 0, resp.Items[0].Count)
-	assert.False(t, resp.Items[0].HasNotifications)
+	assert.False(t, resp.Items[0].HasReminders)
+	// Два факта и одно напоминание: count включает оба вида элементов.
 	assert.Equal(t, "2024-01-02", resp.Items[1].Date)
 	assert.Equal(t, 3, resp.Items[1].Count)
-	assert.True(t, resp.Items[1].HasNotifications)
+	assert.True(t, resp.Items[1].HasReminders)
 	assert.Equal(t, "2024-01-03", resp.Items[2].Date)
-	assert.Equal(t, 0, resp.Items[2].Count)
-	assert.False(t, resp.Items[2].HasNotifications)
+	assert.Equal(t, 2, resp.Items[2].Count)
+	assert.True(t, resp.Items[2].HasReminders)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// День только с фактами: has_reminders=false.
+func TestGetActivitiesCalendarHandler_FactsOnlyHasNoReminders(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(calendarEventsQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"date_time"}).AddRow(time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC)))
+	mock.ExpectQuery(calendarRemindersQuery).
+		WillReturnRows(sqlmock.NewRows([]string{"remind_at"}))
+
+	w := httptest.NewRecorder()
+	r := eventRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-01&tz=UTC", nil, true)
+	GetActivitiesCalendarHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp calendarResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 1)
+	assert.Equal(t, 1, resp.Items[0].Count)
+	assert.False(t, resp.Items[0].HasReminders)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -120,9 +169,15 @@ func TestGetActivitiesCalendarHandler_GroupsByClientTimeZone(t *testing.T) {
 		WithArgs(testUserID,
 			timeArg(time.Date(2026, 9, 30, 21, 0, 0, 0, time.UTC)),
 			timeArg(time.Date(2026, 10, 31, 21, 0, 0, 0, time.UTC))).
-		WillReturnRows(sqlmock.NewRows([]string{"date_time", "notifications_enabled"}).
-			AddRow(time.Date(2026, 9, 30, 22, 30, 0, 0, time.UTC), true).
-			AddRow(time.Date(2026, 10, 31, 20, 59, 0, 0, time.UTC), false))
+		WillReturnRows(sqlmock.NewRows([]string{"date_time"}).
+			AddRow(time.Date(2026, 9, 30, 22, 30, 0, 0, time.UTC)).
+			AddRow(time.Date(2026, 10, 31, 20, 59, 0, 0, time.UTC)))
+	mock.ExpectQuery(calendarRemindersQuery).
+		WithArgs(testUserID,
+			timeArg(time.Date(2026, 9, 30, 21, 0, 0, 0, time.UTC)),
+			timeArg(time.Date(2026, 10, 31, 21, 0, 0, 0, time.UTC))).
+		WillReturnRows(sqlmock.NewRows([]string{"remind_at"}).
+			AddRow(time.Date(2026, 9, 30, 22, 30, 0, 0, time.UTC)))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodGet, "/activities/calendar?from=2026-10-01&to=2026-10-31&tz=Europe/Moscow", nil, true)
@@ -133,8 +188,8 @@ func TestGetActivitiesCalendarHandler_GroupsByClientTimeZone(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 31)
 	assert.Equal(t, "2026-10-01", resp.Items[0].Date)
-	assert.Equal(t, 1, resp.Items[0].Count)
-	assert.True(t, resp.Items[0].HasNotifications)
+	assert.Equal(t, 2, resp.Items[0].Count)
+	assert.True(t, resp.Items[0].HasReminders)
 	assert.Equal(t, "2026-10-31", resp.Items[30].Date)
 	assert.Equal(t, 1, resp.Items[30].Count)
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -156,14 +211,21 @@ func TestGetActivitiesDayHandler_MissingParam(t *testing.T) {
 
 func TestGetActivitiesDayHandler_InvalidDate(t *testing.T) {
 	w := httptest.NewRecorder()
-	GetActivitiesDayHandler(w, doRequest(http.MethodGet, "/activities/day?date=not-a-date", nil))
+	GetActivitiesDayHandler(w, doRequest(http.MethodGet, "/activities/day?date=not-a-date&tz=UTC", nil))
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestGetActivitiesDayHandler_Unauthorized(t *testing.T) {
 	w := httptest.NewRecorder()
-	GetActivitiesDayHandler(w, doRequest(http.MethodGet, "/activities/day?date=2024-01-01", nil))
+	GetActivitiesDayHandler(w, doRequest(http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil))
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestGetActivitiesDayHandler_MissingTimeZone(t *testing.T) {
+	w := httptest.NewRecorder()
+	GetActivitiesDayHandler(w, doRequest(http.MethodGet, "/activities/day?date=2024-01-01", nil))
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Contains(t, w.Body.String(), "VALIDATION_ERROR")
 }
 
 func TestGetActivitiesDayHandler_Success(t *testing.T) {
@@ -171,36 +233,67 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	eventDate := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+ORDER BY e\.date_time ASC`).
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+ORDER BY e\.date_time ASC`).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
-			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), false, "Rex"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
+			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), "Rex"))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 2))
+	// Незавершённое напоминание, момент которого уже наступил, остаётся в
+	// календаре наравне с будущими; собственная заметка напоминания
+	// показывается вместо заметки настроек.
+	reminderID := "55555555-5555-4555-8555-555555555555"
+	planID := "66666666-6666-4666-8666-666666666666"
+	mock.ExpectQuery(reminderCalendarQuery).
+		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns).
+			AddRow(reminderID, planID, time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC), "2 пипетки", "1 таблетка", "medication", []byte(`{"name":"Нурофен"}`), testPetID, "Rex"))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
+		WithArgs("reminder_plan_file", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(planID, 1))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
+		WithArgs("reminder_file", sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(reminderID, 2))
 
 	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, true)
+	r := eventRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil, true)
 	GetActivitiesDayHandler(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	var resp struct {
 		Date  string `json:"date"`
 		Items []struct {
-			ID         string `json:"id"`
-			FilesCount int    `json:"files_count"`
-			PetID      string `json:"pet_id"`
-			PetName    string `json:"pet_name"`
-			Type       string `json:"type"`
+			ItemType   string  `json:"item_type"`
+			ID         string  `json:"id"`
+			PlanID     *string `json:"plan_id"`
+			Date       string  `json:"date"`
+			Notes      *string `json:"notes"`
+			FilesCount int     `json:"files_count"`
+			PetID      string  `json:"pet_id"`
+			PetName    string  `json:"pet_name"`
+			Type       string  `json:"type"`
 		} `json:"items"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "2024-01-01", resp.Date)
-	require.Len(t, resp.Items, 1)
-	assert.Equal(t, eventID, resp.Items[0].ID)
-	assert.Equal(t, 2, resp.Items[0].FilesCount)
-	assert.Equal(t, testPetID, resp.Items[0].PetID)
-	assert.Equal(t, "Rex", resp.Items[0].PetName)
-	assert.Equal(t, "weight", resp.Items[0].Type)
+	require.Len(t, resp.Items, 2)
+	// Элементы отсортированы по моменту: напоминание 08:00, затем факт 10:00.
+	assert.Equal(t, "reminder", resp.Items[0].ItemType)
+	assert.Equal(t, reminderID, resp.Items[0].ID)
+	require.NotNil(t, resp.Items[0].PlanID)
+	assert.Equal(t, planID, *resp.Items[0].PlanID)
+	require.NotNil(t, resp.Items[0].Notes)
+	assert.Equal(t, "2 пипетки", *resp.Items[0].Notes)
+	assert.Equal(t, 3, resp.Items[0].FilesCount)
+	assert.Equal(t, "medication", resp.Items[0].Type)
+
+	assert.Equal(t, "event", resp.Items[1].ItemType)
+	assert.Equal(t, eventID, resp.Items[1].ID)
+	assert.Nil(t, resp.Items[1].PlanID)
+	assert.Equal(t, 2, resp.Items[1].FilesCount)
+	assert.Equal(t, testPetID, resp.Items[1].PetID)
+	assert.Equal(t, "Rex", resp.Items[1].PetName)
+	assert.Equal(t, "weight", resp.Items[1].Type)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -210,14 +303,19 @@ func TestGetActivitiesDayHandler_UsesClientTimeZoneBounds(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
 		WithArgs(testUserID,
 			timeArg(time.Date(2026, 9, 27, 4, 0, 0, 0, time.UTC)),
 			timeArg(time.Date(2026, 9, 28, 4, 0, 0, 0, time.UTC))).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
-			AddRow(eventID, testPetID, time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC), "weight", nil, []byte(`{"amount":5}`), false, "Rex"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}).
+			AddRow(eventID, testPetID, time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC), "weight", nil, []byte(`{"amount":5}`), "Rex"))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
+	mock.ExpectQuery(reminderCalendarQuery).
+		WithArgs(testUserID,
+			timeArg(time.Date(2026, 9, 27, 4, 0, 0, 0, time.UTC)),
+			timeArg(time.Date(2026, 9, 28, 4, 0, 0, 0, time.UTC))).
+		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns))
 
 	w := httptest.NewRecorder()
 	r := eventRequest(t, http.MethodGet, "/activities/day?date=2026-09-27&tz=America/New_York", nil, true)
@@ -247,11 +345,13 @@ func TestGetActivitiesDayHandler_InvalidTimeZone(t *testing.T) {
 func TestGetActivitiesDayHandler_EmptyResultNo404(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}))
+	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "name"}))
+	mock.ExpectQuery(reminderCalendarQuery).
+		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns))
 
 	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodGet, "/activities/day?date=2024-01-01", nil, true)
+	r := eventRequest(t, http.MethodGet, "/activities/day?date=2024-01-01&tz=UTC", nil, true)
 	GetActivitiesDayHandler(w, r)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -260,74 +360,5 @@ func TestGetActivitiesDayHandler_EmptyResultNo404(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Empty(t, resp.Items)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-// --- GET /activities/nearest ---
-
-func TestGetActivitiesNearestHandler_MethodNotAllowed(t *testing.T) {
-	w := httptest.NewRecorder()
-	GetActivitiesNearestHandler(w, doRequest(http.MethodPost, "/activities/nearest", nil))
-	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
-}
-
-func TestGetActivitiesNearestHandler_Unauthorized(t *testing.T) {
-	w := httptest.NewRecorder()
-	GetActivitiesNearestHandler(w, doRequest(http.MethodGet, "/activities/nearest", nil))
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
-}
-
-func TestGetActivitiesNearestHandler_Success(t *testing.T) {
-	mock := setupMockDB(t)
-	expectTokensValid(mock, testUserID)
-	eventID := "44444444-4444-4444-4444-444444444444"
-	eventDate := time.Date(2030, 1, 1, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id\s+WHERE p\.user_id = \$1\s+AND p\.deleted_at IS NULL\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+ORDER BY e\.date_time ASC, e\.id ASC\s+LIMIT 1`).
-		WithArgs(testUserID, sqlmock.AnyArg()).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}).
-			AddRow(eventID, testPetID, eventDate, "weight", nil, []byte(`{"amount":5}`), false, "Rex"))
-	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
-		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 1))
-
-	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodGet, "/activities/nearest", nil, true)
-	GetActivitiesNearestHandler(w, r)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp struct {
-		Item *struct {
-			ID         string `json:"id"`
-			FilesCount int    `json:"files_count"`
-			PetID      string `json:"pet_id"`
-			PetName    string `json:"pet_name"`
-			Type       string `json:"type"`
-		} `json:"item"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.NotNil(t, resp.Item)
-	assert.Equal(t, eventID, resp.Item.ID)
-	assert.Equal(t, 1, resp.Item.FilesCount)
-	assert.Equal(t, testPetID, resp.Item.PetID)
-	assert.Equal(t, "Rex", resp.Item.PetName)
-	assert.Equal(t, "weight", resp.Item.Type)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestGetActivitiesNearestHandler_NoUpcomingEventReturnsNullItem(t *testing.T) {
-	mock := setupMockDB(t)
-	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT e\.id, e\.pet_id, e\.date_time, e\.type, e\.notes, e\.value, e\.notifications_enabled, p\.name\s+FROM event e\s+JOIN pet p ON e\.pet_id = p\.id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value", "notifications_enabled", "name"}))
-
-	w := httptest.NewRecorder()
-	r := eventRequest(t, http.MethodGet, "/activities/nearest", nil, true)
-	GetActivitiesNearestHandler(w, r)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-	var resp struct {
-		Item *json.RawMessage `json:"item"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	assert.Nil(t, resp.Item)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

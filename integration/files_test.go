@@ -1,9 +1,7 @@
 //go:build integration
 
-// Сквозной сценарий generic-механизма файлов сущностей (см.
-// artifacts/PET/pages/integrations/obschie-trebovaniya-fayly-sushchnostei.md)
-// на его первом конкретном подключении — фотографии питомца (owner_type =
-// "pet_photo", см. artifacts/PET/pages/pets/fotografiya-pitomtsa-backend.md).
+// Сквозной сценарий generic-механизма файлов сущностей на его первом
+// конкретном подключении — фотографии питомца (owner_type = "pet_photo").
 package integration
 
 import (
