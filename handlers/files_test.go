@@ -382,7 +382,7 @@ func TestFilesByIDHandler_DeleteWrongMethod(t *testing.T) {
 const testEventID = "88888888-8888-8888-8888-888888888888"
 
 func expectEventFileOwnership(mock sqlmock.Sqlmock, eventID string, userID string, count int) {
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM event\s+WHERE id = \$1 AND deleted_at IS NULL\s+AND EXISTS \(SELECT 1 FROM pet WHERE pet\.id = event\.pet_id AND pet\.user_id = \$2 AND pet\.deleted_at IS NULL\)`).
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM event\s+WHERE id = \$1 AND deleted_at IS NULL AND user_id = \$2\s+AND EXISTS`).
 		WithArgs(eventID, userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
 }

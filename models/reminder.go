@@ -69,8 +69,10 @@ func IsValidReminderFrequencyType(v string) bool {
 
 // ReminderPlanDB — строка reminder_plan (настройки напоминания).
 type ReminderPlanDB struct {
-	ID            uuid.UUID
-	PetID         uuid.UUID
+	ID uuid.UUID
+	// UserID — владелец настроек; питомцы настроек хранятся в
+	// reminder_plan_pet.
+	UserID        uuid.UUID
 	Source        string
 	SourceID      uuid.NullUUID
 	Type          string
@@ -112,7 +114,7 @@ type ReminderMoment struct {
 // запроса POST /reminders/{id}/detach.
 type ReminderPlanRequest struct {
 	ID            string          `json:"id"`
-	PetID         string          `json:"pet_id"`
+	PetIDs        []string        `json:"pet_ids"`
 	Type          string          `json:"type"`
 	Value         json.RawMessage `json:"value"`
 	Notes         *string         `json:"notes,omitempty"`
@@ -128,6 +130,9 @@ type ReminderPlanRequest struct {
 // EndDate различает «поле не передано» и «передан null» (без даты
 // окончания): для проверки, что поля расписания переданы целиком.
 type UpdateReminderPlanRequest struct {
+	// PetIDs — если передан, желаемый полный набор питомцев настроек
+	// (только source=manual).
+	PetIDs        *[]string             `json:"pet_ids,omitempty"`
 	Type          *string               `json:"type,omitempty"`
 	Value         *json.RawMessage      `json:"value,omitempty"`
 	Notes         *string               `json:"notes,omitempty"`
@@ -148,8 +153,7 @@ type ReminderRef struct {
 // ReminderPlanResponse — тело ответа ReminderPlanResponse.
 type ReminderPlanResponse struct {
 	ID            string          `json:"id"`
-	PetID         string          `json:"pet_id"`
-	PetName       string          `json:"pet_name"`
+	Pets          []EventPetRef   `json:"pets"`
 	Type          string          `json:"type"`
 	Value         json.RawMessage `json:"value"`
 	Notes         *string         `json:"notes"`
@@ -177,8 +181,7 @@ type ReminderResponse struct {
 	Type              string          `json:"type"`
 	Value             json.RawMessage `json:"value"`
 	Notes             *string         `json:"notes"`
-	PetID             string          `json:"pet_id"`
-	PetName           string          `json:"pet_name"`
+	Pets              []EventPetRef   `json:"pets"`
 	PlanSource        string          `json:"plan_source"`
 	PlanSourceTitle   *string         `json:"plan_source_title"`
 	PlanFiles         []EventFileItem `json:"plan_files"`
@@ -211,12 +214,11 @@ type DetachReminderResponse struct {
 
 // UpcomingReminderItem — элемент items ответа GET /reminders/upcoming.
 type UpcomingReminderItem struct {
-	ID       string `json:"id"`
-	PlanID   string `json:"plan_id"`
-	RemindAt string `json:"remind_at"`
-	PetID    string `json:"pet_id"`
-	PetName  string `json:"pet_name"`
-	Type     string `json:"type"`
+	ID       string        `json:"id"`
+	PlanID   string        `json:"plan_id"`
+	RemindAt string        `json:"remind_at"`
+	Pets     []EventPetRef `json:"pets"`
+	Type     string        `json:"type"`
 }
 
 // UpcomingRemindersResponse — тело ответа GET /reminders/upcoming.

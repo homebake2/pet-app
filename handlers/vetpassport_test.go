@@ -53,8 +53,9 @@ const vaccinationsPath = "/pet/" + testPetID + "/vaccinations"
 // expectVaccinationFactInsert — ожидание вставки факта на дату введения:
 // факт создаётся при каждом создании прививки.
 func expectVaccinationFactInsert(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`INSERT INTO event`).
+	mock.ExpectQuery(`INSERT INTO event \(`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testAdministeredEventID))
+	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 }
 
 func TestCreateVaccinationHandler_Success(t *testing.T) {
@@ -297,11 +298,12 @@ func TestCreateVaccinationHandler_ReminderCreatesPlan(t *testing.T) {
 	expectVaccinationFactInsert(mock)
 	mock.ExpectQuery(`INSERT INTO vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
-	mock.ExpectExec(`INSERT INTO reminder_plan`).
-		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testPetID), "vaccination", uuid.MustParse(testVaccinationID), "other",
+	mock.ExpectExec(`INSERT INTO reminder_plan \(`).
+		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testUserID), "vaccination", uuid.MustParse(testVaccinationID), "other",
 			`{"label":"Вакцинация: Rabies"}`, sqlmock.AnyArg(), "once", sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "Europe/Moscow").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-02-01T06:30:00Z"), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -333,9 +335,10 @@ func TestCreateVaccinationHandler_FactInClientTimeZone(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	expectPetOwnedForCreate(mock)
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO event`).
-		WithArgs(uuid.MustParse(testPetID), mustRFC3339("2024-01-01T06:30:00Z"), "other", sqlmock.AnyArg(), `{"label":"Vaccination: Rabies"}`, sqlmock.AnyArg()).
+	mock.ExpectQuery(`INSERT INTO event \(`).
+		WithArgs(testUserID, mustRFC3339("2024-01-01T06:30:00Z"), "other", sqlmock.AnyArg(), `{"label":"Vaccination: Rabies"}`, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testAdministeredEventID))
+	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`INSERT INTO vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
 	mock.ExpectCommit()
@@ -748,11 +751,12 @@ func TestCreateMedicationHandler_AddRemindersCreatesPlanAndReminders(t *testing.
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO medication`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(newID))
-	mock.ExpectExec(`INSERT INTO reminder_plan`).
-		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testPetID), "medication", uuid.MustParse(newID), "medication",
+	mock.ExpectExec(`INSERT INTO reminder_plan \(`).
+		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testUserID), "medication", uuid.MustParse(newID), "medication",
 			`{"name":"Amoxicillin"}`, "1 tablet", "daily", sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "Europe/Moscow").
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-01T05:00:00Z"), "2 пипетки").
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -940,7 +944,8 @@ func TestCreateMedicationRemindersHandler_Success(t *testing.T) {
 	expectPetBelongsToUser(mock, true)
 	mock.ExpectBegin()
 	mock.ExpectQuery(medicationSelectRe).WillReturnRows(row())
-	mock.ExpectExec(`INSERT INTO reminder_plan`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO reminder_plan \(`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
 		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-01T08:00:00Z"), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -1027,6 +1032,8 @@ func TestUpdateMedicationHandler_NoRegenerate_KeepsReminders(t *testing.T) {
 	mock.ExpectExec(`UPDATE medication SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`FROM reminder_plan p`).
 		WillReturnRows(sqlmock.NewRows(reminderPlanSelectColumns).AddRow(reminderPlanRow(medicationID)...))
+	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
+		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).AddRow(testNextPlanID, testPetID, "Rex", "DOG"))
 	mock.ExpectExec(`UPDATE reminder_plan SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -1046,14 +1053,14 @@ func TestUpdateMedicationHandler_NoRegenerate_KeepsReminders(t *testing.T) {
 // Колонки и значения запроса настроек напоминания (reminderPlanColumns +
 // имя питомца + название источника).
 var reminderPlanSelectColumns = []string{
-	"id", "pet_id", "source", "source_id", "type", "value", "notes", "frequency_type", "weekdays", "interval_days",
-	"times", "start_date", "end_date", "tz", "created_at", "pet_name", "source_title",
+	"id", "user_id", "source", "source_id", "type", "value", "notes", "frequency_type", "weekdays", "interval_days",
+	"times", "start_date", "end_date", "tz", "created_at", "source_title",
 }
 
 func reminderPlanRow(medicationID string) []driver.Value {
 	return []driver.Value{
-		testNextPlanID, testPetID, "medication", medicationID, "medication", []byte(`{"name":"Amoxicillin"}`), "1 tablet", "daily", nil, nil,
-		"{08:00}", timeParse("2024-01-01"), nil, "UTC", time.Now(), "Rex", "Amoxicillin",
+		testNextPlanID, testUserID, "medication", medicationID, "medication", []byte(`{"name":"Amoxicillin"}`), "1 tablet", "daily", nil, nil,
+		"{08:00}", timeParse("2024-01-01"), nil, "UTC", time.Now(), "Amoxicillin",
 	}
 }
 
@@ -1074,6 +1081,8 @@ func TestUpdateMedicationHandler_RegenerateReminders(t *testing.T) {
 	mock.ExpectExec(`UPDATE medication SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`FROM reminder_plan p`).
 		WillReturnRows(sqlmock.NewRows(reminderPlanSelectColumns).AddRow(reminderPlanRow(medicationID)...))
+	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
+		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).AddRow(testNextPlanID, testPetID, "Rex", "DOG"))
 	mock.ExpectQuery(`SELECT remind_at FROM reminder WHERE plan_id = \$1 AND closed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows([]string{"remind_at"}))
 	mock.ExpectQuery(`DELETE FROM reminder WHERE plan_id = \$1 AND closed_at IS NULL AND remind_at > \$2 RETURNING id`).
@@ -1309,7 +1318,8 @@ func TestCreateMedicationHandler_ScheduleTimesInClientTimeZone(t *testing.T) {
 			mock.ExpectBegin()
 			mock.ExpectQuery(`INSERT INTO medication`).
 				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("33333333-3333-3333-3333-333333333339"))
-			mock.ExpectExec(`INSERT INTO reminder_plan`).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(`INSERT INTO reminder_plan \(`).WillReturnResult(sqlmock.NewResult(0, 1))
+			mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
 				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339(tc.expected), sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 1))

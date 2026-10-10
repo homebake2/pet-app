@@ -49,10 +49,10 @@ func createPet(t *testing.T, token, name string) string {
 func createEvent(t *testing.T, token, petID, date, eventType string, value map[string]any) {
 	t.Helper()
 	resp := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": petID,
-		"date":   date,
-		"type":   eventType,
-		"value":  value,
+		"pet_ids": []string{petID},
+		"date":    date,
+		"type":    eventType,
+		"value":   value,
 	}, token)
 	require.Equalf(t, http.StatusCreated, resp.status, "создание события %s не удалось: %s", eventType, resp.body)
 }
@@ -185,10 +185,10 @@ func TestEventStats_ExcludesDeletedEvents(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	created := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": petID,
-		"date":   "2024-02-01T10:00:00Z",
-		"type":   "water",
-		"value":  map[string]any{"amount": 100},
+		"pet_ids": []string{petID},
+		"date":    "2024-02-01T10:00:00Z",
+		"type":    "water",
+		"value":   map[string]any{"amount": 100},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, created.status, "%s", created.body)
 	var event struct {
@@ -288,20 +288,20 @@ func TestEventValue_ValidatedByRegistry(t *testing.T) {
 	for _, c := range invalid {
 		t.Run(c.name, func(t *testing.T) {
 			resp := doRequest(t, http.MethodPost, "/events", map[string]any{
-				"pet_id": petID,
-				"date":   "2024-03-01T10:00:00Z",
-				"type":   c.eventType,
-				"value":  c.value,
+				"pet_ids": []string{petID},
+				"date":    "2024-03-01T10:00:00Z",
+				"type":    c.eventType,
+				"value":   c.value,
 			}, tokens.AccessToken)
 			require.Equalf(t, http.StatusBadRequest, resp.status, "%s", resp.body)
 		})
 	}
 
 	created := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": petID,
-		"date":   "2024-03-01T10:00:00Z",
-		"type":   "temperature",
-		"value":  map[string]any{"amount": 38.5, "kind": "body"},
+		"pet_ids": []string{petID},
+		"date":    "2024-03-01T10:00:00Z",
+		"type":    "temperature",
+		"value":   map[string]any{"amount": 38.5, "kind": "body"},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, created.status, "%s", created.body)
 	var event struct {
@@ -312,14 +312,14 @@ func TestEventValue_ValidatedByRegistry(t *testing.T) {
 	// PATCH заменяет value целиком: значение без обязательного kind
 	// отклоняется, а не сливается с прежним объектом.
 	patchInvalid := doRequest(t, http.MethodPatch, "/events/"+event.ID, map[string]any{
-		"pet_id": petID,
-		"value":  map[string]any{"amount": 39.0},
+		"pet_ids": []string{petID},
+		"value":   map[string]any{"amount": 39.0},
 	}, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, patchInvalid.status)
 
 	patchValid := doRequest(t, http.MethodPatch, "/events/"+event.ID, map[string]any{
-		"pet_id": petID,
-		"value":  map[string]any{"amount": 39.0, "kind": "environment"},
+		"pet_ids": []string{petID},
+		"value":   map[string]any{"amount": 39.0, "kind": "environment"},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusNoContent, patchValid.status, "%s", patchValid.body)
 

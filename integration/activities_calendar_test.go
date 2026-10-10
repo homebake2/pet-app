@@ -97,18 +97,22 @@ func TestGetActivitiesDay_MixesAllPetsSortedByDateTime(t *testing.T) {
 	var result struct {
 		Date  string `json:"date"`
 		Items []struct {
-			Date    string `json:"date"`
-			PetID   string `json:"pet_id"`
-			PetName string `json:"pet_name"`
+			Date string `json:"date"`
+			Pets []struct {
+				PetID   string `json:"pet_id"`
+				PetName string `json:"pet_name"`
+			} `json:"pets"`
 		} `json:"items"`
 	}
 	resp.decode(t, &result)
 	require.Equal(t, "2024-01-01", result.Date)
 	require.Len(t, result.Items, 2)
-	require.Equal(t, catID, result.Items[0].PetID)
-	require.Equal(t, "Барсик", result.Items[0].PetName)
-	require.Equal(t, dogID, result.Items[1].PetID)
-	require.Equal(t, "Рекс", result.Items[1].PetName)
+	require.Len(t, result.Items[0].Pets, 1)
+	require.Equal(t, catID, result.Items[0].Pets[0].PetID)
+	require.Equal(t, "Барсик", result.Items[0].Pets[0].PetName)
+	require.Len(t, result.Items[1].Pets, 1)
+	require.Equal(t, dogID, result.Items[1].Pets[0].PetID)
+	require.Equal(t, "Рекс", result.Items[1].Pets[0].PetName)
 }
 
 func TestGetActivitiesDay_EmptyIsNot404(t *testing.T) {
@@ -144,12 +148,15 @@ func TestGetActivitiesDay_ExcludesSoftDeletedPetAndEvent(t *testing.T) {
 
 	var result struct {
 		Items []struct {
-			PetID string `json:"pet_id"`
+			Pets []struct {
+				PetID string `json:"pet_id"`
+			} `json:"pets"`
 		} `json:"items"`
 	}
 	resp.decode(t, &result)
 	require.Len(t, result.Items, 1)
-	require.Equal(t, catID, result.Items[0].PetID)
+	require.Len(t, result.Items[0].Pets, 1)
+	require.Equal(t, catID, result.Items[0].Pets[0].PetID)
 }
 
 func TestGetActivitiesDay_Unauthorized(t *testing.T) {

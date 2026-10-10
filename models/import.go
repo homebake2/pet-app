@@ -60,30 +60,25 @@ func (p ImportLocalDataPet) ToCreatePetRequest() CreatePetRequest {
 }
 
 // ImportLocalDataEvent — элемент events[] в теле запроса POST /import/local-data.
-// Набор полей события совпадает с CreateEventRequest; вместо pet_id
-// используется ссылка pet_local_id на pets[].local_id этого же запроса.
+// Набор полей события совпадает с CreateEventRequest; вместо pet_ids
+// используются ссылки pet_local_ids (1–10 различных) на pets[].local_id этого
+// же запроса.
 // LocalID — клиентский временный ключ (уникальный в пределах events[]),
 // используется только для сопоставления в ответе (поле events), не
 // сохраняется на сервере.
 type ImportLocalDataEvent struct {
-	LocalID    string          `json:"local_id"`
-	PetLocalID string          `json:"pet_local_id"`
-	Date       string          `json:"date"`
-	Type       string          `json:"type"`
-	Notes      *string         `json:"notes,omitempty"`
-	Value      json.RawMessage `json:"value"`
+	LocalID     string          `json:"local_id"`
+	PetLocalIDs []string        `json:"pet_local_ids"`
+	Date        string          `json:"date"`
+	Type        string          `json:"type"`
+	Notes       *string         `json:"notes,omitempty"`
+	Value       json.RawMessage `json:"value"`
 }
 
-// ToCreateEventRequest конвертирует элемент events[] в тот же тип запроса,
-// что принимает POST /events, подставляя уже разрешённый серверный id питомца.
-func (e ImportLocalDataEvent) ToCreateEventRequest(petID string) CreateEventRequest {
-	return CreateEventRequest{
-		PetID: petID,
-		Date:  e.Date,
-		Type:  e.Type,
-		Notes: e.Notes,
-		Value: e.Value,
-	}
+// Fields возвращает общие поля события в том же виде, что создание через
+// POST /events.
+func (e ImportLocalDataEvent) Fields() EventFields {
+	return EventFields{Date: e.Date, Type: e.Type, Notes: e.Notes, Value: e.Value}
 }
 
 // ImportLocalDataProfile — поле profile в теле запроса POST /import/local-data.
@@ -244,7 +239,7 @@ type ImportReminder struct {
 // POST /import/local-data.
 type ImportReminderPlan struct {
 	LocalID       string           `json:"local_id"`
-	PetLocalID    string           `json:"pet_local_id"`
+	PetLocalIDs   []string         `json:"pet_local_ids"`
 	Type          string           `json:"type"`
 	Value         json.RawMessage  `json:"value"`
 	Notes         *string          `json:"notes,omitempty"`

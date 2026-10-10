@@ -48,70 +48,80 @@ func RunInTx(fn func(tx *sql.Tx) error) error {
 	return tx.Commit()
 }
 
-// ReminderPlanFull — настройки напоминания вместе с именем питомца и
-// названием источника (лекарства либо вакцинации).
+// ReminderPlanFull — настройки напоминания вместе с их видимыми (не мягко
+// удалёнными) питомцами и названием источника (лекарства либо вакцинации).
 type ReminderPlanFull struct {
 	models.ReminderPlanDB
-	PetName     string
+	Pets        []LinkedPet
 	SourceTitle sql.NullString
 }
 
-// ReminderFull — напоминание вместе с его настройками.
+// ReminderFull — напоминание вместе с его настройками и видимыми питомцами
+// настроек.
 type ReminderFull struct {
 	Reminder    models.ReminderDB
 	Plan        models.ReminderPlanDB
-	PetName     string
+	Pets        []LinkedPet
 	SourceTitle sql.NullString
 }
 
-const reminderPlanColumns = `p.id, p.pet_id, p.source, p.source_id, p.type, p.value, p.notes, p.frequency_type,
+const reminderPlanColumns = `p.id, p.user_id, p.source, p.source_id, p.type, p.value, p.notes, p.frequency_type,
 	p.weekdays, p.interval_days, p.times, p.start_date, p.end_date, p.tz, p.created_at`
 
 const reminderPlanJoins = `
-	JOIN pet ON pet.id = p.pet_id
 	LEFT JOIN medication med ON p.source = 'medication' AND med.id = p.source_id
 	LEFT JOIN vaccination vac ON p.source = 'vaccination' AND vac.id = p.source_id`
+
+// reminderPlanVisibleClause — условие «у настроек p есть хотя бы один не
+// мягко удалённый питомец».
+var reminderPlanVisibleClause = reminderPlanPetLinks.visibleExistsClause("p", "id")
 
 func scanReminderPlan(scan func(dest ...any) error, suffix ...any) (models.ReminderPlanDB, error) {
 	return scanReminderPlanWithPrefix(scan, nil, suffix)
 }
 
-// GetReminderPlanForUserWith находит настройки по id и проверяет, что их
-// питомец принадлежит userID и не мягко удалён. sql.ErrNoRows — настроек нет,
-// они чужие либо питомец удалён. lock=true блокирует строку настроек до
-// конца транзакции.
+// GetReminderPlanForUserWith находит настройки по id и проверяет, что они
+// принадлежат userID (reminder_plan.user_id) и имеют хотя бы одного не мягко
+// удалённого питомца. sql.ErrNoRows — настроек нет, они чужие либо у них нет
+// видимых питомцев. lock=true блокирует строку настроек до конца транзакции.
 func GetReminderPlanForUserWith(exec dbExecutor, planID uuid.UUID, userID string, lock bool) (*ReminderPlanFull, error) {
 	query := `
-		SELECT ` + reminderPlanColumns + `, pet.name, COALESCE(med.name, vac.name)
+		SELECT ` + reminderPlanColumns + `, COALESCE(med.name, vac.name)
 		FROM reminder_plan p` + reminderPlanJoins + `
-		WHERE p.id = $1 AND pet.user_id = $2 AND pet.deleted_at IS NULL`
+		WHERE p.id = $1 AND p.user_id = $2 AND ` + reminderPlanVisibleClause
 	if lock {
 		query += ` FOR UPDATE OF p`
 	}
 	var full ReminderPlanFull
-	plan, err := scanReminderPlan(exec.QueryRow(query, planID, userID).Scan, &full.PetName, &full.SourceTitle)
+	plan, err := scanReminderPlan(exec.QueryRow(query, planID, userID).Scan, &full.SourceTitle)
 	if err != nil {
 		return nil, err
 	}
 	full.ReminderPlanDB = plan
+	pets, err := reminderPlanPetLinks.visiblePets(exec, []uuid.UUID{planID})
+	if err != nil {
+		return nil, err
+	}
+	full.Pets = pets[planID]
 	return &full, nil
 }
 
-// GetReminderPlanOwnerUserID возвращает user_id владельца настроек (через
-// питомца) независимо от удаления питомца. sql.ErrNoRows — настроек с таким
-// id нет. Используется для различения повтора создания (свои настройки с
-// клиентским id) и занятого чужими настройками id.
+// GetReminderPlanOwnerUserID возвращает user_id владельца настроек
+// независимо от того, есть ли у них видимые питомцы. sql.ErrNoRows —
+// настроек с таким id нет. Используется для различения повтора создания
+// (свои настройки с клиентским id) и занятого чужими настройками id.
 func GetReminderPlanOwnerUserID(planID uuid.UUID) (string, error) {
 	var userID string
 	err := DB.QueryRow(`
-		SELECT pet.user_id::text FROM reminder_plan p JOIN pet ON pet.id = p.pet_id WHERE p.id = $1
+		SELECT user_id::text FROM reminder_plan WHERE id = $1
 	`, planID).Scan(&userID)
 	return userID, err
 }
 
-// InsertReminderPlanWith вставляет настройки и по одному напоминанию на
-// каждый момент. Напоминания получают серверные id.
-func InsertReminderPlanWith(exec dbExecutor, plan models.ReminderPlanDB, moments []models.ReminderMoment) error {
+// InsertReminderPlanWith вставляет настройки владельца plan.UserID, связи с
+// питомцами petIDs (в порядке petIDs) и по одному напоминанию на каждый
+// момент. Напоминания получают серверные id.
+func InsertReminderPlanWith(exec dbExecutor, plan models.ReminderPlanDB, petIDs []uuid.UUID, moments []models.ReminderMoment) error {
 	var weekdays sql.NullString
 	if plan.Weekdays != nil {
 		b, err := json.Marshal(plan.Weekdays)
@@ -121,15 +131,33 @@ func InsertReminderPlanWith(exec dbExecutor, plan models.ReminderPlanDB, moments
 		weekdays = sql.NullString{String: string(b), Valid: true}
 	}
 	_, err := exec.Exec(`
-		INSERT INTO reminder_plan (id, pet_id, source, source_id, type, value, notes, frequency_type, weekdays, interval_days, times, start_date, end_date, tz)
+		INSERT INTO reminder_plan (id, user_id, source, source_id, type, value, notes, frequency_type, weekdays, interval_days, times, start_date, end_date, tz)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-	`, plan.ID, plan.PetID, plan.Source, plan.SourceID, plan.Type, string(plan.Value), plan.Notes, plan.FrequencyType,
+	`, plan.ID, plan.UserID, plan.Source, plan.SourceID, plan.Type, string(plan.Value), plan.Notes, plan.FrequencyType,
 		weekdays, plan.IntervalDays, pq.Array(plan.Times), plan.StartDate, plan.EndDate, plan.TZ)
 	if err != nil {
 		return err
 	}
+	if err := reminderPlanPetLinks.insert(exec, plan.ID, petIDs); err != nil {
+		return err
+	}
 	_, err = InsertRemindersWith(exec, plan.ID, moments)
 	return err
+}
+
+// SyncReminderPlanPetsWith приводит видимых питомцев настроек к желаемому
+// набору desired: отвязывает видимых питомцев, не вошедших в набор, и
+// привязывает отсутствующих. Напоминания и файлы настроек не пересоздаются.
+func SyncReminderPlanPetsWith(exec dbExecutor, planID uuid.UUID, desired []uuid.UUID) error {
+	return reminderPlanPetLinks.syncVisible(exec, planID, desired)
+}
+
+// SyncEventPetsWith приводит видимых питомцев события к желаемому набору
+// desired: отвязывает видимых питомцев, не вошедших в набор (удаляется только
+// связь), и привязывает отсутствующих. Связи с мягко удалёнными питомцами не
+// затрагиваются.
+func SyncEventPetsWith(exec dbExecutor, eventID uuid.UUID, desired []uuid.UUID) error {
+	return eventPetLinks.syncVisible(exec, eventID, desired)
 }
 
 // InsertRemindersWith вставляет напоминания настроек planID по моментам и
@@ -389,14 +417,28 @@ func DeleteReminderPlansWith(exec dbExecutor, planIDs []uuid.UUID) ([]string, er
 	return append(reminderOrphans, planOrphans...), nil
 }
 
-// DeleteReminderPlansByPetWith жёстко удаляет все настройки напоминаний
-// питомца вместе с напоминаниями и файлами.
-func DeleteReminderPlansByPetWith(exec dbExecutor, petID uuid.UUID) ([]string, error) {
-	planIDs, err := uuidColumnWith(exec, `SELECT id FROM reminder_plan WHERE pet_id = $1`, petID)
+// UnlinkPetFromReminderPlansWith жёстко удаляет связи питомца с настройками
+// напоминаний, а настройки, у которых после этого не осталось питомцев (ни
+// видимых, ни скрытых), — вместе с напоминаниями и файлами. Настройки,
+// общие с другими питомцами, остаются у них. Возвращает ключи объектов S3, на
+// которые не осталось ссылок.
+func UnlinkPetFromReminderPlansWith(exec dbExecutor, petID uuid.UUID) ([]string, error) {
+	planIDs, err := uuidColumnWith(exec, `DELETE FROM reminder_plan_pet WHERE pet_id = $1 RETURNING plan_id`, petID)
 	if err != nil {
 		return nil, err
 	}
-	return DeleteReminderPlansWith(exec, planIDs)
+	if len(planIDs) == 0 {
+		return nil, nil
+	}
+	emptyPlanIDs, err := uuidColumnWith(exec, `
+		SELECT p.id FROM reminder_plan p
+		WHERE p.id = ANY($1)
+		AND NOT EXISTS (SELECT 1 FROM reminder_plan_pet rpp WHERE rpp.plan_id = p.id)
+	`, pq.Array(planIDs))
+	if err != nil {
+		return nil, err
+	}
+	return DeleteReminderPlansWith(exec, emptyPlanIDs)
 }
 
 func uuidColumnWith(exec dbExecutor, query string, args ...any) ([]uuid.UUID, error) {
@@ -418,16 +460,17 @@ func uuidColumnWith(exec dbExecutor, query string, args ...any) ([]uuid.UUID, er
 }
 
 // GetReminderForUserWith находит напоминание (в том числе закрытое) по id и
-// проверяет, что питомец его настроек принадлежит userID и не мягко удалён.
-// sql.ErrNoRows — напоминания нет, оно чужое либо питомец удалён. lock=true
-// блокирует строку напоминания до конца транзакции.
+// проверяет, что его настройки принадлежат userID и имеют хотя бы одного не
+// мягко удалённого питомца. sql.ErrNoRows — напоминания нет, оно чужое либо у
+// его настроек нет видимых питомцев. lock=true блокирует строку напоминания
+// до конца транзакции.
 func GetReminderForUserWith(exec dbExecutor, reminderID uuid.UUID, userID string, lock bool) (*ReminderFull, error) {
 	query := `
 		SELECT r.id, r.plan_id, r.remind_at, r.notes, r.closed_at, r.close_reason, r.fact_event_id,
-		       ` + reminderPlanColumns + `, pet.name, COALESCE(med.name, vac.name)
+		       ` + reminderPlanColumns + `, COALESCE(med.name, vac.name)
 		FROM reminder r
 		JOIN reminder_plan p ON p.id = r.plan_id` + reminderPlanJoins + `
-		WHERE r.id = $1 AND pet.user_id = $2 AND pet.deleted_at IS NULL`
+		WHERE r.id = $1 AND p.user_id = $2 AND ` + reminderPlanVisibleClause
 	if lock {
 		query += ` FOR UPDATE OF r`
 	}
@@ -436,11 +479,16 @@ func GetReminderForUserWith(exec dbExecutor, reminderID uuid.UUID, userID string
 	rem := &full.Reminder
 	plan, err := scanReminderPlanWithPrefix(row.Scan,
 		[]any{&rem.ID, &rem.PlanID, &rem.RemindAt, &rem.Notes, &rem.ClosedAt, &rem.CloseReason, &rem.FactEventID},
-		[]any{&full.PetName, &full.SourceTitle})
+		[]any{&full.SourceTitle})
 	if err != nil {
 		return nil, err
 	}
 	full.Plan = plan
+	pets, err := reminderPlanPetLinks.visiblePets(exec, []uuid.UUID{plan.ID})
+	if err != nil {
+		return nil, err
+	}
+	full.Pets = pets[plan.ID]
 	return &full, nil
 }
 
@@ -451,7 +499,7 @@ func scanReminderPlanWithPrefix(scan func(dest ...any) error, prefix []any, suff
 	var weekdaysNS sql.NullString
 	var value []byte
 	dest := append([]any{}, prefix...)
-	dest = append(dest, &p.ID, &p.PetID, &p.Source, &p.SourceID, &p.Type, &value, &p.Notes, &p.FrequencyType,
+	dest = append(dest, &p.ID, &p.UserID, &p.Source, &p.SourceID, &p.Type, &value, &p.Notes, &p.FrequencyType,
 		&weekdaysNS, &p.IntervalDays, pq.Array(&p.Times), &p.StartDate, &p.EndDate, &p.TZ, &p.CreatedAt)
 	dest = append(dest, suffix...)
 	if err := scan(dest...); err != nil {
@@ -507,9 +555,9 @@ type ReminderCalendarRow struct {
 	PlanNotes     sql.NullString
 	Type          string
 	Value         json.RawMessage
-	PetID         uuid.UUID
-	PetName       string
-	PlanSource    string
+	// Pets — видимые питомцы настроек.
+	Pets       []LinkedPet
+	PlanSource string
 	// PlanSourceTitle — название лекарства либо вакцинации; не задано у
 	// настроек manual.
 	PlanSourceTitle sql.NullString
@@ -518,34 +566,54 @@ type ReminderCalendarRow struct {
 	PlanUnclosedCount int
 }
 
-func scanReminderCalendarRows(rows *sql.Rows) ([]ReminderCalendarRow, error) {
+// scanReminderCalendarRows читает строки напоминаний календаря и дополняет
+// их видимыми питомцами настроек одним запросом.
+func scanReminderCalendarRows(exec dbExecutor, rows *sql.Rows) ([]ReminderCalendarRow, error) {
 	defer rows.Close()
 	var items []ReminderCalendarRow
 	for rows.Next() {
 		var it ReminderCalendarRow
 		var value []byte
-		if err := rows.Scan(&it.ID, &it.PlanID, &it.RemindAt, &it.ReminderNotes, &it.PlanNotes, &it.Type, &value, &it.PetID, &it.PetName,
+		if err := rows.Scan(&it.ID, &it.PlanID, &it.RemindAt, &it.ReminderNotes, &it.PlanNotes, &it.Type, &value,
 			&it.PlanSource, &it.PlanSourceTitle, &it.PlanUnclosedCount); err != nil {
 			return nil, err
 		}
 		it.Value = json.RawMessage(value)
 		items = append(items, it)
 	}
-	return items, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	planIDs := make([]uuid.UUID, len(items))
+	for i, it := range items {
+		planIDs[i] = it.PlanID
+	}
+	pets, err := reminderPlanPetLinks.visiblePets(exec, planIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range items {
+		items[i].Pets = pets[items[i].PlanID]
+	}
+	return items, nil
 }
 
-const reminderCalendarSelect = `
-	SELECT r.id, r.plan_id, r.remind_at, r.notes, p.notes, p.type, p.value, p.pet_id, pet.name,
+// reminderCalendarSelect — незавершённые напоминания настроек userID, у
+// которых есть хотя бы один не мягко удалённый питомец.
+var reminderCalendarSelect = `
+	SELECT r.id, r.plan_id, r.remind_at, r.notes, p.notes, p.type, p.value,
 	       p.source, COALESCE(med.name, vac.name),
 	       (SELECT COUNT(*) FROM reminder o WHERE o.plan_id = p.id AND o.closed_at IS NULL)
 	FROM reminder r
 	JOIN reminder_plan p ON p.id = r.plan_id` + reminderPlanJoins + `
-	WHERE pet.user_id = $1 AND pet.deleted_at IS NULL AND r.closed_at IS NULL`
+	WHERE p.user_id = $1 AND r.closed_at IS NULL AND ` + reminderPlanVisibleClause
 
-// GetRemindersByUserIDInRange возвращает незавершённые напоминания всех не
-// мягко удалённых питомцев userID, чей remind_at попадает в полуоткрытый
+// GetRemindersByUserIDInRange возвращает незавершённые напоминания настроек
+// userID с видимыми питомцами, чей remind_at попадает в полуоткрытый
 // интервал [start, end), отсортированные по remind_at, затем по id.
-// Наступившие незавершённые напоминания выбираются наравне с будущими.
+// Наступившие незавершённые напоминания выбираются наравне с будущими;
+// напоминание общих настроек присутствует один раз.
 func GetRemindersByUserIDInRange(userID string, start, end time.Time) ([]ReminderCalendarRow, error) {
 	rows, err := DB.Query(reminderCalendarSelect+`
 		AND r.remind_at >= $2 AND r.remind_at < $3
@@ -554,11 +622,11 @@ func GetRemindersByUserIDInRange(userID string, start, end time.Time) ([]Reminde
 		log.Println("GetRemindersByUserIDInRange error:", err)
 		return nil, err
 	}
-	return scanReminderCalendarRows(rows)
+	return scanReminderCalendarRows(DB, rows)
 }
 
 // GetUpcomingRemindersByUserID возвращает до limit ближайших незавершённых
-// напоминаний с remind_at >= now по всем не мягко удалённым питомцам userID.
+// напоминаний с remind_at >= now по настройкам userID с видимыми питомцами.
 func GetUpcomingRemindersByUserID(userID string, now time.Time, limit int) ([]ReminderCalendarRow, error) {
 	rows, err := DB.Query(reminderCalendarSelect+`
 		AND r.remind_at >= $2
@@ -568,35 +636,36 @@ func GetUpcomingRemindersByUserID(userID string, now time.Time, limit int) ([]Re
 		log.Println("GetUpcomingRemindersByUserID error:", err)
 		return nil, err
 	}
-	return scanReminderCalendarRows(rows)
+	return scanReminderCalendarRows(DB, rows)
 }
 
 // GetUpcomingRemindersByPetID возвращает до limit ближайших незавершённых
-// напоминаний питомца с remind_at >= now.
+// напоминаний настроек, привязанных к питомцу (в том числе общих с другими
+// питомцами), с remind_at >= now.
 func GetUpcomingRemindersByPetID(userID string, petID uuid.UUID, now time.Time, limit int) ([]ReminderCalendarRow, error) {
 	rows, err := DB.Query(reminderCalendarSelect+`
-		AND p.pet_id = $4 AND r.remind_at >= $2
+		AND EXISTS (SELECT 1 FROM reminder_plan_pet own_link WHERE own_link.plan_id = p.id AND own_link.pet_id = $4)
+		AND r.remind_at >= $2
 		ORDER BY r.remind_at ASC, r.id ASC
 		LIMIT $3`, userID, now.UTC(), limit, petID)
 	if err != nil {
 		log.Println("GetUpcomingRemindersByPetID error:", err)
 		return nil, err
 	}
-	return scanReminderCalendarRows(rows)
+	return scanReminderCalendarRows(DB, rows)
 }
 
 // CountRemindersByUserIDGroupedByDay возвращает число незавершённых
-// напоминаний всех не мягко удалённых питомцев userID, чей remind_at
-// попадает в [start, end), сгруппированное по календарному дню в поясе loc
-// (YYYY-MM-DD). Группировка выполняется в Go по той же причине, что у
-// CountEventsByUserIDGroupedByDay.
+// напоминаний настроек userID с видимыми питомцами, чей remind_at попадает в
+// [start, end), сгруппированное по календарному дню в поясе loc
+// (YYYY-MM-DD). Напоминание общих настроек считается один раз. Группировка
+// выполняется в Go по той же причине, что у CountEventsByUserIDGroupedByDay.
 func CountRemindersByUserIDGroupedByDay(userID string, start, end time.Time, loc *time.Location) (map[string]int, error) {
 	rows, err := DB.Query(`
 		SELECT r.remind_at
 		FROM reminder r
 		JOIN reminder_plan p ON p.id = r.plan_id
-		JOIN pet ON pet.id = p.pet_id
-		WHERE pet.user_id = $1 AND pet.deleted_at IS NULL AND r.closed_at IS NULL
+		WHERE p.user_id = $1 AND r.closed_at IS NULL AND `+reminderPlanVisibleClause+`
 		AND r.remind_at >= $2 AND r.remind_at < $3
 	`, userID, start.UTC(), end.UTC())
 	if err != nil {
@@ -617,15 +686,13 @@ func CountRemindersByUserIDGroupedByDay(userID string, start, end time.Time, loc
 }
 
 // CheckReminderPlanFileOwnership — правило владения для owner_type =
-// "reminder_plan_file": настройки существуют и принадлежат не мягко
-// удалённому питомцу userID.
+// "reminder_plan_file": настройки существуют, принадлежат userID
+// (reminder_plan.user_id) и имеют хотя бы одного не мягко удалённого питомца.
 func CheckReminderPlanFileOwnership(planID uuid.UUID, userID string) (bool, error) {
 	var count int
 	err := DB.QueryRow(`
 		SELECT COUNT(1) FROM reminder_plan p
-		JOIN pet ON pet.id = p.pet_id
-		WHERE p.id = $1 AND pet.user_id = $2 AND pet.deleted_at IS NULL
-	`, planID, userID).Scan(&count)
+		WHERE p.id = $1 AND p.user_id = $2 AND `+reminderPlanVisibleClause, planID, userID).Scan(&count)
 	if err != nil {
 		return false, err
 	}
@@ -633,16 +700,14 @@ func CheckReminderPlanFileOwnership(planID uuid.UUID, userID string) (bool, erro
 }
 
 // CheckReminderFileOwnership — правило владения для owner_type =
-// "reminder_file": напоминание незавершённое, его настройки принадлежат не
-// мягко удалённому питомцу userID.
+// "reminder_file": напоминание незавершённое, его настройки принадлежат
+// userID и имеют хотя бы одного не мягко удалённого питомца.
 func CheckReminderFileOwnership(reminderID uuid.UUID, userID string) (bool, error) {
 	var count int
 	err := DB.QueryRow(`
 		SELECT COUNT(1) FROM reminder r
 		JOIN reminder_plan p ON p.id = r.plan_id
-		JOIN pet ON pet.id = p.pet_id
-		WHERE r.id = $1 AND r.closed_at IS NULL AND pet.user_id = $2 AND pet.deleted_at IS NULL
-	`, reminderID, userID).Scan(&count)
+		WHERE r.id = $1 AND r.closed_at IS NULL AND p.user_id = $2 AND `+reminderPlanVisibleClause, reminderID, userID).Scan(&count)
 	if err != nil {
 		return false, err
 	}

@@ -138,8 +138,8 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eventIDs := make([]uuid.UUID, len(eventsDB))
-	for i, eventDB := range eventsDB {
-		eventIDs[i] = eventDB.ID
+	for i, eventFull := range eventsDB {
+		eventIDs[i] = eventFull.Event.ID
 	}
 	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, eventIDs)
 	if err != nil {
@@ -148,7 +148,8 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eventsByDay := make(map[string][]models.ActivityEvent)
-	for _, eventDB := range eventsDB {
+	for _, eventFull := range eventsDB {
+		eventDB := eventFull.Event
 		// Календарный день события для группировки — его день в часовом
 		// поясе клиента tz, а не в location, в которой драйвер вернул
 		// time.Time (см. "Просмотр календаря — Backend"). Сам момент
@@ -167,6 +168,7 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 			Notes:      notes,
 			Value:      eventDB.Value,
 			FilesCount: filesCounts[eventDB.ID],
+			Pets:       database.EventPetRefs(eventFull.Pets),
 		}
 		eventsByDay[dateStr] = append(eventsByDay[dateStr], activityEvent)
 	}
@@ -202,6 +204,8 @@ type PetEventItem struct {
 	Notes      *string         `json:"notes,omitempty"`
 	Value      json.RawMessage `json:"value"`
 	FilesCount int             `json:"files_count"`
+	// Pets — видимые питомцы события (запись общая у нескольких питомцев).
+	Pets []models.EventPetRef `json:"pets"`
 }
 
 // PetEventsResponse - тело ответа GET /pet/{id}/events.
@@ -285,8 +289,8 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 	}
 
 	eventIDs := make([]uuid.UUID, len(eventsDB))
-	for i, eventDB := range eventsDB {
-		eventIDs[i] = eventDB.ID
+	for i, eventFull := range eventsDB {
+		eventIDs[i] = eventFull.Event.ID
 	}
 	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, eventIDs)
 	if err != nil {
@@ -295,7 +299,8 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 	}
 
 	items := make([]PetEventItem, 0, len(eventsDB))
-	for _, eventDB := range eventsDB {
+	for _, eventFull := range eventsDB {
+		eventDB := eventFull.Event
 		var notes *string
 		if eventDB.Notes.Valid {
 			notes = &eventDB.Notes.String
@@ -307,6 +312,7 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 			Notes:      notes,
 			Value:      eventDB.Value,
 			FilesCount: filesCounts[eventDB.ID],
+			Pets:       database.EventPetRefs(eventFull.Pets),
 		})
 	}
 
@@ -341,7 +347,9 @@ func DeleteEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, _, _, ok := resolveOwnedEvent(w, eventID, userID); !ok {
+	// Удаление не требует видимых питомцев: событие, чьи питомцы мягко
+	// удалены, можно очистить из истории.
+	if _, ok := resolveOwnedEvent(w, eventID, userID, false); !ok {
 		return
 	}
 
@@ -370,12 +378,12 @@ func GetEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventDB, petID, petName, ok := resolveOwnedEvent(w, eventID, userID)
+	eventFull, ok := resolveOwnedEvent(w, eventID, userID, true)
 	if !ok {
 		return
 	}
 
-	writeEventResponse(w, r, http.StatusOK, eventDB, petID, petName)
+	writeEventResponse(w, r, http.StatusOK, eventFull)
 }
 
 // POST /events
@@ -402,7 +410,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.PetID == "" || req.Date == "" || req.Type == "" || len(req.Value) == 0 {
+	if len(req.PetIDs) == 0 || req.Date == "" || req.Type == "" || len(req.Value) == 0 {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Обязательные поля не заполнены")
 		return
 	}
@@ -433,40 +441,26 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	petID, err := uuid.Parse(req.PetID)
+	petIDs, msg := parsePetIDs(req.PetIDs)
+	if msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+		return
+	}
+
+	pets, err := resolvePetSet(database.DB, userID, petIDs, false)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный ID питомца")
+		writeReminderTxError(w, err, "Ошибка получения питомца")
 		return
 	}
 
-	petDB, err := database.GetPetIdDBByIDAndUserID(petID, userID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
-		return
-	}
-
-	if petDB.DeletedAt.Valid {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Невозможно создать запись о событии, так как питомец удален")
-		return
-	}
-
-	if !isTypeApplicableToPet(req.Type, petDB.Species) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип события "+req.Type+" неприменим к виду питомца")
-		return
-	}
-
-	if msg := isNestedValueApplicableToPet(req.Type, req.Value, petDB.Species); msg != "" {
+	if msg := validateEventForPets(req.Type, req.Value, pets); msg != "" {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 		return
 	}
 
 	if idempotencyKey != "" {
-		if existing, existingPetID, existingPetName, err := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey); err == nil {
-			writeEventResponse(w, r, http.StatusCreated, existing, existingPetID, existingPetName)
+		if existing, err := database.GetEventByUserIDAndIdempotencyKey(userID, idempotencyKey); err == nil {
+			writeEventResponse(w, r, http.StatusCreated, existing)
 			return
 		} else if err != sql.ErrNoRows {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
@@ -474,30 +468,30 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	eventID, err := database.InsertEvent(petID, req, idempotencyKey)
+	eventID, err := database.InsertEvent(userID, petIDs, req.Fields(), idempotencyKey)
 	if err != nil {
 		if idempotencyKey != "" && database.IsUniqueViolation(err) {
 			// Гонка параллельных запросов с одним и тем же idempotency key —
 			// событие уже вставлено конкурентным запросом, возвращаем его.
-			existing, existingPetID, existingPetName, lookupErr := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey)
+			existing, lookupErr := database.GetEventByUserIDAndIdempotencyKey(userID, idempotencyKey)
 			if lookupErr != nil {
 				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
 				return
 			}
-			writeEventResponse(w, r, http.StatusCreated, existing, existingPetID, existingPetName)
+			writeEventResponse(w, r, http.StatusCreated, existing)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
 		return
 	}
 
-	createdEvent, petIDOfEvent, petName, err := database.GetEventByID(eventID)
+	createdEvent, err := database.GetEventFullByID(eventID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Событие создано, но не удалось получить его данные")
 		return
 	}
 
-	writeEventResponse(w, r, http.StatusCreated, createdEvent, petIDOfEvent, petName)
+	writeEventResponse(w, r, http.StatusCreated, createdEvent)
 }
 
 // writeEventResponse строит EventResponse для одного события (POST /events,
@@ -505,8 +499,8 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 // Backend», раздел «Чтение») перед отправкой ответа. Отдельной проверки
 // владения для files не требуется — она уже выполнена при выборке самого
 // события.
-func writeEventResponse(w http.ResponseWriter, r *http.Request, status int, eventDB *models.EventDB, petID uuid.UUID, petName string) {
-	response, ok := buildEventResponse(w, r, eventDB, petID, petName)
+func writeEventResponse(w http.ResponseWriter, r *http.Request, status int, eventFull *database.EventFull) {
+	response, ok := buildEventResponse(w, r, eventFull)
 	if !ok {
 		return
 	}
@@ -515,9 +509,9 @@ func writeEventResponse(w http.ResponseWriter, r *http.Request, status int, even
 
 // buildEventResponse строит EventResponse события с полем `files`; при
 // ошибке сама пишет 500 и возвращает ok=false.
-func buildEventResponse(w http.ResponseWriter, r *http.Request, eventDB *models.EventDB, petID uuid.UUID, petName string) (models.EventResponse, bool) {
-	response := eventResponseFromDB(eventDB, petID, petName)
-	if !attachEventFiles(w, r, eventDB.ID, &response) {
+func buildEventResponse(w http.ResponseWriter, r *http.Request, eventFull *database.EventFull) (models.EventResponse, bool) {
+	response := eventResponseFromDB(eventFull)
+	if !attachEventFiles(w, r, eventFull.Event.ID, &response) {
 		return response, false
 	}
 	return response, true
@@ -573,19 +567,19 @@ func presignFileItems(r *http.Request, files []models.FileDB) ([]models.EventFil
 	return items, nil
 }
 
-func eventResponseFromDB(eventDB *models.EventDB, petID uuid.UUID, petName string) models.EventResponse {
+func eventResponseFromDB(eventFull *database.EventFull) models.EventResponse {
+	eventDB := eventFull.Event
 	var notes *string
 	if eventDB.Notes.Valid {
 		notes = &eventDB.Notes.String
 	}
 	return models.EventResponse{
-		ID:      eventDB.ID.String(),
-		Date:    eventDB.Date.Format(time.RFC3339),
-		Type:    eventDB.Type,
-		Value:   eventDB.Value,
-		Notes:   notes,
-		PetID:   petID.String(),
-		PetName: petName,
+		ID:    eventDB.ID.String(),
+		Date:  eventDB.Date.Format(time.RFC3339),
+		Type:  eventDB.Type,
+		Value: eventDB.Value,
+		Notes: notes,
+		Pets:  database.EventPetRefs(eventFull.Pets),
 	}
 }
 
@@ -602,15 +596,13 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventDB, err := database.GetEventByIDForUpdate(eventID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Данное мероприятие не существует или не найдено")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения события")
+	// Владение событием проверяется по владельцу записи (event.user_id);
+	// событие без видимых питомцев не существует для изменения.
+	current, ok := resolveOwnedEvent(w, eventID, userID, true)
+	if !ok {
 		return
 	}
+	eventDB := current.Event
 
 	var req models.UpdateEventRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -618,12 +610,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.PetID == "" {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Обязательное поле pet_id не заполнено")
-		return
-	}
-
-	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil {
+	if req.Date == nil && req.Type == nil && req.Notes == nil && req.Value == nil && req.PetIDs == nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Необходимо указать хотя бы одно поле для обновления")
 		return
 	}
@@ -638,41 +625,22 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reqPetID, err := uuid.Parse(req.PetID)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный ID питомца")
-		return
-	}
-
-	if eventDB.PetID != reqPetID {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Данное мероприятие не существует или не найдено")
-		return
-	}
-
-	belongs, err := database.CheckPetBelongsToUser(reqPetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
-		return
-	}
-
-	petDB, err := database.GetPetById(reqPetID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
+	// Желаемый полный набор видимых питомцев: пустой набор, повторы и
+	// потолок 10 — 400; чужой питомец — 404; мягко удалённый — 400.
+	var desiredIDs []uuid.UUID
+	finalPets := current.Pets
+	if req.PetIDs != nil {
+		ids, msg := parsePetIDs(*req.PetIDs)
+		if msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
-		return
-	}
-
-	if petDB.DeletedAt.Valid {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Невозможно редактировать запись о событии, так как питомец удален")
-		return
+		desiredIDs = ids
+		finalPets, err = resolvePetSet(database.DB, userID, ids, false)
+		if err != nil {
+			writeReminderTxError(w, err, "Ошибка получения питомца")
+			return
+		}
 	}
 
 	if req.Type != nil && !eventreg.IsValidType(*req.Type) {
@@ -680,22 +648,24 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Type != nil && !isTypeApplicableToPet(*req.Type, petDB.Species) {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип события "+*req.Type+" неприменим к виду питомца")
-		return
+	effectiveType := eventDB.Type
+	if req.Type != nil {
+		effectiveType = *req.Type
 	}
-
+	effectiveValue := eventDB.Value
 	if req.Value != nil {
-		effectiveType := eventDB.Type
-		if req.Type != nil {
-			effectiveType = *req.Type
-		}
-		if msg := validateEventValue(effectiveType, *req.Value); msg != "" {
+		effectiveValue = *req.Value
+		if msg := validateEventValue(effectiveType, effectiveValue); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
+	}
 
-		if msg := isNestedValueApplicableToPet(effectiveType, *req.Value, petDB.Species); msg != "" {
+	// Тип и значение проверяются по итоговому набору питомцев — в том числе
+	// сохранённые, если запрос лишь привязывает нового питомца. Отвязка набор
+	// только сужает и сохранённые данные не нарушает.
+	if req.Type != nil || req.Value != nil || hasNewPets(current.Pets, finalPets) {
+		if msg := validateEventForPets(effectiveType, effectiveValue, finalPets); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
@@ -713,7 +683,8 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Дата факта проверяется только если она есть в запросе — иначе уже
 	// сохранённая дата не пересматривается только из-за изменения других
-	// полей (type/value/notes), см. «Редактирование события — Backend».
+	// полей (type/value/notes/pet_ids), см. «Редактирование события —
+	// Backend».
 	if dateTime != nil {
 		if msg := validateFactDate(*dateTime); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -721,8 +692,22 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := database.UpdateEvent(eventID, dateTime, req.Type, req.Notes, req.Value); err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при обновлении события")
+	// Поля и связи с питомцами применяются атомарно: либо изменено всё, либо
+	// ничего.
+	err = database.RunInTx(func(tx *sql.Tx) error {
+		if _, err := database.GetEventForUserWith(tx, eventID, userID, true); err != nil {
+			return err
+		}
+		if err := database.UpdateEventWith(tx, eventID, dateTime, req.Type, req.Notes, req.Value); err != nil {
+			return err
+		}
+		if desiredIDs != nil {
+			return database.SyncEventPetsWith(tx, eventID, desiredIDs)
+		}
+		return nil
+	})
+	if err != nil {
+		writeReminderTxError(w, err, "Ошибка при обновлении события")
 		return
 	}
 

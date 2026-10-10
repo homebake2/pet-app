@@ -44,12 +44,17 @@ type planFileBody struct {
 	Filename    *string `json:"filename"`
 }
 
-type planBody struct {
-	ID      string `json:"id"`
+// petRefBody — питомец записи в ответах (EventPetRef).
+type petRefBody struct {
 	PetID   string `json:"pet_id"`
 	PetName string `json:"pet_name"`
-	Type    string `json:"type"`
-	Value   struct {
+}
+
+type planBody struct {
+	ID    string       `json:"id"`
+	Pets  []petRefBody `json:"pets"`
+	Type  string       `json:"type"`
+	Value struct {
 		Name  string `json:"name"`
 		Label string `json:"label"`
 	} `json:"value"`
@@ -74,7 +79,7 @@ type reminderBody struct {
 	RemindAt          string         `json:"remind_at"`
 	Type              string         `json:"type"`
 	Notes             *string        `json:"notes"`
-	PetID             string         `json:"pet_id"`
+	Pets              []petRefBody   `json:"pets"`
 	PlanSource        string         `json:"plan_source"`
 	PlanSourceTitle   *string        `json:"plan_source_title"`
 	PlanFiles         []planFileBody `json:"plan_files"`
@@ -129,7 +134,7 @@ func createPlan(t *testing.T, token string, body map[string]any) planBody {
 func createOncePlan(t *testing.T, token, petID, eventType string, value map[string]any, date, timeOfDay string) planBody {
 	t.Helper()
 	return createPlan(t, token, map[string]any{
-		"pet_id":         petID,
+		"pet_ids":        []string{petID},
 		"type":           eventType,
 		"value":          value,
 		"frequency_type": "once",
@@ -156,7 +161,7 @@ func TestReminderPlan_CreateAndRead(t *testing.T) {
 
 	start, end := futureDate(1), futureDate(2)
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id":         petID,
+		"pet_ids":        []string{petID},
 		"type":           "medication",
 		"value":          map[string]any{"name": "Нурофен"},
 		"notes":          "после еды",
@@ -168,7 +173,8 @@ func TestReminderPlan_CreateAndRead(t *testing.T) {
 	require.Equal(t, "manual", plan.Source)
 	require.Nil(t, plan.SourceID)
 	require.Nil(t, plan.SourceTitle)
-	require.Equal(t, "Барсик", plan.PetName)
+	require.Len(t, plan.Pets, 1)
+	require.Equal(t, "Барсик", plan.Pets[0].PetName)
 	require.Equal(t, "Нурофен", plan.Value.Name)
 	require.NotNil(t, plan.Notes)
 	require.Equal(t, "после еды", *plan.Notes)
@@ -205,7 +211,7 @@ func TestReminderPlan_CreateIdempotentByClientID(t *testing.T) {
 
 	body := map[string]any{
 		"id":             uuid.NewString(),
-		"pet_id":         petID,
+		"pet_ids":        []string{petID},
 		"type":           "weight",
 		"value":          map[string]any{"amount": 4.2},
 		"frequency_type": "once",
@@ -226,7 +232,7 @@ func TestReminderPlan_CreateIdempotentByClientID(t *testing.T) {
 
 	// Тот же id у другого пользователя — 409.
 	conflictBody := map[string]any{
-		"id": body["id"], "pet_id": strangerPetID, "type": "weight", "value": map[string]any{"amount": 5.0},
+		"id": body["id"], "pet_ids": []string{strangerPetID}, "type": "weight", "value": map[string]any{"amount": 5.0},
 		"frequency_type": "once", "times": []string{"08:00"}, "start_date": futureDate(3),
 	}
 	conflict := postReminderPlan(t, stranger.AccessToken, conflictBody, "UTC")
@@ -242,7 +248,7 @@ func TestReminderPlan_CreateValidation(t *testing.T) {
 	base := func() map[string]any {
 		return map[string]any{
 			"id":             uuid.NewString(),
-			"pet_id":         petID,
+			"pet_ids":        []string{petID},
 			"type":           "weight",
 			"value":          map[string]any{"amount": 4.2},
 			"frequency_type": "once",
@@ -272,7 +278,7 @@ func TestReminderPlan_CreateValidation(t *testing.T) {
 		{"specific_days без weekdays", with("frequency_type", "specific_days"), "UTC", http.StatusBadRequest},
 		{"два времени при once", with("times", []string{"08:00", "09:00"}), "UTC", http.StatusBadRequest},
 		{"notes длиннее 500", with("notes", string(make([]byte, 501))), "UTC", http.StatusBadRequest},
-		{"несуществующий питомец", with("pet_id", uuid.NewString()), "UTC", http.StatusNotFound},
+		{"несуществующий питомец", with("pet_ids", []string{uuid.NewString()}), "UTC", http.StatusNotFound},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -303,7 +309,7 @@ func TestReminderPlan_CapAt60(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id":         petID,
+		"pet_ids":        []string{petID},
 		"type":           "medication",
 		"value":          map[string]any{"name": "Нурофен"},
 		"frequency_type": "daily",
@@ -321,7 +327,7 @@ func TestReminderPlan_FrequencyKinds(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	everyThree := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "medication", "value": map[string]any{"name": "A"},
+		"pet_ids": []string{petID}, "type": "medication", "value": map[string]any{"name": "A"},
 		"frequency_type": "every_n_days", "interval_days": 3, "times": []string{"08:00"},
 		"start_date": futureDate(1), "end_date": futureDate(10),
 	})
@@ -330,7 +336,7 @@ func TestReminderPlan_FrequencyKinds(t *testing.T) {
 	require.Equal(t, 3, *everyThree.IntervalDays)
 
 	weekly := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "medication", "value": map[string]any{"name": "B"},
+		"pet_ids": []string{petID}, "type": "medication", "value": map[string]any{"name": "B"},
 		"frequency_type": "specific_days", "weekdays": []int{1, 3, 5}, "times": []string{"09:00"},
 		"start_date": futureDate(1), "end_date": futureDate(14),
 	})
@@ -353,7 +359,7 @@ func TestReminderPlan_PatchDataAndSchedule(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "medication", "value": map[string]any{"name": "Нурофен"},
+		"pet_ids": []string{petID}, "type": "medication", "value": map[string]any{"name": "Нурофен"},
 		"frequency_type": "daily", "times": []string{"08:00"},
 		"start_date": futureDate(1), "end_date": futureDate(3),
 	})
@@ -446,7 +452,7 @@ func TestReminder_DeleteOneAndLastRemovesPlan(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"},
 		"start_date": futureDate(1), "end_date": futureDate(2),
 	})
@@ -480,7 +486,7 @@ func TestReminderPlan_DeleteAndOwnership(t *testing.T) {
 	stranger := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, owner.AccessToken, "Барсик")
 	plan := createPlan(t, owner.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"},
 		"start_date": futureDate(1), "end_date": futureDate(3),
 	})
@@ -506,7 +512,7 @@ func TestReminder_CompleteDoneCreatesFactAndClosesReminder(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2}, "notes": "после еды",
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2}, "notes": "после еды",
 		"frequency_type": "daily", "times": []string{"08:00"},
 		"start_date": futureDate(1), "end_date": futureDate(2),
 	})
@@ -534,13 +540,14 @@ func TestReminder_CompleteDoneCreatesFactAndClosesReminder(t *testing.T) {
 	event := doRequest(t, http.MethodGet, "/events/"+*result.FactEventID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, event.status)
 	var eventBody struct {
-		Type  string  `json:"type"`
-		Notes *string `json:"notes"`
-		PetID string  `json:"pet_id"`
+		Type  string       `json:"type"`
+		Notes *string      `json:"notes"`
+		Pets  []petRefBody `json:"pets"`
 	}
 	event.decode(t, &eventBody)
 	require.Equal(t, "weight", eventBody.Type)
-	require.Equal(t, petID, eventBody.PetID)
+	require.Len(t, eventBody.Pets, 1)
+	require.Equal(t, petID, eventBody.Pets[0].PetID)
 	require.NotNil(t, eventBody.Notes)
 	require.Equal(t, "после еды", *eventBody.Notes)
 	require.Len(t, listPetEvents(t, tokens.AccessToken, petID), 1)
@@ -656,9 +663,8 @@ func TestReminder_DetachWithEventAndPlan(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
-	otherPetID := createPet(t, tokens.AccessToken, "Рекс")
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"},
 		"start_date": futureDate(1), "end_date": futureDate(3),
 	})
@@ -669,14 +675,14 @@ func TestReminder_DetachWithEventAndPlan(t *testing.T) {
 	key := uuid.NewString()
 	detachEvent := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[0].ID+"/detach", map[string]any{
 		"event": map[string]any{
-			"pet_id": petID, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 5.5},
+			"pet_ids": []string{petID}, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 5.5},
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": key})
 	require.Equalf(t, http.StatusCreated, detachEvent.status, "%s", detachEvent.body)
 	var eventResult struct {
 		Event struct {
-			ID    string `json:"id"`
-			PetID string `json:"pet_id"`
+			ID   string       `json:"id"`
+			Pets []petRefBody `json:"pets"`
 		} `json:"event"`
 	}
 	detachEvent.decode(t, &eventResult)
@@ -688,7 +694,7 @@ func TestReminder_DetachWithEventAndPlan(t *testing.T) {
 	// же Idempotency-Key возвращается вместо 404.
 	replay := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[0].ID+"/detach", map[string]any{
 		"event": map[string]any{
-			"pet_id": petID, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 5.5},
+			"pet_ids": []string{petID}, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 5.5},
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": key})
 	require.Equalf(t, http.StatusCreated, replay.status, "%s", replay.body)
@@ -703,18 +709,19 @@ func TestReminder_DetachWithEventAndPlan(t *testing.T) {
 	// Факт с датой в будущем — 400 (правило факта), напоминание не закрыто.
 	futureFact := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[1].ID+"/detach", map[string]any{
 		"event": map[string]any{
-			"pet_id": petID, "date": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339), "type": "weight", "value": map[string]any{"amount": 5.5},
+			"pet_ids": []string{petID}, "date": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339), "type": "weight", "value": map[string]any{"amount": 5.5},
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
 	require.Equal(t, http.StatusBadRequest, futureFact.status)
 
-	// Перенос на другого питомца не поддерживается.
-	otherPet := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[1].ID+"/detach", map[string]any{
+	// Несуществующий питомец в наборе новой записи — 404, напоминание не
+	// закрыто.
+	unknownPet := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[1].ID+"/detach", map[string]any{
 		"event": map[string]any{
-			"pet_id": otherPetID, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 5.5},
+			"pet_ids": []string{uuid.NewString()}, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 5.5},
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
-	require.Equal(t, http.StatusBadRequest, otherPet.status)
+	require.Equal(t, http.StatusNotFound, unknownPet.status)
 
 	// Ровно одно из event и plan.
 	both := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[1].ID+"/detach", map[string]any{}, tokens.AccessToken,
@@ -725,7 +732,7 @@ func TestReminder_DetachWithEventAndPlan(t *testing.T) {
 	newPlanID := uuid.NewString()
 	detachPlan := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[1].ID+"/detach?tz=UTC", map[string]any{
 		"plan": map[string]any{
-			"id": newPlanID, "pet_id": petID, "type": "weight", "value": map[string]any{"amount": 6.0},
+			"id": newPlanID, "pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 6.0},
 			"frequency_type": "once", "times": []string{"10:00"}, "start_date": futureDate(10),
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
@@ -742,7 +749,7 @@ func TestReminder_DetachWithEventAndPlan(t *testing.T) {
 	// Без tz для plan — 400.
 	noTZ := doUnvalidatedRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[2].ID+"/detach", map[string]any{
 		"plan": map[string]any{
-			"id": uuid.NewString(), "pet_id": petID, "type": "weight", "value": map[string]any{"amount": 6.0},
+			"id": uuid.NewString(), "pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 6.0},
 			"frequency_type": "once", "times": []string{"10:00"}, "start_date": futureDate(10),
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
@@ -831,7 +838,7 @@ func TestReminderFiles_CombinedLimit409(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"}, "start_date": futureDate(1), "end_date": futureDate(2),
 	})
 
@@ -877,7 +884,7 @@ func TestReminderFiles_ReferenceRowsOnDetach(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"}, "start_date": futureDate(1), "end_date": futureDate(2),
 	})
 	uploadAndConfirmFile(t, tokens.AccessToken, "reminder_plan_file", plan.ID, "image/jpeg")
@@ -886,7 +893,7 @@ func TestReminderFiles_ReferenceRowsOnDetach(t *testing.T) {
 	newPlanID := uuid.NewString()
 	resp := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[0].ID+"/detach?tz=UTC", map[string]any{
 		"plan": map[string]any{
-			"id": newPlanID, "pet_id": petID, "type": "weight", "value": map[string]any{"amount": 6.0},
+			"id": newPlanID, "pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 6.0},
 			"frequency_type": "once", "times": []string{"10:00"}, "start_date": futureDate(10),
 		},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
@@ -914,7 +921,7 @@ func TestRemindersUpcoming(t *testing.T) {
 	dogID := createPet(t, tokens.AccessToken, "Рекс")
 
 	cat := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": catID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{catID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"}, "start_date": futureDate(1), "end_date": futureDate(3),
 	})
 	dog := createOncePlan(t, tokens.AccessToken, dogID, "weight", map[string]any{"amount": 12.0}, futureDate(2), "07:00")
@@ -923,18 +930,18 @@ func TestRemindersUpcoming(t *testing.T) {
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 	var body struct {
 		Items []struct {
-			ID      string `json:"id"`
-			PlanID  string `json:"plan_id"`
-			PetID   string `json:"pet_id"`
-			PetName string `json:"pet_name"`
-			Type    string `json:"type"`
+			ID     string       `json:"id"`
+			PlanID string       `json:"plan_id"`
+			Pets   []petRefBody `json:"pets"`
+			Type   string       `json:"type"`
 		} `json:"items"`
 	}
 	resp.decode(t, &body)
 	require.Len(t, body.Items, 3)
 	require.Equal(t, cat.Reminders[0].ID, body.Items[0].ID)
 	require.Equal(t, dog.Reminders[0].ID, body.Items[1].ID)
-	require.Equal(t, "Рекс", body.Items[1].PetName)
+	require.Len(t, body.Items[1].Pets, 1)
+	require.Equal(t, "Рекс", body.Items[1].Pets[0].PetName)
 	require.Equal(t, cat.Reminders[1].ID, body.Items[2].ID)
 
 	// По умолчанию — все (до 64), по питомцу — только его напоминания.
@@ -1076,7 +1083,7 @@ func TestReminderPlan_MedicationSourceRules(t *testing.T) {
 	// совпадать с типом напоминания.
 	plan := getReminderPlan(t, tokens.AccessToken, planID)
 	wrongType := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[0].ID+"/detach", map[string]any{
-		"event": map[string]any{"pet_id": petID, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 4.0}},
+		"event": map[string]any{"pet_ids": []string{petID}, "date": "2024-01-01T08:00:00Z", "type": "weight", "value": map[string]any{"amount": 4.0}},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
 	require.Equal(t, http.StatusBadRequest, wrongType.status)
 
@@ -1150,7 +1157,7 @@ func TestReminderPlan_VaccinationSourceRules(t *testing.T) {
 
 	// Замена одного напоминания вакцинации недоступна (409).
 	detach := doRequest(t, http.MethodPost, "/reminders/"+plan.Reminders[0].ID+"/detach", map[string]any{
-		"event": map[string]any{"pet_id": petID, "date": "2024-01-01T08:00:00Z", "type": "other", "value": map[string]any{"label": "x"}},
+		"event": map[string]any{"pet_ids": []string{petID}, "date": "2024-01-01T08:00:00Z", "type": "other", "value": map[string]any{"label": "x"}},
 	}, tokens.AccessToken, map[string]string{"Idempotency-Key": uuid.NewString()})
 	require.Equalf(t, http.StatusConflict, detach.status, "%s", detach.body)
 
@@ -1202,7 +1209,7 @@ func TestPetDelete_HardDeletesRemindersAndFiles(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "password123")
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 	plan := createPlan(t, tokens.AccessToken, map[string]any{
-		"pet_id": petID, "type": "weight", "value": map[string]any{"amount": 4.2},
+		"pet_ids": []string{petID}, "type": "weight", "value": map[string]any{"amount": 4.2},
 		"frequency_type": "daily", "times": []string{"08:00"}, "start_date": futureDate(1), "end_date": futureDate(2),
 	})
 	uploadAndConfirmFile(t, tokens.AccessToken, "reminder_plan_file", plan.ID, "image/jpeg")
@@ -1215,7 +1222,7 @@ func TestPetDelete_HardDeletesRemindersAndFiles(t *testing.T) {
 	require.Equal(t, 0, countRows(t, `SELECT COUNT(*) FROM reminder`))
 	require.Equal(t, 0, countRows(t, `SELECT COUNT(*) FROM file WHERE owner_type IN ('reminder_plan_file', 'reminder_file')`))
 	// Факты питомца удаляются мягко по общему правилу.
-	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM event WHERE pet_id = $1`, petID))
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM event_pet WHERE pet_id = $1`, petID))
 }
 
 // --- События — только факты ---
@@ -1226,14 +1233,14 @@ func TestEvent_FutureDateRejectedAndNoNotificationsField(t *testing.T) {
 	petID := createPet(t, tokens.AccessToken, "Барсик")
 
 	future := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": petID, "date": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		"pet_ids": []string{petID}, "date": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
 		"type": "weight", "value": map[string]any{"amount": 4.2},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusBadRequest, future.status, "%s", future.body)
 
 	// В пределах допуска (5 минут) дата допустима.
 	withinTolerance := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": petID, "date": time.Now().Add(2 * time.Minute).UTC().Format(time.RFC3339),
+		"pet_ids": []string{petID}, "date": time.Now().Add(2 * time.Minute).UTC().Format(time.RFC3339),
 		"type": "weight", "value": map[string]any{"amount": 4.2},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, withinTolerance.status, "%s", withinTolerance.body)
@@ -1245,7 +1252,7 @@ func TestEvent_FutureDateRejectedAndNoNotificationsField(t *testing.T) {
 
 	// PATCH: перенос даты в будущее — 400.
 	patch := doRequest(t, http.MethodPatch, "/events/"+created.ID, map[string]any{
-		"pet_id": petID, "date": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339),
+		"pet_ids": []string{petID}, "date": time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339),
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusBadRequest, patch.status, "%s", patch.body)
 }

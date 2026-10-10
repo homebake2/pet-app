@@ -130,8 +130,7 @@ func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.Activi
 			Notes:             effectiveReminderNotes(row.ReminderNotes, row.PlanNotes),
 			Value:             row.Value,
 			FilesCount:        planFileCounts[row.PlanID] + ownFileCounts[row.ID],
-			PetID:             row.PetID.String(),
-			PetName:           row.PetName,
+			Pets:              database.EventPetRefs(row.Pets),
 		})
 	}
 	return items, nil
@@ -179,14 +178,14 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start, end := localDaysBounds(date, date, loc)
-	eventsWithPet, err := database.GetEventsByUserIDInRange(userID, start, end)
+	eventsFull, err := database.GetEventsByUserIDInRange(userID, start, end)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
 		return
 	}
 
-	eventIDs := make([]uuid.UUID, len(eventsWithPet))
-	for i, e := range eventsWithPet {
+	eventIDs := make([]uuid.UUID, len(eventsFull))
+	for i, e := range eventsFull {
 		eventIDs[i] = e.Event.ID
 	}
 	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, eventIDs)
@@ -195,8 +194,8 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]models.ActivitiesDayItem, 0, len(eventsWithPet))
-	for _, e := range eventsWithPet {
+	items := make([]models.ActivitiesDayItem, 0, len(eventsFull))
+	for _, e := range eventsFull {
 		var notes *string
 		if e.Event.Notes.Valid {
 			notes = &e.Event.Notes.String
@@ -209,8 +208,7 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 			Notes:      notes,
 			Value:      e.Event.Value,
 			FilesCount: filesCounts[e.Event.ID],
-			PetID:      e.Event.PetID.String(),
-			PetName:    e.PetName,
+			Pets:       database.EventPetRefs(e.Pets),
 		})
 	}
 

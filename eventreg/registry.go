@@ -100,7 +100,16 @@ type Metric struct {
 
 // TypeSpec — запись реестра для одного типа события.
 type TypeSpec struct {
-	Type      string
+	Type string
+
+	// AllowsMultiplePets — допускает ли тип запись, привязанную к нескольким
+	// питомцам. false у измерительных типов (weight, temperature,
+	// water_quality): значение измерения принадлежит конкретному организму
+	// либо среде и не может быть общим. Признак задаётся явно для каждого
+	// типа (см. «Модель значения события и реестр метрик», «Расширение
+	// множества типов событий»).
+	AllowsMultiplePets bool
+
 	ValueKind ValueKind
 	Fields    []Field
 	Metrics   []Metric
@@ -400,13 +409,14 @@ var activityKindSpecies = map[string][]string{
 // применимостью к видам питомца.
 func excretionSpec(eventType string, applicableSpecies []string) TypeSpec {
 	return TypeSpec{
-		Type:      eventType,
-		ValueKind: KindCategory,
+		Type:               eventType,
+		AllowsMultiplePets: true,
+		ValueKind:          KindCategory,
 		Fields: []Field{
 			{Name: "status", Type: FieldEnum, Required: true, Enum: excretionStatuses},
 		},
-		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
-		SplitField:      "status",
+		Metrics:           []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:        "status",
 		ApplicableSpecies: applicableSpecies,
 	}
 }
@@ -416,8 +426,9 @@ func excretionSpec(eventType string, applicableSpecies []string) TypeSpec {
 // умолчанию.
 var specs = []TypeSpec{
 	{
-		Type:      "weight",
-		ValueKind: KindMeasure,
+		Type:               "weight",
+		AllowsMultiplePets: false,
+		ValueKind:          KindMeasure,
 		Fields: []Field{
 			{Name: "amount", Type: FieldNumber, Required: true, Min: 0.001, Max: 400},
 		},
@@ -428,8 +439,9 @@ var specs = []TypeSpec{
 		// weight — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
-		Type:      "temperature",
-		ValueKind: KindMeasure,
+		Type:               "temperature",
+		AllowsMultiplePets: false,
+		ValueKind:          KindMeasure,
 		Fields: []Field{
 			{Name: "amount", Type: FieldNumber, Required: true, Min: 0, Max: 50},
 			{Name: "kind", Type: FieldEnum, Required: true, Enum: temperatureKinds},
@@ -438,12 +450,13 @@ var specs = []TypeSpec{
 			{Key: "amount_avg", Field: "amount", Unit: unitCelsius, Aggregation: AggAvg},
 			{Key: "amount_last", Field: "amount", Unit: unitCelsius, Aggregation: AggLast},
 		},
-		SplitField:      "kind",
+		SplitField:        "kind",
 		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
 	{
-		Type:      "feeding",
-		ValueKind: KindQuantity,
+		Type:               "feeding",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
 		Fields: []Field{
 			{Name: "amount", Type: FieldNumber, Required: true, Min: 0.01, Max: 5000},
 			{Name: "unit", Type: FieldEnum, Required: true, Enum: feedingUnits},
@@ -456,8 +469,9 @@ var specs = []TypeSpec{
 		SplitAsUnit: true,
 	},
 	{
-		Type:      "water",
-		ValueKind: KindQuantity,
+		Type:               "water",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
 		Fields: []Field{
 			{Name: "amount", Type: FieldNumber, Required: true, Min: 0.1, Max: 5000},
 		},
@@ -467,8 +481,9 @@ var specs = []TypeSpec{
 		ApplicableSpecies: allSpeciesExcept(waterExclusion...),
 	},
 	{
-		Type:      "activity",
-		ValueKind: KindQuantity,
+		Type:               "activity",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
 		Fields: []Field{
 			{Name: "duration_min", Type: FieldNumber, Required: true, Min: 1, Max: 1440},
 			{Name: "kind", Type: FieldEnum, Required: true, Enum: activityKinds, SpeciesByValue: activityKindSpecies},
@@ -481,8 +496,9 @@ var specs = []TypeSpec{
 		ApplicableSpecies: allSpeciesExcept(activityExclusion...),
 	},
 	{
-		Type:      "sleep",
-		ValueKind: KindQuantity,
+		Type:               "sleep",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
 		Fields: []Field{
 			{Name: "duration_min", Type: FieldNumber, Required: true, Min: 1, Max: 1440},
 		},
@@ -492,8 +508,9 @@ var specs = []TypeSpec{
 		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
 	{
-		Type:      "medication",
-		ValueKind: KindQuantity,
+		Type:               "medication",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
 		Fields: []Field{
 			{Name: "name", Type: FieldString, Required: true, MinLen: 1, MaxLen: 100},
 			{Name: "dose_amount", Type: FieldNumber, Min: 0.001, Max: 10000, RequiredWith: "dose_unit"},
@@ -505,8 +522,9 @@ var specs = []TypeSpec{
 		// medication — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
-		Type:      "hygiene",
-		ValueKind: KindCategory,
+		Type:               "hygiene",
+		AllowsMultiplePets: true,
+		ValueKind:          KindCategory,
 		Fields: []Field{
 			{Name: "procedure", Type: FieldEnum, Required: true, Enum: hygieneProcedures, SpeciesByValue: hygieneProcedureSpecies},
 		},
@@ -515,13 +533,14 @@ var specs = []TypeSpec{
 		// hygiene — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
-		Type:      "mood",
-		ValueKind: KindCategory,
+		Type:               "mood",
+		AllowsMultiplePets: true,
+		ValueKind:          KindCategory,
 		Fields: []Field{
 			{Name: "state", Type: FieldEnum, Required: true, Enum: moodStates},
 		},
-		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
-		SplitField:      "state",
+		Metrics:           []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:        "state",
 		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
 	excretionSpec("urine", urineSpecies),
@@ -529,26 +548,29 @@ var specs = []TypeSpec{
 	excretionSpec("vomit", vomitSpecies),
 	excretionSpec("diarrhea", allSpeciesExcept(diarrheaExclusion...)),
 	{
-		Type:      "other",
-		ValueKind: KindLabel,
+		Type:               "other",
+		AllowsMultiplePets: true,
+		ValueKind:          KindLabel,
 		Fields: []Field{
 			{Name: "label", Type: FieldString, Required: true, MinLen: 1, MaxLen: 50},
 		},
 		// other — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
-		Type:      "molting",
-		ValueKind: KindCategory,
+		Type:               "molting",
+		AllowsMultiplePets: true,
+		ValueKind:          KindCategory,
 		Fields: []Field{
 			{Name: "status", Type: FieldEnum, Required: true, Enum: moltingStatuses},
 		},
-		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
-		SplitField:      "status",
+		Metrics:           []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:        "status",
 		ApplicableSpecies: moltingSpecies,
 	},
 	{
-		Type:      "egg_laying",
-		ValueKind: KindQuantity,
+		Type:               "egg_laying",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
 		Fields: []Field{
 			{Name: "count", Type: FieldNumber, Required: true, Min: 1, Max: 200, Integer: true},
 			// status — категориальный факт о кладке, но не зарегистрирован как
@@ -562,7 +584,8 @@ var specs = []TypeSpec{
 		ApplicableSpecies: eggLayingSpecies,
 	},
 	{
-		Type: "water_quality",
+		Type:               "water_quality",
+		AllowsMultiplePets: false,
 		// ValueKind типа целиком: смешанный, у большинства метрик — measure;
 		// changed_volume_ml переопределяет ValueKind на уровне метрики (см.
 		// Metric.ValueKind).
@@ -584,17 +607,18 @@ var specs = []TypeSpec{
 		},
 		// Хотя бы одно из четырёх полей обязано быть передано — пустое value
 		// без единого показателя не несёт факта.
-		AtLeastOneOf:    []string{"temperature_c", "ph", "ammonia_ppm", "changed_volume_ml"},
+		AtLeastOneOf:      []string{"temperature_c", "ph", "ammonia_ppm", "changed_volume_ml"},
 		ApplicableSpecies: waterQualitySpecies,
 	},
 	{
-		Type:      "heat_cycle",
-		ValueKind: KindCategory,
+		Type:               "heat_cycle",
+		AllowsMultiplePets: true,
+		ValueKind:          KindCategory,
 		Fields: []Field{
 			{Name: "phase", Type: FieldEnum, Required: true, Enum: heatCyclePhases},
 		},
-		Metrics:         []Metric{{Key: "count", Aggregation: AggCount}},
-		SplitField:      "phase",
+		Metrics:           []Metric{{Key: "count", Aggregation: AggCount}},
+		SplitField:        "phase",
 		ApplicableSpecies: heatCycleSpecies,
 	},
 }
@@ -611,6 +635,13 @@ var specByType = func() map[string]TypeSpec {
 func Spec(eventType string) (TypeSpec, bool) {
 	s, ok := specByType[eventType]
 	return s, ok
+}
+
+// AllowsMultiplePets сообщает, допускает ли тип события eventType запись,
+// привязанную к нескольким питомцам. Тип без записи в реестре не допускает.
+func AllowsMultiplePets(eventType string) bool {
+	spec, ok := Spec(eventType)
+	return ok && spec.AllowsMultiplePets
 }
 
 // IsValidType сообщает, входит ли значение в справочник типов события.

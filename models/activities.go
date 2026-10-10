@@ -12,6 +12,8 @@ type ActivityEvent struct {
 	// FilesCount — количество прикреплённых файлов события (0, если файлов
 	// нет), см. «Файлы события — Backend».
 	FilesCount int `json:"files_count"`
+	// Pets — видимые питомцы события (запись общая у нескольких питомцев).
+	Pets []EventPetRef `json:"pets"`
 }
 
 // ActivityDay represents events for a single day
@@ -52,7 +54,7 @@ const (
 // ActivitiesDayItem — один элемент items ответа GET /activities/day: факт
 // (item_type=event) либо незавершённое напоминание (item_type=reminder). В отличие от
 // GET /activities, здесь в одном списке смешаны элементы разных питомцев
-// пользователя, поэтому у элемента есть pet_id/pet_name.
+// пользователя, поэтому у элемента есть массив pets.
 type ActivitiesDayItem struct {
 	ItemType string `json:"item_type"`
 	ID       string `json:"id"`
@@ -68,8 +70,7 @@ type ActivitiesDayItem struct {
 	Notes             *string         `json:"notes,omitempty"`
 	Value             json.RawMessage `json:"value"`
 	FilesCount        int             `json:"files_count"`
-	PetID             string          `json:"pet_id"`
-	PetName           string          `json:"pet_name"`
+	Pets              []EventPetRef   `json:"pets"`
 }
 
 // ActivitiesDayResponse — тело ответа GET /activities/day.

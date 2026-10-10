@@ -128,28 +128,31 @@ func TestPetAndEventLifecycle(t *testing.T) {
 
 	eventDate := time.Now().UTC().Format(time.RFC3339)
 	eventResp := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": pet.ID,
-		"date":   eventDate,
-		"type":   "weight",
-		"value":  map[string]any{"amount": 4.2},
+		"pet_ids": []string{pet.ID},
+		"date":    eventDate,
+		"type":    "weight",
+		"value":   map[string]any{"amount": 4.2},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, eventResp.status, "%s", eventResp.body)
 	var event struct {
-		ID      string `json:"id"`
-		PetID   string `json:"pet_id"`
-		PetName string `json:"pet_name"`
+		ID   string `json:"id"`
+		Pets []struct {
+			PetID   string `json:"pet_id"`
+			PetName string `json:"pet_name"`
+		} `json:"pets"`
 	}
 	eventResp.decode(t, &event)
 	require.NotEmpty(t, event.ID)
-	require.Equal(t, pet.ID, event.PetID)
-	require.Equal(t, "Барсик", event.PetName)
+	require.Len(t, event.Pets, 1)
+	require.Equal(t, pet.ID, event.Pets[0].PetID)
+	require.Equal(t, "Барсик", event.Pets[0].PetName)
 
 	getEvent := doRequest(t, http.MethodGet, "/events/"+event.ID, nil, tokens.AccessToken)
 	require.Equal(t, http.StatusOK, getEvent.status)
 
 	patched := doRequest(t, http.MethodPatch, "/events/"+event.ID, map[string]any{
-		"pet_id": pet.ID,
-		"value":  map[string]any{"amount": 4.3},
+		"pet_ids": []string{pet.ID},
+		"value":   map[string]any{"amount": 4.3},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusNoContent, patched.status, "%s", patched.body)
 
@@ -335,10 +338,10 @@ func TestPetAndEventLifecycle_WithoutProfile(t *testing.T) {
 	require.Len(t, listBody.Items, 1)
 
 	eventResp := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": pet.ID,
-		"date":   time.Now().UTC().Format(time.RFC3339),
-		"type":   "weight",
-		"value":  map[string]any{"amount": 4.2},
+		"pet_ids": []string{pet.ID},
+		"date":    time.Now().UTC().Format(time.RFC3339),
+		"type":    "weight",
+		"value":   map[string]any{"amount": 4.2},
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusCreated, eventResp.status, "%s", eventResp.body)
 

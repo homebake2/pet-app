@@ -54,28 +54,24 @@ func resolveOwnedPet(w http.ResponseWriter, petID uuid.UUID, userID string) (*mo
 	return pet, true
 }
 
-// resolveOwnedEvent находит событие eventID и проверяет, что его питомец
-// принадлежит userID. При ошибке/отсутствии сама пишет 404/500.
-func resolveOwnedEvent(w http.ResponseWriter, eventID uuid.UUID, userID string) (eventDB *models.EventDB, petID uuid.UUID, petName string, ok bool) {
-	eventDB, petID, petName, err := database.GetEventByID(eventID)
+// resolveOwnedEvent находит событие eventID и проверяет, что оно
+// принадлежит userID (event.user_id) — по владельцу записи, а не по питомцу.
+// requireVisiblePet=true дополнительно требует хотя бы одного не мягко
+// удалённого питомца: запись без видимых питомцев нигде не показывается.
+// При ошибке/отсутствии сама пишет 404/500.
+func resolveOwnedEvent(w http.ResponseWriter, eventID uuid.UUID, userID string, requireVisiblePet bool) (*database.EventFull, bool) {
+	eventFull, err := database.GetEventForUserWith(database.DB, eventID, userID, false)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Событие не найдено")
-			return nil, uuid.Nil, "", false
+			return nil, false
 		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения события")
-		return nil, uuid.Nil, "", false
+		return nil, false
 	}
-
-	belongs, err := database.CheckPetBelongsToUser(petID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
-		return nil, uuid.Nil, "", false
-	}
-	if !belongs {
+	if requireVisiblePet && len(eventFull.Pets) == 0 {
 		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Событие не найдено")
-		return nil, uuid.Nil, "", false
+		return nil, false
 	}
-
-	return eventDB, petID, petName, true
+	return eventFull, true
 }

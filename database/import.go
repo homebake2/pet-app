@@ -218,16 +218,13 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 
 	eventLocalIDToServerID := make(map[string]uuid.UUID, len(req.Events))
 	for _, event := range req.Events {
-		petID, ok := localIDToServerID[event.PetLocalID]
-		if !ok {
-			// Не должно происходить: pet_local_id уже провалидирован
-			// хендлером перед вызовом ImportLocalData. Защитная проверка на
-			// случай рассинхрона между валидацией и этой функцией.
-			err = fmt.Errorf("import: pet_local_id %q не найден среди перенесённых питомцев", event.PetLocalID)
+		var petIDs []uuid.UUID
+		petIDs, err = resolveImportedPetIDs(localIDToServerID, event.PetLocalIDs, "event")
+		if err != nil {
 			return result, err
 		}
 		var eventID uuid.UUID
-		eventID, err = insertEventWith(tx, petID, event.ToCreateEventRequest(petID.String()), "")
+		eventID, err = InsertEventWith(tx, userID, petIDs, event.Fields(), "")
 		if err != nil {
 			return result, err
 		}
@@ -241,14 +238,14 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 	planLocalIDToServerID := make(map[string]uuid.UUID, len(req.ReminderPlans))
 	importedReminderPlans := make([]models.ImportedReminderPlan, 0, len(req.ReminderPlans))
 	for _, plan := range req.ReminderPlans {
-		petID, ok := localIDToServerID[plan.PetLocalID]
-		if !ok {
-			err = fmt.Errorf("import: pet_local_id %q не найден среди перенесённых питомцев (reminder_plan)", plan.PetLocalID)
+		var petIDs []uuid.UUID
+		petIDs, err = resolveImportedPetIDs(localIDToServerID, plan.PetLocalIDs, "reminder_plan")
+		if err != nil {
 			return result, err
 		}
 		var planID uuid.UUID
 		var reminderIDs []uuid.UUID
-		planID, reminderIDs, err = insertImportedReminderPlan(tx, petID, plan)
+		planID, reminderIDs, err = insertImportedReminderPlan(tx, userID, petIDs, plan)
 		if err != nil {
 			return result, err
 		}
@@ -499,12 +496,34 @@ func truncateLabel(s string, maxLen int) string {
 	return string(r[:maxLen])
 }
 
+// resolveImportedPetIDs разрешает ссылки pet_local_ids элемента запроса в
+// серверные id перенесённых питомцев, сохраняя порядок. owner — вид элемента
+// для сообщения об ошибке.
+func resolveImportedPetIDs(localIDToServerID map[string]uuid.UUID, localIDs []string, owner string) ([]uuid.UUID, error) {
+	petIDs := make([]uuid.UUID, 0, len(localIDs))
+	for _, localID := range localIDs {
+		petID, ok := localIDToServerID[localID]
+		if !ok {
+			// Не должно происходить: pet_local_ids уже провалидированы
+			// хендлером перед вызовом ImportLocalData. Защитная проверка на
+			// случай рассинхрона между валидацией и этой функцией.
+			return nil, fmt.Errorf("import: pet_local_id %q не найден среди перенесённых питомцев (%s)", localID, owner)
+		}
+		petIDs = append(petIDs, petID)
+	}
+	return petIDs, nil
+}
+
 // insertImportedReminderPlan вставляет перенесённые настройки напоминания
 // (источник manual — реальный источник записывается после вставки лекарств и
 // прививок) и по одной строке reminder на каждое присланное напоминание.
 // Расписание не пересчитывается. Возвращает id настроек и id напоминаний в
 // порядке plan.Reminders.
-func insertImportedReminderPlan(exec dbExecutor, petID uuid.UUID, plan models.ImportReminderPlan) (uuid.UUID, []uuid.UUID, error) {
+func insertImportedReminderPlan(exec dbExecutor, userID string, petIDs []uuid.UUID, plan models.ImportReminderPlan) (uuid.UUID, []uuid.UUID, error) {
+	ownerID, err := uuid.Parse(userID)
+	if err != nil {
+		return uuid.Nil, nil, err
+	}
 	startDate, err := time.Parse("2006-01-02", plan.StartDate)
 	if err != nil {
 		return uuid.Nil, nil, err
@@ -528,7 +547,7 @@ func insertImportedReminderPlan(exec dbExecutor, petID uuid.UUID, plan models.Im
 	planID := uuid.New()
 	planRow := models.ReminderPlanDB{
 		ID:            planID,
-		PetID:         petID,
+		UserID:        ownerID,
 		Source:        models.ReminderSourceManual,
 		Type:          plan.Type,
 		Value:         plan.Value,
@@ -551,7 +570,7 @@ func insertImportedReminderPlan(exec dbExecutor, petID uuid.UUID, plan models.Im
 	}
 	// Вставка строки настроек без напоминаний, затем напоминаний — чтобы
 	// получить их id в порядке запроса.
-	if err := InsertReminderPlanWith(exec, planRow, nil); err != nil {
+	if err := InsertReminderPlanWith(exec, planRow, petIDs, nil); err != nil {
 		return uuid.Nil, nil, err
 	}
 	reminderIDs, err := InsertRemindersWith(exec, planID, moments)

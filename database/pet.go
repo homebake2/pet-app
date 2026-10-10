@@ -356,10 +356,11 @@ func applyPetProfileFields(pet *models.PetIdResponse, petDB *models.PetIdDB) {
 func GetLatestPetWeight(petID uuid.UUID) (*float64, error) {
 	var amount sql.NullFloat64
 	err := DB.QueryRow(`
-		SELECT (value->>'amount')::float8
-		FROM event
-		WHERE pet_id = $1 AND type = 'weight' AND deleted_at IS NULL
-		ORDER BY date_time DESC
+		SELECT (e.value->>'amount')::float8
+		FROM event e
+		JOIN event_pet ep ON ep.event_id = e.id
+		WHERE ep.pet_id = $1 AND e.type = 'weight' AND e.deleted_at IS NULL
+		ORDER BY e.date_time DESC, e.id DESC
 		LIMIT 1
 	`, petID).Scan(&amount)
 	if err == sql.ErrNoRows {
@@ -515,9 +516,11 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 	return err
 }
 
-// DeletePet мягко удаляет питомца и в той же транзакции жёстко удаляет все
-// его настройки напоминаний вместе с напоминаниями и файлами (напоминания
-// удалённого питомца никому не нужны, а у настроек нет истории). Возвращает
+// DeletePet мягко удаляет питомца и в той же транзакции жёстко удаляет его
+// связи с настройками напоминаний, а настройки, у которых питомцев не
+// осталось, — вместе с напоминаниями и файлами (напоминания удалённого
+// питомца никому не нужны, а у настроек нет истории). События питомца не
+// затрагиваются: связь event_pet остаётся, но скрыта. Возвращает
 // ключи объектов S3, на которые не осталось ссылок: вызывающий код удаляет
 // их из хранилища после фиксации транзакции.
 func DeletePet(petID uuid.UUID, userID string) (orphanObjectKeys []string, err error) {
@@ -537,7 +540,7 @@ func DeletePet(petID uuid.UUID, userID string) (orphanObjectKeys []string, err e
 		if rows == 0 {
 			return sql.ErrNoRows
 		}
-		orphanObjectKeys, err = DeleteReminderPlansByPetWith(tx, petID)
+		orphanObjectKeys, err = UnlinkPetFromReminderPlansWith(tx, petID)
 		return err
 	})
 	if err != nil {

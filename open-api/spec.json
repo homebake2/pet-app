@@ -405,7 +405,7 @@
     "/activities": {
       "get": {
         "summary": "/activities",
-        "description": "Возвращает 404, если питомец не найден или не принадлежит текущему профилю. Диапазон from..to не должен превышать 366 дней, иначе 400 VALIDATION_ERROR. from/to и группировка событий по дням — в часовом поясе tz (обязательный параметр). Отдаёт только факты (напоминания читаются через GET /activities/day и GET /reminders/{id}).",
+        "description": "Возвращает 404, если питомец не найден или не принадлежит текущему профилю. Возвращает факты, привязанные к питомцу pet_id (в том числе общие с другими питомцами); в каждом событии pets — все видимые питомцы записи. Диапазон from..to не должен превышать 366 дней, иначе 400 VALIDATION_ERROR. from/to и группировка событий по дням — в часовом поясе tz (обязательный параметр). Отдаёт только факты (напоминания читаются через GET /activities/day и GET /reminders/{id}).",
         "tags": [
           "activities-controller"
         ],
@@ -852,7 +852,7 @@
       },
       "patch": {
         "summary": "/event/{id}",
-        "description": "Частичное обновление события — обновляются только переданные поля. Метод назван PATCH в соответствии со своей семантикой (ранее назывался PUT).",
+        "description": "Частичное обновление события — обновляются только переданные поля. Через pet_ids привязываются и отвязываются питомцы (желаемый полный набор видимых питомцев; пустой набор — 400). Метод назван PATCH в соответствии со своей семантикой (ранее назывался PUT).",
         "tags": [
           "event-controller"
         ],
@@ -907,7 +907,7 @@
       },
       "delete": {
         "summary": "/events/{id}",
-        "description": "Удаление события разрешено даже если питомец, к которому оно относится, мягко удалён (в отличие от создания/обновления событий) — это осознанное поведение, полезное для очистки истории после удаления питомца.",
+        "description": "Удаляет событие целиком — у всех привязанных питомцев; отвязка одного питомца выполняется через PATCH /events/{id} с pet_ids. Удаление разрешено даже если питомцы события мягко удалены (в отличие от создания/обновления событий) — это осознанное поведение, полезное для очистки истории после удаления питомцев.",
         "tags": [
           "event-controller"
         ],
@@ -3603,7 +3603,7 @@
       ],
       "post": {
         "summary": "/reminders/{id}/detach",
-        "description": "«Изменить это» с изменением данных или времени: напоминание закрывается без факта (close_reason=replaced), вместо него создаётся новая независимая запись — факт (event) либо новые настройки (plan, source=manual). Питомец новой записи должен совпадать с питомцем напоминания. Для настроек vaccination замена недоступна (409); для medication type обязан совпасть (400). Повтор после успеха возвращает ранее созданную запись вместо 404.",
+        "description": "«Изменить это» с изменением данных или времени: напоминание закрывается без факта (close_reason=replaced), вместо него создаётся новая независимая запись — факт (event) либо новые настройки (plan, source=manual). Набор питомцев новой записи (pet_ids) может отличаться от набора питомцев напоминания: подойдут любые питомцы пользователя, не более 10; для настроек medication — только питомец лекарства. Для настроек vaccination замена недоступна (409); для medication type обязан совпасть (400). Повтор после успеха возвращает ранее созданную запись вместо 404.",
         "tags": [
           "reminder-controller"
         ],
@@ -4051,7 +4051,8 @@
           "date",
           "type",
           "value",
-          "files_count"
+          "files_count",
+          "pets"
         ],
         "properties": {
           "id": {
@@ -4088,6 +4089,15 @@
             "description": "Количество прикреплённых файлов события (0, если файлов нет).",
             "x-stoplight": {
               "id": "f11e0007fc"
+            }
+          },
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "items": {
+              "$ref": "#/components/schemas/EventPetRef"
             }
           }
         }
@@ -4687,17 +4697,21 @@
         },
         "type": "object",
         "required": [
-          "pet_id",
+          "pet_ids",
           "date",
           "type",
           "value"
         ],
         "properties": {
-          "pet_id": {
-            "type": "string",
-            "format": "uuid",
-            "x-stoplight": {
-              "id": "3n1cgz20wehe4"
+          "pet_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца.",
+            "items": {
+              "type": "string",
+              "format": "uuid"
             }
           },
           "date": {
@@ -5033,8 +5047,7 @@
           "date",
           "type",
           "value",
-          "pet_id",
-          "pet_name",
+          "pets",
           "files"
         ],
         "properties": {
@@ -5067,17 +5080,13 @@
               "id": "kfp7x6mgpy200"
             }
           },
-          "pet_id": {
-            "type": "string",
-            "x-stoplight": {
-              "id": "rno7m3v3jk1rx"
-            },
-            "format": "uuid"
-          },
-          "pet_name": {
-            "type": "string",
-            "x-stoplight": {
-              "id": "0djmc9eljuzad"
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "items": {
+              "$ref": "#/components/schemas/EventPetRef"
             }
           },
           "files": {
@@ -5128,13 +5137,17 @@
       "UpdateEventRequest": {
         "title": "UpdateEventRequest",
         "type": "object",
-        "required": [
-          "pet_id"
-        ],
         "properties": {
-          "pet_id": {
-            "type": "string",
-            "format": "uuid"
+          "pet_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Если передан, это желаемый полный набор видимых питомцев записи: отсутствующие в нём питомцы отвязываются (удаляется только связь), новые привязываются; пустой набор — 400. Проверки type/value выполняются по итоговому набору.",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           "date": {
             "type": "string",
@@ -5152,7 +5165,9 @@
             "$ref": "#/components/schemas/EventValue",
             "description": "При PATCH объект value заменяется целиком; слияние вложенных полей не поддерживается."
           }
-        }
+        },
+        "minProperties": 1,
+        "description": "Частичное обновление события; хотя бы одно из date/type/notes/value/pet_ids. Владение проверяется по владельцу записи, а не по питомцу из запроса."
       },
       "ImportLocalDataPet": {
         "title": "ImportLocalDataPet",
@@ -5270,7 +5285,7 @@
         "type": "object",
         "required": [
           "local_id",
-          "pet_local_id",
+          "pet_local_ids",
           "date",
           "type",
           "value"
@@ -5283,11 +5298,14 @@
               "id": "f11e0019loc"
             }
           },
-          "pet_local_id": {
-            "type": "string",
-            "description": "Должен совпадать с одним из pets[].local_id этого же запроса.",
-            "x-stoplight": {
-              "id": "p2mruhk0bjvar"
+          "pet_local_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "От 1 до 10 различных значений; каждое должно совпадать с одним из pets[].local_id этого же запроса. Событие привязывается ко всем перечисленным питомцам.",
+            "items": {
+              "type": "string"
             }
           },
           "date": {
@@ -7281,7 +7299,7 @@
       "ActivitiesDayItem": {
         "title": "ActivitiesDayItem",
         "type": "object",
-        "description": "Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.",
+        "description": "Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pets — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.",
         "required": [
           "item_type",
           "id",
@@ -7289,8 +7307,7 @@
           "type",
           "value",
           "files_count",
-          "pet_id",
-          "pet_name"
+          "pets"
         ],
         "properties": {
           "item_type": {
@@ -7334,12 +7351,14 @@
           "files_count": {
             "type": "integer"
           },
-          "pet_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "pet_name": {
-            "type": "string"
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "items": {
+              "$ref": "#/components/schemas/EventPetRef"
+            }
           }
         }
       },
@@ -7370,7 +7389,7 @@
         "description": "Создание настроек напоминания: данные события (type/value/notes) и расписание. Поля, не относящиеся к выбранному frequency_type, не передаются.",
         "required": [
           "id",
-          "pet_id",
+          "pet_ids",
           "type",
           "value",
           "frequency_type",
@@ -7383,9 +7402,16 @@
             "format": "uuid",
             "description": "Идентификатор настроек, назначается клиентом (UUID v4). Служит ключом идемпотентности создания."
           },
-          "pet_id": {
-            "type": "string",
-            "format": "uuid"
+          "pet_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Для настроек с источником medication и vaccination — ровно один.",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
@@ -7447,7 +7473,7 @@
       "UpdateReminderPlanRequest": {
         "title": "UpdateReminderPlanRequest",
         "type": "object",
-        "description": "Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно. Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).",
+        "description": "Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно (в том числе pet_ids). Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).",
         "properties": {
           "type": {
             "$ref": "#/components/schemas/GetEventEnum",
@@ -7506,6 +7532,17 @@
             "format": "date",
             "nullable": true,
             "description": "Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся."
+          },
+          "pet_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Желаемый полный набор питомцев настроек; принимается только при source=manual (для medication и vaccination — 400). Привязка питомца не создаёт и не пересоздаёт напоминания.",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
@@ -7533,8 +7570,7 @@
         "type": "object",
         "required": [
           "id",
-          "pet_id",
-          "pet_name",
+          "pets",
           "type",
           "value",
           "frequency_type",
@@ -7550,12 +7586,14 @@
             "type": "string",
             "format": "uuid"
           },
-          "pet_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "pet_name": {
-            "type": "string"
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "items": {
+              "$ref": "#/components/schemas/EventPetRef"
+            }
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
@@ -7656,8 +7694,7 @@
           "remind_at",
           "type",
           "value",
-          "pet_id",
-          "pet_name",
+          "pets",
           "plan_source",
           "plan_files",
           "files",
@@ -7687,12 +7724,14 @@
             "nullable": true,
             "description": "Собственная заметка напоминания, а при её отсутствии — заметка настроек."
           },
-          "pet_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "pet_name": {
-            "type": "string"
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "items": {
+              "$ref": "#/components/schemas/EventPetRef"
+            }
           },
           "plan_source": {
             "$ref": "#/components/schemas/ReminderSourceEnum"
@@ -7785,8 +7824,7 @@
           "id",
           "plan_id",
           "remind_at",
-          "pet_id",
-          "pet_name",
+          "pets",
           "type"
         ],
         "properties": {
@@ -7802,12 +7840,14 @@
             "type": "string",
             "format": "date-time"
           },
-          "pet_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "pet_name": {
-            "type": "string"
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "items": {
+              "$ref": "#/components/schemas/EventPetRef"
+            }
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
@@ -7876,7 +7916,7 @@
         "type": "object",
         "required": [
           "local_id",
-          "pet_local_id",
+          "pet_local_ids",
           "type",
           "value",
           "frequency_type",
@@ -7890,9 +7930,15 @@
             "type": "string",
             "description": "Клиентский UUID настроек в локальном хранилище; временный ключ ссылки внутри запроса и ключ соответствия в ответе, не сохраняется."
           },
-          "pet_local_id": {
-            "type": "string",
-            "description": "Должен совпадать с одним из pets[].local_id этого же запроса."
+          "pet_local_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "description": "От 1 до 10 различных значений; каждое должно совпадать с одним из pets[].local_id этого же запроса. Для настроек, связанных с лекарством или вакцинацией, — ровно одно значение.",
+            "items": {
+              "type": "string"
+            }
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
@@ -8025,6 +8071,24 @@
             "items": {
               "$ref": "#/components/schemas/ImportedReminder"
             }
+          }
+        }
+      },
+      "EventPetRef": {
+        "title": "EventPetRef",
+        "type": "object",
+        "description": "Питомец, к которому привязана запись (событие или настройки напоминания).",
+        "required": [
+          "pet_id",
+          "pet_name"
+        ],
+        "properties": {
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string"
           }
         }
       }

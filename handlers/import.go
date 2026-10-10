@@ -81,17 +81,56 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 	return ""
 }
 
+// validateImportPetLocalIDs проверяет форму pet_local_ids элемента событий
+// либо настроек напоминания: от 1 до 10 различных непустых значений.
+// Принадлежность значений питомцам запроса проверяется отдельно, после того
+// как собран набор local_id всех питомцев запроса. owner — родительный
+// падеж вида элемента для сообщения.
+func validateImportPetLocalIDs(petLocalIDs []string, owner string) string {
+	if len(petLocalIDs) == 0 {
+		return "Поле pet_local_ids обязательно для " + owner + " и должно содержать от 1 до 10 питомцев"
+	}
+	if len(petLocalIDs) > models.MaxEventPets {
+		return "Поле pet_local_ids " + owner + " не должно содержать более 10 питомцев"
+	}
+	seen := make(map[string]bool, len(petLocalIDs))
+	for _, id := range petLocalIDs {
+		if strings.TrimSpace(id) == "" {
+			return "Поле pet_local_ids " + owner + " содержит пустое значение"
+		}
+		if seen[id] {
+			return "Поле pet_local_ids " + owner + " не должно содержать повторяющихся значений"
+		}
+		seen[id] = true
+	}
+	return ""
+}
+
+// importPetsForLocalIDs возвращает питомцев запроса, на которых ссылается
+// pet_local_ids, в виде, пригодном для проверки применимости типа события.
+// Значения вне petSpecies пропускаются — их отсутствие ловит проверка
+// принадлежности.
+func importPetsForLocalIDs(petLocalIDs []string, petSpecies map[string]string) []database.LinkedPet {
+	pets := make([]database.LinkedPet, 0, len(petLocalIDs))
+	for _, id := range petLocalIDs {
+		if species, ok := petSpecies[id]; ok {
+			pets = append(pets, database.LinkedPet{Species: species})
+		}
+	}
+	return pets
+}
+
 // validateImportEvent провалидирует один элемент events[] теми же
 // правилами, что и POST /events (см. CreateEventHandler), кроме проверки
-// pet_local_id — она выполняется отдельно, после того как собран набор
-// local_id всех питомцев запроса.
+// pet_local_ids по набору питомцев запроса и применимости типа к их видам —
+// они выполняются отдельно, после того как собран набор питомцев запроса.
 func validateImportEvent(event models.ImportLocalDataEvent) string {
 	if strings.TrimSpace(event.LocalID) == "" {
 		return "Поле local_id обязательно для каждого события"
 	}
 
-	if strings.TrimSpace(event.PetLocalID) == "" {
-		return "Поле pet_local_id обязательно для каждого события"
+	if msg := validateImportPetLocalIDs(event.PetLocalIDs, "события"); msg != "" {
+		return msg
 	}
 
 	if event.Date == "" || event.Type == "" || len(event.Value) == 0 {
@@ -213,14 +252,14 @@ func validateImportMedication(m models.ImportMedication) string {
 // теми же правилами, что POST /reminder-plans (type, value, notes,
 // расписание, tz), кроме правила «в расписании есть будущий момент»: между
 // созданием локального напоминания и переносом момент мог пройти. Расписание
-// при переносе не пересчитывается, поэтому потолок 60 не применяется. Ссылка
-// pet_local_id проверяется отдельно.
+// при переносе не пересчитывается, поэтому потолок 60 не применяется. Ссылки
+// pet_local_ids проверяются по набору питомцев запроса отдельно.
 func validateImportReminderPlan(plan models.ImportReminderPlan) string {
 	if strings.TrimSpace(plan.LocalID) == "" {
 		return "Поле local_id обязательно для каждых настроек напоминания"
 	}
-	if strings.TrimSpace(plan.PetLocalID) == "" {
-		return "Поле pet_local_id обязательно для каждых настроек напоминания"
+	if msg := validateImportPetLocalIDs(plan.PetLocalIDs, "настроек напоминания"); msg != "" {
+		return msg
 	}
 	if plan.Type == "" || len(plan.Value) == 0 || plan.FrequencyType == "" || plan.StartDate == "" {
 		return "Обязательные поля настроек напоминания не заполнены"
@@ -316,6 +355,7 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	localIDs := make(map[string]bool, len(req.Pets))
+	petSpecies := make(map[string]string, len(req.Pets))
 	for _, pet := range req.Pets {
 		if msg := validateImportPet(pet); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -326,6 +366,7 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		localIDs[pet.LocalID] = true
+		petSpecies[pet.LocalID] = pet.Species
 	}
 
 	eventLocalIDs := make(map[string]bool, len(req.Events))
@@ -334,8 +375,14 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
-		if !localIDs[event.PetLocalID] {
-			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id не совпадает ни с одним local_id питомцев запроса")
+		for _, petLocalID := range event.PetLocalIDs {
+			if !localIDs[petLocalID] {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_ids не совпадает ни с одним local_id питомцев запроса")
+				return
+			}
+		}
+		if msg := validateEventForPets(event.Type, event.Value, importPetsForLocalIDs(event.PetLocalIDs, petSpecies)); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
 		if eventLocalIDs[event.LocalID] {
@@ -352,8 +399,14 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
-		if !localIDs[plan.PetLocalID] {
-			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_id настроек напоминания не совпадает ни с одним local_id питомцев запроса")
+		for _, petLocalID := range plan.PetLocalIDs {
+			if !localIDs[petLocalID] {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле pet_local_ids настроек напоминания не совпадает ни с одним local_id питомцев запроса")
+				return
+			}
+		}
+		if msg := validateEventForPets(plan.Type, plan.Value, importPetsForLocalIDs(plan.PetLocalIDs, petSpecies)); msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 			return
 		}
 		if _, exists := planLocalIDs[plan.LocalID]; exists {
@@ -411,6 +464,10 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if plan.FrequencyType != models.ReminderFrequencyOnce {
 				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Настройки напоминания вакцинации должны иметь вид частоты once")
+				return
+			}
+			if len(plan.PetLocalIDs) != 1 {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Настройки напоминания вакцинации привязываются ровно к одному питомцу")
 				return
 			}
 			if planReferences[plan.LocalID] {
@@ -500,6 +557,10 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			if plan.FrequencyType == models.ReminderFrequencyOnce || plan.Type != "medication" {
 				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Настройки напоминания лекарства не могут быть разовыми и должны иметь type=medication")
+				return
+			}
+			if len(plan.PetLocalIDs) != 1 {
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Настройки напоминания лекарства привязываются ровно к одному питомцу")
 				return
 			}
 			if planReferences[plan.LocalID] {

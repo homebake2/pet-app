@@ -246,3 +246,25 @@ func TestIsFieldValueApplicableToSpecies(t *testing.T) {
 		}
 	}
 }
+
+// Измерительные типы привязываются ровно к одному питомцу, остальные типы
+// допускают несколько питомцев; пересечение применимости не бывает пустым,
+// потому что feeding/medication/hygiene/other применимы ко всем видам.
+func TestAllowsMultiplePets(t *testing.T) {
+	measurement := map[string]bool{"weight": true, "temperature": true, "water_quality": true}
+	for _, eventType := range Types() {
+		want := !measurement[eventType]
+		if got := AllowsMultiplePets(eventType); got != want {
+			t.Errorf("AllowsMultiplePets(%q) = %v, ожидалось %v", eventType, got, want)
+		}
+	}
+	if AllowsMultiplePets("unknown") {
+		t.Error("тип вне реестра не должен допускать несколько питомцев")
+	}
+	for _, eventType := range []string{"feeding", "medication", "hygiene", "other"} {
+		spec, _ := Spec(eventType)
+		if spec.ApplicableSpecies != nil {
+			t.Errorf("тип %q должен быть применим ко всем видам", eventType)
+		}
+	}
+}

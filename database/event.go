@@ -13,34 +13,49 @@ import (
 	"github.com/google/uuid"
 )
 
-// InsertEvent - функция создания нового ивента для питомца. idempotencyKey
-// пустая строка означает "заголовок Idempotency-Key не передан" (NULL в БД).
-func InsertEvent(petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
-	return insertEventWith(DB, petID, req, idempotencyKey)
+// EventFull — событие вместе с его видимыми (не мягко удалёнными)
+// питомцами. Запись одна на всех питомцев; у записи без видимых питомцев
+// список Pets пуст.
+type EventFull struct {
+	Event models.EventDB
+	Pets  []LinkedPet
 }
 
-// insertEventWith — то же самое, что InsertEvent, но принимает произвольный
-// dbExecutor: используется как для обычных запросов (DB), так и внутри
-// транзакции переноса локальных данных (см. ImportLocalData).
-func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
+// InsertEvent — InsertEventWith в собственной транзакции: строка event и
+// связи event_pet создаются атомарно.
+func InsertEvent(userID string, petIDs []uuid.UUID, fields models.EventFields, idempotencyKey string) (uuid.UUID, error) {
+	var eventID uuid.UUID
+	err := RunInTx(func(tx *sql.Tx) error {
+		id, err := InsertEventWith(tx, userID, petIDs, fields, idempotencyKey)
+		eventID = id
+		return err
+	})
+	return eventID, err
+}
+
+// InsertEventWith вставляет одно событие владельца userID и по одной связи
+// event_pet на каждого питомца из petIDs (в порядке petIDs). Выполняется на
+// произвольном dbExecutor: внутри транзакции событие создаётся вместе с
+// другими записями (отметка напоминания «выполнено», замена напоминания,
+// вакцинация, перенос локальных данных). idempotencyKey — пустая строка
+// означает «заголовок Idempotency-Key не передан» (NULL в БД).
+func InsertEventWith(exec dbExecutor, userID string, petIDs []uuid.UUID, fields models.EventFields, idempotencyKey string) (uuid.UUID, error) {
 	query := `
         INSERT INTO event (
-            pet_id, date_time, type, notes, value, idempotency_key
+            user_id, date_time, type, notes, value, idempotency_key
         ) VALUES (
             $1, $2, $3, $4, $5, $6
         ) RETURNING id
     `
 
-	dateTime, err := time.Parse(time.RFC3339, req.Date)
+	dateTime, err := time.Parse(time.RFC3339, fields.Date)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
 	var notes sql.NullString
-	if req.Notes != nil {
-		notes = sql.NullString{String: *req.Notes, Valid: true}
-	} else {
-		notes = sql.NullString{Valid: false}
+	if fields.Notes != nil {
+		notes = sql.NullString{String: *fields.Notes, Valid: true}
 	}
 
 	var key sql.NullString
@@ -51,80 +66,105 @@ func insertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventReq
 	var eventID uuid.UUID
 	// value передаётся строкой: столбец event.value имеет тип jsonb, а
 	// []byte драйвер закодировал бы как bytea.
-	err = exec.QueryRow(query, petID, dateTime, req.Type, notes, string(req.Value), key).Scan(&eventID)
+	err = exec.QueryRow(query, userID, dateTime, fields.Type, notes, string(fields.Value), key).Scan(&eventID)
 	if err != nil {
 		log.Println("InsertEvent error:", err)
+		return uuid.Nil, err
+	}
+
+	if err := eventPetLinks.insert(exec, eventID, petIDs); err != nil {
+		log.Println("InsertEvent pets error:", err)
 		return uuid.Nil, err
 	}
 
 	return eventID, nil
 }
 
-// InsertEventWith — InsertEvent на произвольном dbExecutor: используется
-// внутри транзакций, где факт создаётся вместе с другими записями (отметка
-// напоминания «выполнено», замена напоминания, вакцинация).
-func InsertEventWith(exec dbExecutor, petID uuid.UUID, req models.CreateEventRequest, idempotencyKey string) (uuid.UUID, error) {
-	return insertEventWith(exec, petID, req, idempotencyKey)
-}
+const eventColumns = `e.id, e.user_id, e.date_time, e.type, e.notes, e.value`
 
-// GetEventByPetIDAndIdempotencyKey ищет неудалённое событие питомца по
-// ранее использованному Idempotency-Key (см. страницу "Добавление события —
-// Backend"). Возвращает sql.ErrNoRows, если такого события нет.
-func GetEventByPetIDAndIdempotencyKey(petID uuid.UUID, idempotencyKey string) (*models.EventDB, uuid.UUID, string, error) {
-	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
-	FROM event e
-	JOIN pet p ON e.pet_id = p.id
-	WHERE e.pet_id = $1 AND e.idempotency_key = $2
-	`
-
-	var eventDB models.EventDB
-	var petName string
-
-	err := DB.QueryRow(query, petID, idempotencyKey).Scan(
-		&eventDB.ID,
-		&eventDB.PetID,
-		&eventDB.Date,
-		&eventDB.Type,
-		&eventDB.Notes,
-		&eventDB.Value,
-		&petName,
-	)
-
-	if err != nil {
-		return nil, uuid.Nil, "", err
+func scanEventRows(rows *sql.Rows) ([]models.EventDB, error) {
+	defer rows.Close()
+	var events []models.EventDB
+	for rows.Next() {
+		var eventDB models.EventDB
+		if err := rows.Scan(&eventDB.ID, &eventDB.UserID, &eventDB.Date, &eventDB.Type, &eventDB.Notes, &eventDB.Value); err != nil {
+			return nil, err
+		}
+		events = append(events, eventDB)
 	}
-
-	return &eventDB, eventDB.PetID, petName, nil
+	return events, rows.Err()
 }
 
-// GetEventByID - получить событие по ID и информацию о питомце
-func GetEventByID(eventID uuid.UUID) (*models.EventDB, uuid.UUID, string, error) {
-	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+// withEventPets дополняет события их видимыми питомцами одним запросом.
+func withEventPets(exec dbExecutor, events []models.EventDB) ([]EventFull, error) {
+	ids := make([]uuid.UUID, len(events))
+	for i, e := range events {
+		ids[i] = e.ID
+	}
+	pets, err := eventPetLinks.visiblePets(exec, ids)
+	if err != nil {
+		return nil, err
+	}
+	full := make([]EventFull, len(events))
+	for i, e := range events {
+		full[i] = EventFull{Event: e, Pets: pets[e.ID]}
+	}
+	return full, nil
+}
+
+// getEventFullOne читает единственное событие запросом query (колонки —
+// eventColumns) и дополняет его видимыми питомцами. sql.ErrNoRows — строки
+// нет.
+func getEventFullOne(exec dbExecutor, query string, args ...any) (*EventFull, error) {
+	var eventDB models.EventDB
+	err := exec.QueryRow(query, args...).Scan(&eventDB.ID, &eventDB.UserID, &eventDB.Date, &eventDB.Type, &eventDB.Notes, &eventDB.Value)
+	if err != nil {
+		return nil, err
+	}
+	full, err := withEventPets(exec, []models.EventDB{eventDB})
+	if err != nil {
+		return nil, err
+	}
+	return &full[0], nil
+}
+
+// GetEventByUserIDAndIdempotencyKey ищет событие пользователя по ранее
+// использованному Idempotency-Key (см. страницу "Добавление события —
+// Backend"). Мягко удалённое событие не освобождает ключ. Возвращает
+// sql.ErrNoRows, если такого события нет.
+func GetEventByUserIDAndIdempotencyKey(userID string, idempotencyKey string) (*EventFull, error) {
+	return getEventFullOne(DB, `
+	SELECT `+eventColumns+`
 	FROM event e
-	JOIN pet p ON e.pet_id = p.id
+	WHERE e.user_id = $1 AND e.idempotency_key = $2
+	`, userID, idempotencyKey)
+}
+
+// GetEventFullByID возвращает неудалённое событие по id вместе с видимыми
+// питомцами независимо от владельца (для чтения только что созданной записи).
+func GetEventFullByID(eventID uuid.UUID) (*EventFull, error) {
+	return getEventFullOne(DB, `
+	SELECT `+eventColumns+`
+	FROM event e
 	WHERE e.id = $1 AND e.deleted_at IS NULL
-	`
+	`, eventID)
+}
 
-	var eventDB models.EventDB
-	var petName string
-
-	err := DB.QueryRow(query, eventID).Scan(
-		&eventDB.ID,
-		&eventDB.PetID,
-		&eventDB.Date,
-		&eventDB.Type,
-		&eventDB.Notes,
-		&eventDB.Value,
-		&petName,
-	)
-
-	if err != nil {
-		return nil, uuid.Nil, "", err
+// GetEventForUserWith возвращает неудалённое событие, принадлежащее userID
+// (event.user_id), вместе с его видимыми питомцами. Видимых питомцев может
+// не быть — требовать их наличия или нет, решает вызывающий (удаление
+// события не требует, чтение и изменение — требуют). lock=true блокирует
+// строку события до конца транзакции. sql.ErrNoRows — события нет, оно
+// удалено либо чужое.
+func GetEventForUserWith(exec dbExecutor, eventID uuid.UUID, userID string, lock bool) (*EventFull, error) {
+	query := `
+	SELECT ` + eventColumns + `
+	FROM event e
+	WHERE e.id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL`
+	if lock {
+		query += ` FOR UPDATE OF e`
 	}
-
-	return &eventDB, eventDB.PetID, petName, nil
+	return getEventFullOne(exec, query, eventID, userID)
 }
 
 // UpdateEvent - функция обновления события
@@ -183,30 +223,26 @@ func UpdateEventWith(exec dbExecutor, eventID uuid.UUID, dateTime *time.Time, ev
 	return nil
 }
 
-// GetEventByIDForUpdate - получить событие по ID для обновления
-func GetEventByIDForUpdate(eventID uuid.UUID) (*models.EventDB, error) {
-	return GetEventByIDForUpdateWith(DB, eventID)
-}
-
-// GetEventByIDForUpdateWith — GetEventByIDForUpdate на произвольном
-// dbExecutor (внутри транзакции).
+// GetEventByIDForUpdateWith — получить неудалённое событие по id (без
+// проверки владельца и питомцев) на произвольном dbExecutor, в том числе
+// внутри транзакции: используется для события, на которое ссылается
+// вакцинация.
 func GetEventByIDForUpdateWith(exec dbExecutor, eventID uuid.UUID) (*models.EventDB, error) {
 	query := `
-	SELECT id, pet_id, date_time, type, notes, value
-	FROM event
-	WHERE id = $1 AND deleted_at IS NULL
+	SELECT ` + eventColumns + `
+	FROM event e
+	WHERE e.id = $1 AND e.deleted_at IS NULL
 	`
 
 	var eventDB models.EventDB
 	err := exec.QueryRow(query, eventID).Scan(
 		&eventDB.ID,
-		&eventDB.PetID,
+		&eventDB.UserID,
 		&eventDB.Date,
 		&eventDB.Type,
 		&eventDB.Notes,
 		&eventDB.Value,
 	)
-
 	if err != nil {
 		return nil, err
 	}
@@ -242,67 +278,48 @@ func DeleteEventWith(exec dbExecutor, eventID uuid.UUID) error {
 	return nil
 }
 
-// GetEventsByPetIDAndDateRange - получить все неудалённые события питомца,
-// чей date_time попадает в полуоткрытый интервал моментов времени
-// [start, end). Границы уже вычислены вызывающим кодом из календарных дат в
-// часовом поясе клиента (см. handlers.localDaysBounds и страницу "Просмотр
-// календаря — Backend").
-func GetEventsByPetIDAndDateRange(petID uuid.UUID, start, end time.Time) ([]models.EventDB, error) {
+// GetEventsByPetIDAndDateRange - получить все неудалённые события, привязанные
+// к питомцу (через event_pet, в том числе общие с другими питомцами), чей
+// date_time попадает в полуоткрытый интервал моментов времени [start, end).
+// Границы уже вычислены вызывающим кодом из календарных дат в часовом поясе
+// клиента (см. handlers.localDaysBounds и страницу "Просмотр календаря —
+// Backend"). В каждом событии отдаются все его видимые питомцы.
+func GetEventsByPetIDAndDateRange(petID uuid.UUID, start, end time.Time) ([]EventFull, error) {
 	query := `
-	SELECT id, pet_id, date_time, type, notes, value
-	FROM event
-	WHERE pet_id = $1
-	AND deleted_at IS NULL
-	AND date_time >= $2
-	AND date_time < $3
-	ORDER BY date_time
+	SELECT ` + eventColumns + `
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	AND e.deleted_at IS NULL
+	AND e.date_time >= $2
+	AND e.date_time < $3
+	ORDER BY e.date_time, e.id
 	`
 	rows, err := DB.Query(query, petID, start.UTC(), end.UTC())
 	if err != nil {
 		log.Println("GetEventsByPetIDAndDateRange error:", err)
 		return nil, err
 	}
-	defer rows.Close()
-
-	var events []models.EventDB
-	for rows.Next() {
-		var eventDB models.EventDB
-		err := rows.Scan(
-			&eventDB.ID,
-			&eventDB.PetID,
-			&eventDB.Date,
-			&eventDB.Type,
-			&eventDB.Notes,
-			&eventDB.Value,
-		)
-		if err != nil {
-			log.Println("GetEventsByPetIDAndDateRange scan error:", err)
-			return nil, err
-		}
-		events = append(events, eventDB)
-	}
-
-	if err := rows.Err(); err != nil {
-		log.Println("GetEventsByPetIDAndDateRange rows error:", err)
+	events, err := scanEventRows(rows)
+	if err != nil {
+		log.Println("GetEventsByPetIDAndDateRange scan error:", err)
 		return nil, err
 	}
-
-	return events, nil
+	return withEventPets(DB, events)
 }
 
 // CheckEventFileOwnership проверяет владение событием по правилу,
 // зарегистрированному для owner_type = "event_file" в реестре типов
 // владельцев generic-механизма файлов сущностей (см. handlers/files.go,
-// «Файлы события — Backend»): событие не мягко удалено и принадлежит
-// (через pet_id) не мягко удалённому питомцу userID — то же правило, что и
-// при создании/редактировании события (в отличие от удаления самого
-// события, где мягко удалённый питомец операцию не блокирует).
+// «Файлы события — Backend»): событие не мягко удалено, принадлежит userID
+// (event.user_id) и имеет хотя бы одного не мягко удалённого питомца — то же
+// правило, что и при создании/редактировании события (в отличие от удаления
+// самого события, где мягко удалённые питомцы операцию не блокируют).
 func CheckEventFileOwnership(eventID uuid.UUID, userID string) (bool, error) {
 	query := `
 	SELECT COUNT(1) FROM event
-	WHERE id = $1 AND deleted_at IS NULL
-	AND EXISTS (SELECT 1 FROM pet WHERE pet.id = event.pet_id AND pet.user_id = $2 AND pet.deleted_at IS NULL)
-	`
+	WHERE id = $1 AND deleted_at IS NULL AND user_id = $2
+	AND ` + eventPetLinks.visibleExistsClause("event", "id")
 	var count int
 	err := DB.QueryRow(query, eventID, userID).Scan(&count)
 	if err != nil {
@@ -311,34 +328,25 @@ func CheckEventFileOwnership(eventID uuid.UUID, userID string) (bool, error) {
 	return count == 1, nil
 }
 
-// EventWithPet — строка события вместе с именем его питомца, используется
-// эндпоинтами, отдающими события разных питомцев одним списком
-// (GET /activities/day, см. «Просмотр календаря — Backend»).
-type EventWithPet struct {
-	Event   models.EventDB
-	PetName string
-}
-
 // CountEventsByUserIDGroupedByDay возвращает количество неудалённых событий
-// (фактов) всех неудалённых питомцев userID, чей date_time попадает в
-// полуоткрытый интервал [start, end), сгруппированное по календарному дню
-// события в часовом поясе loc (YYYY-MM-DD) — см. «Просмотр календаря —
-// Backend», GET /activities/calendar. Группировка выполняется в Go, а не
-// через AT TIME ZONE в SQL: так часовой пояс интерпретируется одной и той же
-// базой tzdata, которой он был провалидирован (time.LoadLocation). Дни без
+// (фактов) userID, у которых есть хотя бы один не мягко удалённый питомец и
+// чей date_time попадает в полуоткрытый интервал [start, end), сгруппированное
+// по календарному дню события в часовом поясе loc (YYYY-MM-DD) — см.
+// «Просмотр календаря — Backend», GET /activities/calendar. Событие с
+// несколькими питомцами считается один раз. Группировка выполняется в Go, а
+// не через AT TIME ZONE в SQL: так часовой пояс интерпретируется одной и той
+// же базой tzdata, которой он был провалидирован (time.LoadLocation). Дни без
 // событий отсутствуют в результирующей map — вызывающий код достраивает
 // диапазон нулями.
 func CountEventsByUserIDGroupedByDay(userID string, start, end time.Time, loc *time.Location) (map[string]int, error) {
 	query := `
 	SELECT e.date_time
 	FROM event e
-	JOIN pet p ON e.pet_id = p.id
-	WHERE p.user_id = $1
-	AND p.deleted_at IS NULL
+	WHERE e.user_id = $1
 	AND e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
-	`
+	AND ` + eventPetLinks.visibleExistsClause("e", "id")
 	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
 	if err != nil {
 		log.Println("CountEventsByUserIDGroupedByDay error:", err)
@@ -361,22 +369,22 @@ func CountEventsByUserIDGroupedByDay(userID string, start, end time.Time, loc *t
 	return result, nil
 }
 
-// GetEventsByUserIDInRange возвращает все неудалённые события всех
-// неудалённых питомцев userID, чей date_time попадает в полуоткрытый
-// интервал [start, end) — для GET /activities/day это границы одних
-// локальных суток клиента (см. handlers.localDaysBounds), — отсортированные
-// по date_time, затем по id по возрастанию — см. «Просмотр календаря —
-// Backend», GET /activities/day.
-func GetEventsByUserIDInRange(userID string, start, end time.Time) ([]EventWithPet, error) {
+// GetEventsByUserIDInRange возвращает все неудалённые события userID, у
+// которых есть хотя бы один не мягко удалённый питомец и чей date_time
+// попадает в полуоткрытый интервал [start, end) — для GET /activities/day это
+// границы одних локальных суток клиента (см. handlers.localDaysBounds), —
+// отсортированные по date_time, затем по id по возрастанию — см.
+// «Просмотр календаря — Backend», GET /activities/day. Событие с несколькими
+// питомцами присутствует один раз, со всеми видимыми питомцами.
+func GetEventsByUserIDInRange(userID string, start, end time.Time) ([]EventFull, error) {
 	query := `
-	SELECT e.id, e.pet_id, e.date_time, e.type, e.notes, e.value, p.name
+	SELECT ` + eventColumns + `
 	FROM event e
-	JOIN pet p ON e.pet_id = p.id
-	WHERE p.user_id = $1
-	AND p.deleted_at IS NULL
+	WHERE e.user_id = $1
 	AND e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
+	AND ` + eventPetLinks.visibleExistsClause("e", "id") + `
 	ORDER BY e.date_time ASC, e.id ASC
 	`
 	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
@@ -384,47 +392,40 @@ func GetEventsByUserIDInRange(userID string, start, end time.Time) ([]EventWithP
 		log.Println("GetEventsByUserIDInRange error:", err)
 		return nil, err
 	}
-	defer rows.Close()
-
-	var events []EventWithPet
-	for rows.Next() {
-		var e EventWithPet
-		if err := rows.Scan(&e.Event.ID, &e.Event.PetID, &e.Event.Date, &e.Event.Type, &e.Event.Notes, &e.Event.Value, &e.PetName); err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	if err := rows.Err(); err != nil {
+	events, err := scanEventRows(rows)
+	if err != nil {
 		return nil, err
 	}
-
-	return events, nil
+	return withEventPets(DB, events)
 }
 
 // escapeLikePattern экранирует спецсимволы LIKE/ILIKE (%, _ и сам escape-
 // символ \) в пользовательском вводе, чтобы его можно было безопасно
-// подставить в шаблон 'ESCAPE '\”\”'\”' — иначе значения search вроде "50%"
+// подставить в шаблон 'ESCAPE '\” — иначе значения search вроде "50%"
 // или "a_b" трактовались бы как wildcard-маски, а не как буквальная подстрока.
 func escapeLikePattern(s string) string {
 	replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 	return replacer.Replace(s)
 }
 
-// GetEventsByPetID - получить события питомца, отсортированные по date_time
-// по убыванию (сначала последние), с пагинацией limit/offset и опциональным
-// полнотекстовым фильтром search (см. "/pet/{id}/events" в open-api/spec.json):
-// при непустом search в выборку попадают только события, у которых notes,
-// либо (для типов с собственным свободнотекстовым подполем) value->>'label'
-// (тип other) или value->>'name' (тип medication) содержат search
-// (регистронезависимо). Пустая строка/её отсутствие — фильтр не применяется.
-func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]models.EventDB, error) {
+// GetEventsByPetID - получить события, привязанные к питомцу (через
+// event_pet), отсортированные по date_time по убыванию (сначала последние), с
+// пагинацией limit/offset и опциональным полнотекстовым фильтром search (см.
+// "/pet/{id}/events" в open-api/spec.json): при непустом search в выборку
+// попадают только события, у которых notes, либо (для типов с собственным
+// свободнотекстовым подполем) value->>'label' (тип other) или value->>'name'
+// (тип medication) содержат search (регистронезависимо). Пустая
+// строка/её отсутствие — фильтр не применяется. В каждом событии отдаются все
+// его видимые питомцы.
+func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]EventFull, error) {
 	query := `
-	SELECT id, pet_id, date_time, type, notes, value
-	FROM event
-	WHERE pet_id = $1
-	AND deleted_at IS NULL
+	SELECT ` + eventColumns + `
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	AND e.deleted_at IS NULL
 	` + petEventsSearchClause(search, 4) + `
-	ORDER BY date_time DESC
+	ORDER BY e.date_time DESC, e.id DESC
 	LIMIT $2 OFFSET $3
 	`
 	args := petEventsQueryArgs(petID, limit, offset, search)
@@ -434,34 +435,24 @@ func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]mode
 		log.Println("GetEventsByPetID error:", err)
 		return nil, err
 	}
-	defer rows.Close()
-
-	var events []models.EventDB
-	for rows.Next() {
-		var eventDB models.EventDB
-		if err := rows.Scan(&eventDB.ID, &eventDB.PetID, &eventDB.Date, &eventDB.Type, &eventDB.Notes, &eventDB.Value); err != nil {
-			return nil, err
-		}
-		events = append(events, eventDB)
-	}
-
-	if err := rows.Err(); err != nil {
+	events, err := scanEventRows(rows)
+	if err != nil {
 		return nil, err
 	}
-
-	return events, nil
+	return withEventPets(DB, events)
 }
 
-// CountEventsByPetID возвращает общее количество неудалённых событий
-// питомца, подходящих под тот же search-фильтр, что и GetEventsByPetID, без
-// учёта limit/offset — используется для поля total в ответе
-// GET /pet/{id}/events.
+// CountEventsByPetID возвращает общее количество неудалённых событий,
+// привязанных к питомцу, подходящих под тот же search-фильтр, что и
+// GetEventsByPetID, без учёта limit/offset — используется для поля total в
+// ответе GET /pet/{id}/events.
 func CountEventsByPetID(petID uuid.UUID, search string) (int, error) {
 	query := `
 	SELECT COUNT(*)
-	FROM event
-	WHERE pet_id = $1
-	AND deleted_at IS NULL
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	AND e.deleted_at IS NULL
 	` + petEventsSearchClause(search, 2)
 
 	args := []any{petID}
@@ -489,9 +480,9 @@ func petEventsSearchClause(search string, placeholderIdx int) string {
 	}
 	placeholder := fmt.Sprintf("$%d", placeholderIdx)
 	return `AND (
-		notes ILIKE ` + placeholder + ` ESCAPE '\' OR
-		value ->> 'label' ILIKE ` + placeholder + ` ESCAPE '\' OR
-		value ->> 'name' ILIKE ` + placeholder + ` ESCAPE '\'
+		e.notes ILIKE ` + placeholder + ` ESCAPE '\' OR
+		e.value ->> 'label' ILIKE ` + placeholder + ` ESCAPE '\' OR
+		e.value ->> 'name' ILIKE ` + placeholder + ` ESCAPE '\'
 	)`
 }
 

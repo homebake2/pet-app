@@ -28,44 +28,73 @@ const (
 	PetGroupSizeMax        = 10000
 )
 
+// MaxEventPets — потолок числа питомцев одной записи (события или настроек
+// напоминания).
+const MaxEventPets = 10
+
 // CreateEventRequest — тело запроса POST /events. Value — типизированный
 // объект, форма которого определяется Type (см. пакет eventreg); хранится и
-// передаётся как сырой JSON, чтобы одна и та же структура обслуживала все 14
-// типов события без ветвления по типу в моделях.
+// передаётся как сырой JSON, чтобы одна и та же структура обслуживала все
+// типы события без ветвления по типу в моделях. PetIDs — от 1 до 10
+// различных питомцев пользователя: запись одна на всех.
 type CreateEventRequest struct {
-	PetID string          `json:"pet_id"`          // обязательный
-	Date  string          `json:"date"`            // обязательный
-	Type  string          `json:"type"`            // обязательный
-	Notes *string         `json:"notes,omitempty"` // необязательный
-	Value json.RawMessage `json:"value"`           // обязательный
+	PetIDs []string        `json:"pet_ids"`         // обязательный
+	Date   string          `json:"date"`            // обязательный
+	Type   string          `json:"type"`            // обязательный
+	Notes  *string         `json:"notes,omitempty"` // необязательный
+	Value  json.RawMessage `json:"value"`           // обязательный
+}
+
+// EventFields — общие поля факта, не зависящие от набора питомцев; именно
+// они вставляются в строку event.
+type EventFields struct {
+	Date  string
+	Type  string
+	Notes *string
+	Value json.RawMessage
+}
+
+// Fields возвращает общие поля запроса создания события.
+func (r CreateEventRequest) Fields() EventFields {
+	return EventFields{Date: r.Date, Type: r.Type, Notes: r.Notes, Value: r.Value}
 }
 
 // UpdateEventRequest — тело запроса PATCH /events/{id}. Value заменяется
-// целиком; слияние вложенных полей объекта не поддерживается.
+// целиком; слияние вложенных полей объекта не поддерживается. PetIDs — если
+// передан, желаемый полный набор видимых питомцев события (привязка и
+// отвязка).
 type UpdateEventRequest struct {
-	PetID string           `json:"pet_id"`          // обязательный
-	Date  *string          `json:"date,omitempty"`  // необязательный
-	Type  *string          `json:"type,omitempty"`  // необязательный
-	Notes *string          `json:"notes,omitempty"` // необязательный
-	Value *json.RawMessage `json:"value,omitempty"` // необязательный
+	PetIDs *[]string        `json:"pet_ids,omitempty"` // необязательный
+	Date   *string          `json:"date,omitempty"`    // необязательный
+	Type   *string          `json:"type,omitempty"`    // необязательный
+	Notes  *string          `json:"notes,omitempty"`   // необязательный
+	Value  *json.RawMessage `json:"value,omitempty"`   // необязательный
+}
+
+// EventPetRef — питомец записи в ответах API (EventPetRef в спецификации).
+type EventPetRef struct {
+	PetID   string `json:"pet_id"`
+	PetName string `json:"pet_name"`
 }
 
 type EventResponse struct {
-	ID      string          `json:"id"`
-	Date    string          `json:"date"`
-	Type    string          `json:"type"`
-	Value   json.RawMessage `json:"value"`
-	Notes   *string         `json:"notes,omitempty"`
-	PetID   string          `json:"pet_id"`
-	PetName string          `json:"pet_name"`
+	ID    string          `json:"id"`
+	Date  string          `json:"date"`
+	Type  string          `json:"type"`
+	Value json.RawMessage `json:"value"`
+	Notes *string         `json:"notes,omitempty"`
+	// Pets — видимые (не мягко удалённые) питомцы события.
+	Pets []EventPetRef `json:"pets"`
 	// Files — прикреплённые файлы события (фото и документы), в порядке
 	// position, не более 10 элементов (см. «Файлы события — Backend»).
 	Files []EventFileItem `json:"files"`
 }
 
+// EventDB — строка event. Питомцы события хранятся в event_pet и читаются
+// отдельно.
 type EventDB struct {
 	ID        uuid.UUID
-	PetID     uuid.UUID
+	UserID    uuid.UUID
 	Date      time.Time
 	Type      string
 	Notes     sql.NullString

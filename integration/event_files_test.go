@@ -18,10 +18,10 @@ import (
 func createEventReturningID(t *testing.T, token, petID, date, eventType string, value map[string]any) string {
 	t.Helper()
 	resp := doRequest(t, http.MethodPost, "/events", map[string]any{
-		"pet_id": petID,
-		"date":   date,
-		"type":   eventType,
-		"value":  value,
+		"pet_ids": []string{petID},
+		"date":    date,
+		"type":    eventType,
+		"value":   value,
 	}, token)
 	require.Equalf(t, http.StatusCreated, resp.status, "создание события %s не удалось: %s", eventType, resp.body)
 	var event struct {

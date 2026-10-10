@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,14 +57,14 @@ func expectNoPetPhotos(mock sqlmock.Sqlmock) {
 // the computed, never-stored weight field, reporting no weight-type events
 // for the pet yet (weight: null in the response).
 func expectNoWeightEvent(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT \(value->>'amount'\)::float8\s+FROM event\s+WHERE pet_id = \$1 AND type = 'weight' AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT 1`).
+	mock.ExpectQuery(`SELECT \(e\.value->>'amount'\)::float8\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1 AND e\.type = 'weight' AND e\.deleted_at IS NULL`).
 		WillReturnError(sql.ErrNoRows)
 }
 
 // expectWeightEvent mocks the same lookup as expectNoWeightEvent, but
 // reporting a latest weight-event amount (see «Вес питомца — Backend»).
 func expectWeightEvent(mock sqlmock.Sqlmock, amount float64) {
-	mock.ExpectQuery(`SELECT \(value->>'amount'\)::float8\s+FROM event\s+WHERE pet_id = \$1 AND type = 'weight' AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT 1`).
+	mock.ExpectQuery(`SELECT \(e\.value->>'amount'\)::float8\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1 AND e\.type = 'weight' AND e\.deleted_at IS NULL`).
 		WillReturnRows(sqlmock.NewRows([]string{"amount"}).AddRow(amount))
 }
 
@@ -293,8 +292,11 @@ func TestCreatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
 	eventID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`INSERT INTO event`).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO event \(`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
+	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectWeightEvent(mock, 5.5)
@@ -321,8 +323,10 @@ func TestCreatePetHandler_WeightEventInsertFailureDoesNotFailCreate(t *testing.T
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`INSERT INTO pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
-	mock.ExpectQuery(`INSERT INTO event`).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO event \(`).
 		WillReturnError(assertError)
+	mock.ExpectRollback()
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
@@ -705,8 +709,11 @@ func TestUpdatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	eventID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`INSERT INTO event`).
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO event \(`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
+	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	weight := 7.2
 	name := "Rexy"
@@ -759,11 +766,14 @@ func TestDeletePetHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	// Мягкое удаление питомца и жёсткое удаление его настроек напоминаний,
-	// напоминаний и файлов — в одной транзакции.
+	// Мягкое удаление питомца, жёсткое удаление его связей с настройками
+	// напоминаний и настроек, оставшихся без питомцев (с напоминаниями и
+	// файлами), — в одной транзакции.
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE pet\s+SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT id FROM reminder_plan WHERE pet_id = \$1`).
+	mock.ExpectQuery(`DELETE FROM reminder_plan_pet WHERE pet_id = \$1 RETURNING plan_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"plan_id"}).AddRow("66666666-6666-4666-8666-666666666666"))
+	mock.ExpectQuery(`SELECT p\.id FROM reminder_plan p\s+WHERE p\.id = ANY\(\$1\)\s+AND NOT EXISTS`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("66666666-6666-4666-8666-666666666666"))
 	mock.ExpectQuery(`SELECT id FROM reminder WHERE plan_id = ANY`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("55555555-5555-4555-8555-555555555555"))
@@ -790,9 +800,9 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
-	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
@@ -856,10 +866,10 @@ func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 50, 0).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
-	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -877,10 +887,10 @@ func TestGetPetEventsHandler_LimitClampedTo200(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 200, 5).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
-	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
@@ -922,11 +932,12 @@ func TestGetPetEventsHandler_SearchFiltersAndReturnsTotal(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`(?s)SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+AND \(\s*notes ILIKE \$4.*value ->> 'label' ILIKE \$4.*value ->> 'name' ILIKE \$4.*\)\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`(?s)SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+AND \(\s*e\.notes ILIKE \$4.*e\.value ->> 'label' ILIKE \$4.*e\.value ->> 'name' ILIKE \$4.*\)\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 50, 0, "%вакцина%").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}).
-			AddRow(uuid.New(), testPetID, time.Now(), "other", sql.NullString{String: "вакцина от бешенства", Valid: true}, []byte(`{"label":"вакцина"}`)))
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+AND \(\s*notes ILIKE \$2.*value ->> 'label' ILIKE \$2.*value ->> 'name' ILIKE \$2.*\)`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames).
+			AddRow(testEventID, testUserID, time.Now(), "other", sql.NullString{String: "вакцина от бешенства", Valid: true}, []byte(`{"label":"вакцина"}`)))
+	expectEventPets(mock, testEventID, petRex)
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+AND \(\s*e\.notes ILIKE \$2.*e\.value ->> 'label' ILIKE \$2.*e\.value ->> 'name' ILIKE \$2.*\)`).
 		WithArgs(sqlmock.AnyArg(), "%вакцина%").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
@@ -953,10 +964,10 @@ func TestGetPetEventsHandler_EmptySearchOmitsFilter(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT id, pet_id, date_time, type, notes, value\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL\s+ORDER BY date_time DESC\s+LIMIT \$2 OFFSET \$3`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
 		WithArgs(sqlmock.AnyArg(), 50, 0).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "pet_id", "date_time", "type", "notes", "value"}))
-	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event\s+WHERE pet_id = \$1\s+AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 

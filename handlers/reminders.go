@@ -89,15 +89,6 @@ func validateReminderPlanData(eventType string, value json.RawMessage, notes *st
 	return ""
 }
 
-// validateReminderPlanDataForSpecies проверяет применимость type и значений
-// вложенных словарей value к виду питомца. Пустая строка — данные допустимы.
-func validateReminderPlanDataForSpecies(eventType string, value json.RawMessage, species string) string {
-	if !isTypeApplicableToPet(eventType, species) {
-		return "Тип события " + eventType + " неприменим к виду питомца"
-	}
-	return isNestedValueApplicableToPet(eventType, value, species)
-}
-
 func nullStringFromPtr(s *string) sql.NullString {
 	if s == nil || *s == "" {
 		return sql.NullString{}
@@ -107,10 +98,10 @@ func nullStringFromPtr(s *string) sql.NullString {
 
 // planDataFromRequest собирает строку reminder_plan из проверенного запроса
 // создания и разобранного расписания.
-func planDataFromRequest(req models.ReminderPlanRequest, id, petID uuid.UUID, spec reminderScheduleSpec, tz string) models.ReminderPlanDB {
+func planDataFromRequest(req models.ReminderPlanRequest, id, ownerID uuid.UUID, spec reminderScheduleSpec, tz string) models.ReminderPlanDB {
 	plan := models.ReminderPlanDB{
 		ID:            id,
-		PetID:         petID,
+		UserID:        ownerID,
 		Source:        models.ReminderSourceManual,
 		Type:          req.Type,
 		Value:         req.Value,
@@ -152,7 +143,9 @@ func planScheduleFromSpec(spec reminderScheduleSpec, tz string) *database.Remind
 // расписание и рассчитанные моменты.
 type preparedReminderPlan struct {
 	id      uuid.UUID
-	petID   uuid.UUID
+	ownerID uuid.UUID
+	petIDs  []uuid.UUID
+	pets    []database.LinkedPet
 	req     models.ReminderPlanRequest
 	spec    reminderScheduleSpec
 	tz      string
@@ -171,12 +164,16 @@ func prepareReminderPlanCreate(userID string, req models.ReminderPlanRequest, tz
 	if err != nil {
 		return nil, bad("Некорректный id настроек (ожидается UUID)")
 	}
-	if req.PetID == "" || req.Type == "" || len(req.Value) == 0 || req.FrequencyType == "" || req.StartDate == "" {
+	if len(req.PetIDs) == 0 || req.Type == "" || len(req.Value) == 0 || req.FrequencyType == "" || req.StartDate == "" {
 		return nil, bad("Обязательные поля не заполнены")
 	}
-	petID, err := uuid.Parse(req.PetID)
+	petIDs, msg := parsePetIDs(req.PetIDs)
+	if msg != "" {
+		return nil, bad(msg)
+	}
+	ownerID, err := uuid.Parse(userID)
 	if err != nil {
-		return nil, bad("Некорректный ID питомца")
+		return nil, err
 	}
 	if msg := validateReminderPlanData(req.Type, req.Value, req.Notes); msg != "" {
 		return nil, bad(msg)
@@ -193,19 +190,13 @@ func prepareReminderPlanCreate(userID string, req models.ReminderPlanRequest, tz
 		return nil, bad(msg)
 	}
 
-	petDB, err := database.GetPetIdDBByIDAndUserID(petID, userID)
+	// Питомец не найден либо чужой — 404, мягко удалён — 400; тип и значения
+	// вложенных словарей проверяются по набору питомцев целиком.
+	pets, err := resolvePetSet(database.DB, userID, petIDs, true)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, newReminderHTTPError(http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
-		}
 		return nil, err
 	}
-	if petDB.DeletedAt.Valid {
-		// Мягко удалённый питомец для настроек не существует — 404, как и
-		// на остальных эндпоинтах напоминаний.
-		return nil, newReminderHTTPError(http.StatusNotFound, openapi.NOTFOUND, "Питомец "+req.PetID+" не найден")
-	}
-	if msg := validateReminderPlanDataForSpecies(req.Type, req.Value, petDB.Species); msg != "" {
+	if msg := validateEventForPets(req.Type, req.Value, pets); msg != "" {
 		return nil, bad(msg)
 	}
 
@@ -214,13 +205,13 @@ func prepareReminderPlanCreate(userID string, req models.ReminderPlanRequest, tz
 		return nil, bad("Расписание не даёт ни одного момента в будущем")
 	}
 
-	return &preparedReminderPlan{id: planID, petID: petID, req: req, spec: spec, tz: tz, moments: moments}, nil
+	return &preparedReminderPlan{id: planID, ownerID: ownerID, petIDs: petIDs, pets: pets, req: req, spec: spec, tz: tz, moments: moments}, nil
 }
 
 // insertPreparedReminderPlan вставляет настройки и напоминания (источник
 // manual).
 func insertPreparedReminderPlan(exec database.Executor, p *preparedReminderPlan) error {
-	return database.InsertReminderPlanWith(exec, planDataFromRequest(p.req, p.id, p.petID, p.spec, p.tz), p.moments)
+	return database.InsertReminderPlanWith(exec, planDataFromRequest(p.req, p.id, p.ownerID, p.spec, p.tz), p.petIDs, p.moments)
 }
 
 // ---------------------------------------------------------------------------
@@ -250,8 +241,7 @@ func buildReminderPlanResponse(r *http.Request, plan *database.ReminderPlanFull,
 
 	resp := models.ReminderPlanResponse{
 		ID:            plan.ID.String(),
-		PetID:         plan.PetID.String(),
-		PetName:       plan.PetName,
+		Pets:          database.EventPetRefs(plan.Pets),
 		Type:          plan.Type,
 		Value:         plan.Value,
 		FrequencyType: plan.FrequencyType,
@@ -512,7 +502,8 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 	scheduleGiven := req.FrequencyType != nil || req.Weekdays != nil || req.IntervalDays != nil ||
 		req.Times != nil || req.StartDate != nil || req.EndDate.Set
 	dataGiven := req.Type != nil || req.Value != nil || req.Notes != nil
-	if !scheduleGiven && !dataGiven {
+	petsGiven := req.PetIDs != nil
+	if !scheduleGiven && !dataGiven && !petsGiven {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Необходимо указать хотя бы одно поле для обновления")
 		return
 	}
@@ -527,6 +518,16 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 	if !validateNotesLength(req.Notes) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле notes не должно превышать 500 символов")
 		return
+	}
+
+	var desiredPetIDs []uuid.UUID
+	if petsGiven {
+		ids, msg := parsePetIDs(*req.PetIDs)
+		if msg != "" {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+			return
+		}
+		desiredPetIDs = ids
 	}
 
 	var spec reminderScheduleSpec
@@ -570,6 +571,9 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 		if linked && dataGiven {
 			return bad("Тип, значение и заметка настроек, связанных с записью Ветпаспорта, меняются только через неё")
 		}
+		if linked && petsGiven {
+			return bad("Питомец настроек, связанных с записью Ветпаспорта, меняется только через неё")
+		}
 		if scheduleGiven {
 			if plan.Source == models.ReminderSourceMedication && spec.FrequencyType == models.ReminderFrequencyOnce {
 				return bad("Расписание лекарства не может быть разовым")
@@ -579,28 +583,38 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 			}
 		}
 
-		// Тип, значение и применимость к виду питомца — теми же правилами,
-		// что при создании.
+		// Итоговый набор питомцев: желаемый (привязка и отвязка) либо
+		// текущие видимые. Питомец не найден либо чужой — 404, мягко удалён
+		// — 400.
+		finalPets := plan.Pets
+		if petsGiven {
+			finalPets, err = resolvePetSet(tx, userID, desiredPetIDs, true)
+			if err != nil {
+				return err
+			}
+		}
+
+		// Тип, значение и применимость к видам питомцев — теми же правилами,
+		// что при создании, по итоговому набору (в том числе для сохранённых
+		// type/value, если привязывается новый питомец).
 		effectiveType := plan.Type
 		if req.Type != nil {
 			effectiveType = *req.Type
+		}
+		value := plan.Value
+		if req.Value != nil {
+			value = *req.Value
 		}
 		if req.Type != nil || req.Value != nil {
 			if !eventreg.IsValidType(effectiveType) {
 				return bad("Некорректное значение type")
 			}
-			value := plan.Value
-			if req.Value != nil {
-				value = *req.Value
-			}
 			if msg := validateEventValue(effectiveType, value); msg != "" {
 				return bad(msg)
 			}
-			petDB, err := database.GetPetIdDBByIDAndUserID(plan.PetID, userID)
-			if err != nil {
-				return err
-			}
-			if msg := validateReminderPlanDataForSpecies(effectiveType, value, petDB.Species); msg != "" {
+		}
+		if req.Type != nil || req.Value != nil || hasNewPets(plan.Pets, finalPets) {
+			if msg := validateEventForPets(effectiveType, value, finalPets); msg != "" {
 				return bad(msg)
 			}
 		}
@@ -651,6 +665,11 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 			}
 		}
 
+		if petsGiven {
+			if err := database.SyncReminderPlanPetsWith(tx, planID, desiredPetIDs); err != nil {
+				return err
+			}
+		}
 		return database.UpdateReminderPlanWith(tx, planID, update)
 	})
 	if err != nil {
@@ -794,8 +813,7 @@ func GetReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uuid.
 		Type:              full.Plan.Type,
 		Value:             full.Plan.Value,
 		Notes:             effectiveReminderNotes(full.Reminder.Notes, full.Plan.Notes),
-		PetID:             full.Plan.PetID.String(),
-		PetName:           full.PetName,
+		Pets:              database.EventPetRefs(full.Pets),
 		PlanSource:        full.Plan.Source,
 		PlanFiles:         planFileItems,
 		Files:             ownFileItems,
@@ -895,8 +913,9 @@ func CompleteReminderHandler(w http.ResponseWriter, r *http.Request, reminderID 
 		if done {
 			reason = models.ReminderCloseDone
 			notes := effectiveReminderNotes(reminder.Notes, full.Plan.Notes)
-			eventID, err := database.InsertEventWith(tx, full.Plan.PetID, models.CreateEventRequest{
-				PetID: full.Plan.PetID.String(),
+			// Один факт, привязанный к видимым питомцам настроек на момент
+			// отметки.
+			eventID, err := database.InsertEventWith(tx, userID, petIDsOf(full.Pets), models.EventFields{
 				Date:  reminder.RemindAt.UTC().Format(time.RFC3339),
 				Type:  full.Plan.Type,
 				Notes: notes,
@@ -1002,12 +1021,9 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 	}
 
 	if req.Event != nil {
-		preparedEvent, err = prepareDetachEvent(userID, *req.Event, existing.Plan.PetID, now)
+		preparedEvent, err = prepareDetachEvent(userID, *req.Event, now)
 	} else {
 		preparedPlan, err = prepareReminderPlanCreate(userID, *req.Plan, tz, loc, now)
-		if err == nil && preparedPlan.petID != existing.Plan.PetID {
-			err = newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Перенос напоминания между питомцами не поддерживается")
-		}
 	}
 	if err != nil {
 		writeReminderTxError(w, err, "Не удалось заменить напоминание")
@@ -1028,17 +1044,28 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 			return newReminderHTTPError(http.StatusConflict, openapi.CONFLICT, "Замена напоминания вакцинации недоступна: измените его через «Изменить все»")
 		}
 		newType := ""
+		var newPetIDs []uuid.UUID
 		if preparedEvent != nil {
 			newType = preparedEvent.req.Type
+			newPetIDs = preparedEvent.petIDs
 		} else {
 			newType = preparedPlan.req.Type
+			newPetIDs = preparedPlan.petIDs
 		}
-		if full.Plan.Source == models.ReminderSourceMedication && newType != full.Plan.Type {
-			return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип новой записи должен совпадать с типом напоминания лекарства")
+		if full.Plan.Source == models.ReminderSourceMedication {
+			if newType != full.Plan.Type {
+				return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип новой записи должен совпадать с типом напоминания лекарства")
+			}
+			// Настройки лекарства принадлежат записи Ветпаспорта конкретного
+			// питомца: новая запись привязывается только к нему.
+			medicationPets := petIDsOf(full.Pets)
+			if len(newPetIDs) != 1 || len(medicationPets) != 1 || newPetIDs[0] != medicationPets[0] {
+				return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Новая запись для напоминания лекарства привязывается только к питомцу лекарства")
+			}
 		}
 
 		if preparedEvent != nil {
-			newEventID, err = database.InsertEventWith(tx, full.Plan.PetID, preparedEvent.req, idempotencyKey)
+			newEventID, err = database.InsertEventWith(tx, userID, preparedEvent.petIDs, preparedEvent.req.Fields(), idempotencyKey)
 			if err != nil {
 				return err
 			}
@@ -1092,17 +1119,20 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 
 // preparedDetachEvent — проверенное тело event запроса замены.
 type preparedDetachEvent struct {
-	req models.CreateEventRequest
+	req    models.CreateEventRequest
+	petIDs []uuid.UUID
 }
 
 // prepareDetachEvent проверяет тело event запроса замены теми же правилами,
-// что POST /events (включая дату факта) и совпадение питомца с питомцем
-// заменяемого напоминания.
-func prepareDetachEvent(userID string, req models.CreateEventRequest, reminderPetID uuid.UUID, now time.Time) (*preparedDetachEvent, error) {
+// что POST /events (включая дату факта и набор питомцев). Набор питомцев
+// новой записи задаётся пользователем и может отличаться от набора
+// заменяемого напоминания; для настроек лекарства совпадение с питомцем
+// лекарства проверяется в транзакции замены.
+func prepareDetachEvent(userID string, req models.CreateEventRequest, now time.Time) (*preparedDetachEvent, error) {
 	bad := func(msg string) error {
 		return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 	}
-	if req.PetID == "" || req.Date == "" || req.Type == "" || len(req.Value) == 0 {
+	if len(req.PetIDs) == 0 || req.Date == "" || req.Type == "" || len(req.Value) == 0 {
 		return nil, bad("Обязательные поля не заполнены")
 	}
 	if !eventreg.IsValidType(req.Type) {
@@ -1121,41 +1151,30 @@ func prepareDetachEvent(userID string, req models.CreateEventRequest, reminderPe
 	if msg := validateFactDate(date); msg != "" {
 		return nil, bad(msg)
 	}
-	petID, err := uuid.Parse(req.PetID)
-	if err != nil {
-		return nil, bad("Некорректный ID питомца")
+	petIDs, msg := parsePetIDs(req.PetIDs)
+	if msg != "" {
+		return nil, bad(msg)
 	}
-	if petID != reminderPetID {
-		return nil, bad("Перенос напоминания между питомцами не поддерживается")
-	}
-	petDB, err := database.GetPetIdDBByIDAndUserID(petID, userID)
+	pets, err := resolvePetSet(database.DB, userID, petIDs, true)
 	if err != nil {
 		return nil, err
 	}
-	if msg := validateReminderPlanDataForSpecies(req.Type, req.Value, petDB.Species); msg != "" {
+	if msg := validateEventForPets(req.Type, req.Value, pets); msg != "" {
 		return nil, bad(msg)
 	}
-	return &preparedDetachEvent{req: req}, nil
+	return &preparedDetachEvent{req: req, petIDs: petIDs}, nil
 }
 
 // replayDetach отвечает на повтор замены после успешного выполнения:
-// возвращает ранее созданный факт с тем же Idempotency-Key (для питомца из
-// тела) либо настройки с тем же клиентским id. handled=false, если ничего
-// не найдено.
+// возвращает ранее созданный факт пользователя с тем же Idempotency-Key либо
+// настройки с тем же клиентским id. handled=false, если ничего не найдено.
 func replayDetach(w http.ResponseWriter, r *http.Request, req models.DetachReminderRequest, idempotencyKey, userID string) (handled bool) {
 	if req.Event != nil {
-		petID, err := uuid.Parse(req.Event.PetID)
+		eventFull, err := database.GetEventByUserIDAndIdempotencyKey(userID, idempotencyKey)
 		if err != nil {
 			return false
 		}
-		if _, err := database.GetPetIdDBByIDAndUserID(petID, userID); err != nil {
-			return false
-		}
-		eventDB, eventPetID, petName, err := database.GetEventByPetIDAndIdempotencyKey(petID, idempotencyKey)
-		if err != nil {
-			return false
-		}
-		response, ok := buildEventResponse(w, r, eventDB, eventPetID, petName)
+		response, ok := buildEventResponse(w, r, eventFull)
 		if !ok {
 			return true
 		}
@@ -1182,12 +1201,12 @@ func replayDetach(w http.ResponseWriter, r *http.Request, req models.DetachRemin
 
 // writeDetachEventResponse читает созданный факт и отвечает 201 с ним.
 func writeDetachEventResponse(w http.ResponseWriter, r *http.Request, eventID uuid.UUID) {
-	eventDB, petID, petName, err := database.GetEventByID(eventID)
+	eventFull, err := database.GetEventFullByID(eventID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Событие создано, но не удалось получить его данные")
 		return
 	}
-	response, ok := buildEventResponse(w, r, eventDB, petID, petName)
+	response, ok := buildEventResponse(w, r, eventFull)
 	if !ok {
 		return
 	}
@@ -1237,8 +1256,7 @@ func GetUpcomingRemindersHandler(w http.ResponseWriter, r *http.Request) {
 			ID:       row.ID.String(),
 			PlanID:   row.PlanID.String(),
 			RemindAt: row.RemindAt.UTC().Format(time.RFC3339),
-			PetID:    row.PetID.String(),
-			PetName:  row.PetName,
+			Pets:     database.EventPetRefs(row.Pets),
 			Type:     row.Type,
 		})
 	}

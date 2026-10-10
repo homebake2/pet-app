@@ -300,7 +300,7 @@ type ActivitiesCalendarItem struct {
 	HasReminders bool `json:"has_reminders"`
 }
 
-// ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.
+// ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pets — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.
 type ActivitiesDayItem struct {
 	Date       time.Time          `json:"date"`
 	FilesCount int                `json:"files_count"`
@@ -309,8 +309,9 @@ type ActivitiesDayItem struct {
 	// ItemType event — факт (уже произошедшее событие), reminder — незавершённое напоминание.
 	ItemType ActivitiesItemTypeEnum `json:"item_type"`
 	Notes    *string                `json:"notes,omitempty"`
-	PetId    openapi_types.UUID     `json:"pet_id"`
-	PetName  string                 `json:"pet_name"`
+
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
+	Pets []EventPetRef `json:"pets"`
 
 	// PlanId Id настроек напоминания; присутствует только при item_type=reminder.
 	PlanId *openapi_types.UUID `json:"plan_id,omitempty"`
@@ -488,6 +489,12 @@ type EventMoltingStatusEnum string
 
 // EventMoodStateEnum Состояние питомца (value.state при type=mood).
 type EventMoodStateEnum string
+
+// EventPetRef Питомец, к которому привязана запись (событие или настройки напоминания).
+type EventPetRef struct {
+	PetId   openapi_types.UUID `json:"pet_id"`
+	PetName string             `json:"pet_name"`
+}
 
 // EventStatsAggregationEnum Способ свёртки значений метрики внутри интервала, применённый к этой серии.
 type EventStatsAggregationEnum string
@@ -710,12 +717,13 @@ type GetEventIdResponseRequest struct {
 	Date time.Time `json:"date"`
 
 	// Files Прикреплённые файлы события (фото и документы), в порядке position.
-	Files   []EventFile        `json:"files"`
-	Id      openapi_types.UUID `json:"id"`
-	Notes   *string            `json:"notes,omitempty"`
-	PetId   openapi_types.UUID `json:"pet_id"`
-	PetName string             `json:"pet_name"`
-	Type    GetEventEnum       `json:"type"`
+	Files []EventFile        `json:"files"`
+	Id    openapi_types.UUID `json:"id"`
+	Notes *string            `json:"notes,omitempty"`
+
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
+	Pets []EventPetRef `json:"pets"`
+	Type GetEventEnum  `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -743,10 +751,12 @@ type GetEventIdResponseRequest struct {
 // GetEventRequest defines model for GetEventRequest.
 type GetEventRequest struct {
 	// Date Момент события (факта). Не позднее текущего момента UTC плюс допуск 5 минут — иначе 400 (см. «Добавление события — Backend»). Запланированные события создаются через POST /reminder-plans.
-	Date  time.Time          `json:"date"`
-	Notes *string            `json:"notes,omitempty"`
-	PetId openapi_types.UUID `json:"pet_id"`
-	Type  GetEventEnum       `json:"type"`
+	Date  time.Time `json:"date"`
+	Notes *string   `json:"notes,omitempty"`
+
+	// PetIds Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца.
+	PetIds []openapi_types.UUID `json:"pet_ids"`
+	Type   GetEventEnum         `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -779,7 +789,10 @@ type GetEventResponse struct {
 	FilesCount int                `json:"files_count"`
 	Id         openapi_types.UUID `json:"id"`
 	Notes      *string            `json:"notes,omitempty"`
-	Type       GetEventEnum       `json:"type"`
+
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
+	Pets []EventPetRef `json:"pets"`
+	Type GetEventEnum  `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -1167,9 +1180,9 @@ type ImportLocalDataEvent struct {
 	LocalId string  `json:"local_id"`
 	Notes   *string `json:"notes,omitempty"`
 
-	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
-	PetLocalId string       `json:"pet_local_id"`
-	Type       GetEventEnum `json:"type"`
+	// PetLocalIds От 1 до 10 различных значений; каждое должно совпадать с одним из pets[].local_id этого же запроса. Событие привязывается ко всем перечисленным питомцам.
+	PetLocalIds []string     `json:"pet_local_ids"`
+	Type        GetEventEnum `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -1338,8 +1351,8 @@ type ImportReminderPlan struct {
 	LocalId string  `json:"local_id"`
 	Notes   *string `json:"notes,omitempty"`
 
-	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
-	PetLocalId string `json:"pet_local_id"`
+	// PetLocalIds От 1 до 10 различных значений; каждое должно совпадать с одним из pets[].local_id этого же запроса. Для настроек, связанных с лекарством или вакцинацией, — ровно одно значение.
+	PetLocalIds []string `json:"pet_local_ids"`
 
 	// Reminders Незавершённые локальные напоминания. Переносятся как есть, расписание не пересчитывается, потолок 60 и правило «момент в будущем» не применяются. Закрытые напоминания не переносятся.
 	Reminders []ImportReminder `json:"reminders"`
@@ -1543,9 +1556,11 @@ type ReminderPlanRequest struct {
 	Id openapi_types.UUID `json:"id"`
 
 	// IntervalDays Интервал в днях. Обязателен, если и только если frequency_type=every_n_days.
-	IntervalDays *int               `json:"interval_days"`
-	Notes        *string            `json:"notes,omitempty"`
-	PetId        openapi_types.UUID `json:"pet_id"`
+	IntervalDays *int    `json:"interval_days"`
+	Notes        *string `json:"notes,omitempty"`
+
+	// PetIds Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Для настроек с источником medication и vaccination — ровно один.
+	PetIds []openapi_types.UUID `json:"pet_ids"`
 
 	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
 	StartDate openapi_types.Date `json:"start_date"`
@@ -1596,10 +1611,11 @@ type ReminderPlanResponse struct {
 	Id                            openapi_types.UUID `json:"id"`
 
 	// IntervalDays Интервал в днях. Обязателен, если и только если frequency_type=every_n_days.
-	IntervalDays *int               `json:"interval_days"`
-	Notes        *string            `json:"notes"`
-	PetId        openapi_types.UUID `json:"pet_id"`
-	PetName      string             `json:"pet_name"`
+	IntervalDays *int    `json:"interval_days"`
+	Notes        *string `json:"notes"`
+
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
+	Pets []EventPetRef `json:"pets"`
 
 	// Reminders Незавершённые напоминания настроек.
 	Reminders []ReminderRef `json:"reminders"`
@@ -1661,9 +1677,10 @@ type ReminderResponse struct {
 	Id    openapi_types.UUID `json:"id"`
 
 	// Notes Собственная заметка напоминания, а при её отсутствии — заметка настроек.
-	Notes   *string            `json:"notes"`
-	PetId   openapi_types.UUID `json:"pet_id"`
-	PetName string             `json:"pet_name"`
+	Notes *string `json:"notes"`
+
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
+	Pets []EventPetRef `json:"pets"`
 
 	// PlanFiles Файлы настроек.
 	PlanFiles []EventFile        `json:"plan_files"`
@@ -1708,9 +1725,10 @@ type ReminderSourceEnum string
 
 // UpcomingReminderItem defines model for UpcomingReminderItem.
 type UpcomingReminderItem struct {
-	Id       openapi_types.UUID `json:"id"`
-	PetId    openapi_types.UUID `json:"pet_id"`
-	PetName  string             `json:"pet_name"`
+	Id openapi_types.UUID `json:"id"`
+
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
+	Pets     []EventPetRef      `json:"pets"`
 	PlanId   openapi_types.UUID `json:"plan_id"`
 	RemindAt time.Time          `json:"remind_at"`
 	Type     GetEventEnum       `json:"type"`
@@ -1733,13 +1751,15 @@ type UpdateDiseaseRequest struct {
 	Status        *DiseaseStatusEnum  `json:"status,omitempty"`
 }
 
-// UpdateEventRequest defines model for UpdateEventRequest.
+// UpdateEventRequest Частичное обновление события; хотя бы одно из date/type/notes/value/pet_ids. Владение проверяется по владельцу записи, а не по питомцу из запроса.
 type UpdateEventRequest struct {
 	// Date Если передана, не может быть позднее текущего момента UTC плюс допуск 5 минут — иначе 400 (см. «Редактирование события — Backend»).
-	Date  *time.Time         `json:"date,omitempty"`
-	Notes *string            `json:"notes,omitempty"`
-	PetId openapi_types.UUID `json:"pet_id"`
-	Type  *GetEventEnum      `json:"type,omitempty"`
+	Date  *time.Time `json:"date,omitempty"`
+	Notes *string    `json:"notes,omitempty"`
+
+	// PetIds Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Если передан, это желаемый полный набор видимых питомцев записи: отсутствующие в нём питомцы отвязываются (удаляется только связь), новые привязываются; пустой набор — 400. Проверки type/value выполняются по итоговому набору.
+	PetIds *[]openapi_types.UUID `json:"pet_ids,omitempty"`
+	Type   *GetEventEnum         `json:"type,omitempty"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -1825,7 +1845,7 @@ type UpdatePetProfileRequest struct {
 	Weight *float32 `json:"weight"`
 }
 
-// UpdateReminderPlanRequest Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно. Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).
+// UpdateReminderPlanRequest Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно (в том числе pet_ids). Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).
 type UpdateReminderPlanRequest struct {
 	// EndDate Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся.
 	EndDate *openapi_types.Date `json:"end_date"`
@@ -1838,6 +1858,9 @@ type UpdateReminderPlanRequest struct {
 
 	// Notes Пустая строка очищает значение. Для настроек с source != manual не принимается.
 	Notes *string `json:"notes,omitempty"`
+
+	// PetIds Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Желаемый полный набор питомцев настроек; принимается только при source=manual (для medication и vaccination — 400). Привязка питомца не создаёт и не пересоздаёт напоминания.
+	PetIds *[]openapi_types.UUID `json:"pet_ids,omitempty"`
 
 	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
 	StartDate *openapi_types.Date `json:"start_date,omitempty"`

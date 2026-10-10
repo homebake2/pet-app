@@ -299,7 +299,7 @@ func TestStatsBucketStarts(t *testing.T) {
 // expectStatsQuery мокает запрос агрегации и проверяет переданные в него
 // границы периода и моменты начала интервалов (RFC3339, UTC).
 func expectStatsQuery(mock sqlmock.Sqlmock, eventType, from, to string, bucketStarts []string) *sqlmock.ExpectedQuery {
-	return mock.ExpectQuery(`SELECT width_bucket\(date_time, \$5::timestamptz\[\]\)`).
+	return mock.ExpectQuery(`SELECT width_bucket\(e\.date_time, \$5::timestamptz\[\]\)`).
 		WithArgs(uuid.MustParse(testPetID), eventType, mustRFC3339(from), mustRFC3339(to), pq.Array(bucketStarts))
 }
 

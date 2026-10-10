@@ -114,14 +114,13 @@ func isBirthDateNotTooOld(birthDate string) bool {
 // PUT /pet/{id} не должны откатываться/падать из-за этого побочного
 // эффекта — см. «Вес питомца — Backend», а также bestEffortDeleteObject в
 // handlers/files.go как аналогичный пример в этой кодовой базе).
-func createPetWeightEvent(petID uuid.UUID, weight float64) {
-	req := models.CreateEventRequest{
-		PetID: petID.String(),
+func createPetWeightEvent(userID string, petID uuid.UUID, weight float64) {
+	fields := models.EventFields{
 		Date:  time.Now().UTC().Format(time.RFC3339Nano),
 		Type:  "weight",
 		Value: json.RawMessage(fmt.Sprintf(`{"amount":%s}`, strconv.FormatFloat(weight, 'f', -1, 64))),
 	}
-	if _, err := database.InsertEvent(petID, req, ""); err != nil {
+	if _, err := database.InsertEvent(userID, []uuid.UUID{petID}, fields, ""); err != nil {
 		log.Printf("failed to create weight event for pet %s: %v", petID, err)
 	}
 }
@@ -339,7 +338,7 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Weight != nil {
-		createPetWeightEvent(newPetID, *req.Weight)
+		createPetWeightEvent(userID, newPetID, *req.Weight)
 	}
 
 	if idempotencyKey != "" {
@@ -542,7 +541,7 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Weight != nil {
-		createPetWeightEvent(petID, *req.Weight)
+		createPetWeightEvent(userID, petID, *req.Weight)
 	}
 
 	w.WriteHeader(http.StatusNoContent)

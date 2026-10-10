@@ -49,10 +49,11 @@ type StatsRow struct {
 	Values      []sql.NullFloat64
 }
 
-// AggregateEvents сворачивает неудалённые события питомца одного типа в
-// интервалы средствами БД (GROUP BY по номеру интервала: width_bucket по
-// массиву моментов начала интервалов), опираясь на индекс
-// event_pet_type_date_idx. Все события периода в память сервиса не
+// AggregateEvents сворачивает неудалённые события, привязанные к питомцу
+// (через event_pet), одного типа в интервалы средствами БД (GROUP BY по
+// номеру интервала: width_bucket по массиву моментов начала интервалов),
+// опираясь на индексы event_pet_pet_id_idx и event_type_date_idx. Измерительные
+// типы привязаны к одному питомцу, поэтому ряды разных питомцев не смешиваются. Все события периода в память сервиса не
 // выбираются: наружу отдаются только готовые группы.
 func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 	if len(q.BucketStarts) == 0 {
@@ -65,13 +66,13 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 
 	splitExpr := "NULL::text"
 	if q.SplitField != "" {
-		splitExpr = fmt.Sprintf("value->>%s", quoteLiteral(q.SplitField))
+		splitExpr = fmt.Sprintf("e.value->>%s", quoteLiteral(q.SplitField))
 	}
 
 	selectParts := []string{
 		// width_bucket возвращает номер интервала с единицы: i, если
 		// BucketStarts[i-1] <= date_time < BucketStarts[i].
-		"width_bucket(date_time, $5::timestamptz[]) AS bucket_number",
+		"width_bucket(e.date_time, $5::timestamptz[]) AS bucket_number",
 		splitExpr + " AS split_value",
 		"count(*) AS event_count",
 	}
@@ -85,12 +86,13 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 
 	query := fmt.Sprintf(`
 	SELECT %s
-	FROM event
-	WHERE pet_id = $1
-	  AND type = $2
-	  AND deleted_at IS NULL
-	  AND date_time >= $3
-	  AND date_time < $4
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	  AND e.type = $2
+	  AND e.deleted_at IS NULL
+	  AND e.date_time >= $3
+	  AND e.date_time < $4
 	GROUP BY 1, 2
 	ORDER BY 1, 2
 	`, strings.Join(selectParts, ",\n\t       "))
@@ -143,7 +145,7 @@ func aggregateExpr(agg StatsAggregate) (string, error) {
 	if agg.Field == "" {
 		return "", fmt.Errorf("aggregateExpr: агрегация %q требует поле value", agg.Aggregation)
 	}
-	field := fmt.Sprintf("NULLIF(value->>%s, '')::float8", quoteLiteral(agg.Field))
+	field := fmt.Sprintf("NULLIF(e.value->>%s, '')::float8", quoteLiteral(agg.Field))
 
 	switch agg.Aggregation {
 	case "avg":
@@ -151,7 +153,7 @@ func aggregateExpr(agg StatsAggregate) (string, error) {
 	case "sum":
 		return fmt.Sprintf("sum(COALESCE(%s, 0))", field), nil
 	case "last":
-		return fmt.Sprintf("(array_agg(%s ORDER BY date_time DESC, id DESC))[1]", field), nil
+		return fmt.Sprintf("(array_agg(%s ORDER BY e.date_time DESC, e.id DESC))[1]", field), nil
 	default:
 		return "", fmt.Errorf("aggregateExpr: неизвестная агрегация %q", agg.Aggregation)
 	}

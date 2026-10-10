@@ -174,7 +174,7 @@ func vaccinationFactMoment(date time.Time, timeOfDay *string, loc *time.Location
 // побочный эффект POST/PATCH /pet/{id}/vaccinations (факт создаётся
 // всегда). Ошибка возвращается вызывающему: создание
 // факта входит в основной контракт ответа (administered_event_id).
-func createVaccinationFact(exec database.Executor, petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
+func createVaccinationFact(exec database.Executor, userID string, petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
 	value, err := otherEventValue(label)
 	if err != nil {
 		return uuid.Nil, err
@@ -183,8 +183,7 @@ func createVaccinationFact(exec database.Executor, petID uuid.UUID, date time.Ti
 	if err != nil {
 		return uuid.Nil, err
 	}
-	return database.InsertEventWith(exec, petID, models.CreateEventRequest{
-		PetID: petID.String(),
+	return database.InsertEventWith(exec, userID, []uuid.UUID{petID}, models.EventFields{
 		Date:  eventDateString(moment),
 		Type:  "other",
 		Value: value,
@@ -209,7 +208,7 @@ func vaccinationReminderMoment(nextDate time.Time, timeOfDay *string, loc *time.
 // createVaccinationReminderPlan создаёт настройки напоминания на дату
 // следующей вакцинации: source=vaccination, разовое расписание на
 // next_date, одно напоминание. Возвращает id настроек.
-func createVaccinationReminderPlan(exec database.Executor, petID, vaccinationID uuid.UUID, nextDate time.Time, timeOfDay *string, loc *time.Location, tz, label string, now time.Time) (uuid.UUID, error) {
+func createVaccinationReminderPlan(exec database.Executor, userID string, petID, vaccinationID uuid.UUID, nextDate time.Time, timeOfDay *string, loc *time.Location, tz, label string, now time.Time) (uuid.UUID, error) {
 	value, err := otherEventValue(label)
 	if err != nil {
 		return uuid.Nil, err
@@ -218,10 +217,14 @@ func createVaccinationReminderPlan(exec database.Executor, petID, vaccinationID 
 	if err != nil {
 		return uuid.Nil, err
 	}
+	ownerID, err := uuid.Parse(userID)
+	if err != nil {
+		return uuid.Nil, err
+	}
 	planID := uuid.New()
 	plan := models.ReminderPlanDB{
 		ID:            planID,
-		PetID:         petID,
+		UserID:        ownerID,
 		Source:        models.ReminderSourceVaccination,
 		SourceID:      uuid.NullUUID{UUID: vaccinationID, Valid: true},
 		Type:          "other",
@@ -231,7 +234,7 @@ func createVaccinationReminderPlan(exec database.Executor, petID, vaccinationID 
 		StartDate:     nextDate,
 		TZ:            tz,
 	}
-	if err := database.InsertReminderPlanWith(exec, plan, []models.ReminderMoment{{RemindAt: moment.UTC()}}); err != nil {
+	if err := database.InsertReminderPlanWith(exec, plan, []uuid.UUID{petID}, []models.ReminderMoment{{RemindAt: moment.UTC()}}); err != nil {
 		return uuid.Nil, err
 	}
 	return planID, nil
@@ -291,7 +294,7 @@ func rescheduleVaccinationReminderPlan(exec database.Executor, plan models.Remin
 //
 // Возвращает новое значение ссылки на факт для UpdateVaccinationWith, либо
 // nil, если ссылку менять не нужно.
-func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID uuid.NullUUID, date sql.NullTime, dateChanged bool, administeredTime *string, relabel bool, loc *time.Location, label string) (*uuid.NullUUID, error) {
+func syncVaccinationFact(exec database.Executor, userID string, petID uuid.UUID, currentEventID uuid.NullUUID, date sql.NullTime, dateChanged bool, administeredTime *string, relabel bool, loc *time.Location, label string) (*uuid.NullUUID, error) {
 	var existing *models.EventDB
 	if currentEventID.Valid {
 		event, err := database.GetEventByIDForUpdateWith(exec, currentEventID.UUID)
@@ -309,7 +312,7 @@ func syncVaccinationFact(exec database.Executor, petID uuid.UUID, currentEventID
 		if !date.Valid || (!dateChanged && !hasTime) {
 			return nil, nil
 		}
-		newEventID, err := createVaccinationFact(exec, petID, date.Time, administeredTime, loc, label)
+		newEventID, err := createVaccinationFact(exec, userID, petID, date.Time, administeredTime, loc, label)
 		if err != nil {
 			return nil, err
 		}
@@ -395,7 +398,7 @@ func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccinat
 		if flag == nil || !*flag {
 			return nil, nil, nil
 		}
-		planID, err := createVaccinationReminderPlan(exec, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, req.NextTime, loc, tz, label, now)
+		planID, err := createVaccinationReminderPlan(exec, userID, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, req.NextTime, loc, tz, label, now)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -625,7 +628,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	var newID uuid.UUID
 	var administeredEventID, nextPlanID uuid.NullUUID
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		factID, err := createVaccinationFact(tx, petID, administeredDate, req.AdministeredTime, loc, eventLabel)
+		factID, err := createVaccinationFact(tx, userID, petID, administeredDate, req.AdministeredTime, loc, eventLabel)
 		if err != nil {
 			return err
 		}
@@ -639,7 +642,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 
 		if req.AddReminderOnNext != nil && *req.AddReminderOnNext && req.NextDate != nil && *req.NextDate != "" {
 			nextDate, _ := parseDateOnly(*req.NextDate)
-			planID, err := createVaccinationReminderPlan(tx, petID, newID, nextDate, req.NextTime, loc, tz, eventLabel, now)
+			planID, err := createVaccinationReminderPlan(tx, userID, petID, newID, nextDate, req.NextTime, loc, tz, eventLabel, now)
 			if err != nil {
 				return err
 			}
@@ -798,7 +801,7 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 			return err
 		}
 
-		administeredLink, err := syncVaccinationFact(tx, locked.PetID, locked.AdministeredEventID, effectiveAdministeredDate, req.AdministeredDate != nil, req.AdministeredTime, req.Name != nil || req.EventLabel != nil, loc, eventLabel)
+		administeredLink, err := syncVaccinationFact(tx, userID, locked.PetID, locked.AdministeredEventID, effectiveAdministeredDate, req.AdministeredDate != nil, req.AdministeredTime, req.Name != nil || req.EventLabel != nil, loc, eventLabel)
 		if err != nil {
 			return err
 		}
@@ -1767,7 +1770,7 @@ func medicationReminderSpec(frequencyType string, weekdays []int, intervalDays *
 // набор напоминаний: настройки source=medication с type=medication,
 // value={name}, notes=dosage и напоминания по моментам. ok=false, если
 // расписание не даёт ни одного будущего момента — набор не создаётся.
-func createMedicationReminderPlan(exec database.Executor, petID, medicationID uuid.UUID, name, dosage string, spec reminderScheduleSpec, loc *time.Location, tz string, now time.Time) (planID uuid.UUID, ok bool, err error) {
+func createMedicationReminderPlan(exec database.Executor, userID string, petID, medicationID uuid.UUID, name, dosage string, spec reminderScheduleSpec, loc *time.Location, tz string, now time.Time) (planID uuid.UUID, ok bool, err error) {
 	moments := computeReminderMoments(spec, loc, now, nil, models.ReminderMaxMomentsPerOperation)
 	if len(moments) == 0 {
 		return uuid.Nil, false, nil
@@ -1776,15 +1779,19 @@ func createMedicationReminderPlan(exec database.Executor, petID, medicationID uu
 	if err != nil {
 		return uuid.Nil, false, err
 	}
+	ownerID, err := uuid.Parse(userID)
+	if err != nil {
+		return uuid.Nil, false, err
+	}
 	planID = uuid.New()
 	plan := planDataFromRequest(models.ReminderPlanRequest{
 		Type:  "medication",
 		Value: value,
 		Notes: &dosage,
-	}, planID, petID, spec, tz)
+	}, planID, ownerID, spec, tz)
 	plan.Source = models.ReminderSourceMedication
 	plan.SourceID = uuid.NullUUID{UUID: medicationID, Valid: true}
-	if err := database.InsertReminderPlanWith(exec, plan, moments); err != nil {
+	if err := database.InsertReminderPlanWith(exec, plan, []uuid.UUID{petID}, moments); err != nil {
 		return uuid.Nil, false, err
 	}
 	return planID, true, nil
@@ -1859,7 +1866,7 @@ func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.
 			endDate = &t
 		}
 		spec := medicationReminderSpec(req.FrequencyType, req.Weekdays, req.IntervalDays, req.Times, startDate, endDate)
-		planID, created, err := createMedicationReminderPlan(tx, petID, newID, req.Name, req.Dosage, spec, loc, tz, now)
+		planID, created, err := createMedicationReminderPlan(tx, userID, petID, newID, req.Name, req.Dosage, spec, loc, tz, now)
 		if err != nil {
 			return err
 		}
@@ -2291,7 +2298,7 @@ func CreateMedicationRemindersHandler(w http.ResponseWriter, r *http.Request, id
 		if locked.FrequencyType == models.MedicationFrequencyAsNeeded {
 			return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "У курса лекарств с frequency_type=as_needed нет расписания")
 		}
-		planID, created, err := createMedicationReminderPlan(tx, locked.PetID, locked.ID, locked.Name, locked.Dosage, medicationSpecFromDB(locked), loc, tz, time.Now().UTC())
+		planID, created, err := createMedicationReminderPlan(tx, userID, locked.PetID, locked.ID, locked.Name, locked.Dosage, medicationSpecFromDB(locked), loc, tz, time.Now().UTC())
 		if err != nil {
 			return err
 		}

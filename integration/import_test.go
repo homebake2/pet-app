@@ -28,11 +28,11 @@ func TestImportLocalData_HappyPath(t *testing.T) {
 		},
 		"events": []map[string]any{
 			{
-				"local_id":     "local-event-1",
-				"pet_local_id": "local-cat",
-				"date":         time.Now().UTC().Format(time.RFC3339),
-				"type":         "weight",
-				"value":        map[string]any{"amount": 4.2},
+				"local_id":      "local-event-1",
+				"pet_local_ids": []string{"local-cat"},
+				"date":          time.Now().UTC().Format(time.RFC3339),
+				"type":          "weight",
+				"value":         map[string]any{"amount": 4.2},
 			},
 		},
 		"reminder_plans": []map[string]any{},
@@ -110,7 +110,7 @@ func TestImportLocalData_ReminderPlansLinkedToMedicationAndVaccination(t *testin
 		"reminder_plans": []map[string]any{
 			{
 				"local_id":       "plan-med",
-				"pet_local_id":   "local-cat",
+				"pet_local_ids":  []string{"local-cat"},
 				"type":           "medication",
 				"value":          map[string]any{"name": "Amoxicillin"},
 				"notes":          "1 tablet",
@@ -126,7 +126,7 @@ func TestImportLocalData_ReminderPlansLinkedToMedicationAndVaccination(t *testin
 			},
 			{
 				"local_id":       "plan-vac",
-				"pet_local_id":   "local-cat",
+				"pet_local_ids":  []string{"local-cat"},
 				"type":           "other",
 				"value":          map[string]any{"label": "Вакцинация: Rabies"},
 				"frequency_type": "once",
@@ -139,7 +139,7 @@ func TestImportLocalData_ReminderPlansLinkedToMedicationAndVaccination(t *testin
 			},
 			{
 				"local_id":       "plan-manual",
-				"pet_local_id":   "local-cat",
+				"pet_local_ids":  []string{"local-cat"},
 				"type":           "weight",
 				"value":          map[string]any{"amount": 4.0},
 				"frequency_type": "once",
@@ -247,7 +247,7 @@ func TestImportLocalData_ReminderPlanSourceRulesRejected(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "correct-password")
 
 	dailyPlan := map[string]any{
-		"local_id": "plan-1", "pet_local_id": "local-cat", "type": "medication",
+		"local_id": "plan-1", "pet_local_ids": []string{"local-cat"}, "type": "medication",
 		"value": map[string]any{"name": "Amoxicillin"}, "frequency_type": "daily",
 		"times": []string{"08:00"}, "start_date": "2024-01-01", "tz": "UTC",
 		"reminders": []map[string]any{{"local_id": "rem-1", "remind_at": futureDate(3) + "T08:00:00Z"}},
@@ -385,11 +385,11 @@ func TestImportLocalData_EventPetLocalIDMismatchRejected(t *testing.T) {
 		"pets": []map[string]any{{"local_id": "local-cat", "name": "Барсик", "species": "cat"}},
 		"events": []map[string]any{
 			{
-				"local_id":     "local-event-1",
-				"pet_local_id": "does-not-exist",
-				"date":         time.Now().UTC().Format(time.RFC3339),
-				"type":         "weight",
-				"value":        map[string]any{"amount": 4.2},
+				"local_id":      "local-event-1",
+				"pet_local_ids": []string{"does-not-exist"},
+				"date":          time.Now().UTC().Format(time.RFC3339),
+				"type":          "weight",
+				"value":         map[string]any{"amount": 4.2},
 			},
 		},
 		"reminder_plans": []map[string]any{},
@@ -420,18 +420,18 @@ func TestImportLocalData_DuplicateEventLocalIDRejected(t *testing.T) {
 		"pets": []map[string]any{{"local_id": "local-cat", "name": "Барсик", "species": "cat"}},
 		"events": []map[string]any{
 			{
-				"local_id":     "dup-event",
-				"pet_local_id": "local-cat",
-				"date":         time.Now().UTC().Format(time.RFC3339),
-				"type":         "weight",
-				"value":        map[string]any{"amount": 4.2},
+				"local_id":      "dup-event",
+				"pet_local_ids": []string{"local-cat"},
+				"date":          time.Now().UTC().Format(time.RFC3339),
+				"type":          "weight",
+				"value":         map[string]any{"amount": 4.2},
 			},
 			{
-				"local_id":     "dup-event",
-				"pet_local_id": "local-cat",
-				"date":         time.Now().UTC().Format(time.RFC3339),
-				"type":         "weight",
-				"value":        map[string]any{"amount": 5.0},
+				"local_id":      "dup-event",
+				"pet_local_ids": []string{"local-cat"},
+				"date":          time.Now().UTC().Format(time.RFC3339),
+				"type":          "weight",
+				"value":         map[string]any{"amount": 5.0},
 			},
 		},
 		"reminder_plans": []map[string]any{},
