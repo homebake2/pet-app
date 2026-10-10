@@ -611,13 +611,23 @@ func TestReminder_OwnNotesWinOverPlanNotes(t *testing.T) {
 	require.Equal(t, http.StatusOK, day.status)
 	var dayBody struct {
 		Items []struct {
-			ItemType string  `json:"item_type"`
-			Notes    *string `json:"notes"`
+			ItemType        string  `json:"item_type"`
+			Notes           *string `json:"notes"`
+			PlanSource      *string `json:"plan_source"`
+			PlanSourceTitle *string `json:"plan_source_title"`
+			PlanUnclosed    *int    `json:"plan_unclosed_count"`
 		} `json:"items"`
 	}
 	day.decode(t, &dayBody)
 	require.Len(t, dayBody.Items, 2)
 	require.Equal(t, "reminder", dayBody.Items[0].ItemType)
+	// Данные настроек для выбора «это / все» приходят в самом списке дня.
+	require.NotNil(t, dayBody.Items[0].PlanSource)
+	require.Equal(t, "medication", *dayBody.Items[0].PlanSource)
+	require.NotNil(t, dayBody.Items[0].PlanSourceTitle)
+	require.Equal(t, "Amoxicillin", *dayBody.Items[0].PlanSourceTitle)
+	require.NotNil(t, dayBody.Items[0].PlanUnclosed)
+	require.Equal(t, 2, *dayBody.Items[0].PlanUnclosed)
 	require.Equal(t, "2 пипетки", *dayBody.Items[0].Notes)
 	require.Equal(t, "1 tablet", *dayBody.Items[1].Notes)
 

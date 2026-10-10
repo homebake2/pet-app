@@ -57,14 +57,19 @@ type ActivitiesDayItem struct {
 	ItemType string `json:"item_type"`
 	ID       string `json:"id"`
 	// PlanID — настройки напоминания; только у item_type=reminder.
-	PlanID     *string         `json:"plan_id,omitempty"`
-	Date       string          `json:"date"`
-	Type       string          `json:"type"`
-	Notes      *string         `json:"notes,omitempty"`
-	Value      json.RawMessage `json:"value"`
-	FilesCount int             `json:"files_count"`
-	PetID      string          `json:"pet_id"`
-	PetName    string          `json:"pet_name"`
+	PlanID *string `json:"plan_id,omitempty"`
+	// PlanSource, PlanSourceTitle, PlanUnclosedCount — данные настроек для
+	// выбора «это / все» без отдельного запроса; только у item_type=reminder.
+	PlanSource        *string         `json:"plan_source,omitempty"`
+	PlanSourceTitle   *string         `json:"plan_source_title,omitempty"`
+	PlanUnclosedCount *int            `json:"plan_unclosed_count,omitempty"`
+	Date              string          `json:"date"`
+	Type              string          `json:"type"`
+	Notes             *string         `json:"notes,omitempty"`
+	Value             json.RawMessage `json:"value"`
+	FilesCount        int             `json:"files_count"`
+	PetID             string          `json:"pet_id"`
+	PetName           string          `json:"pet_name"`
 }
 
 // ActivitiesDayResponse — тело ответа GET /activities/day.

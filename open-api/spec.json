@@ -7285,7 +7285,7 @@
       "ActivitiesDayItem": {
         "title": "ActivitiesDayItem",
         "type": "object",
-        "description": "Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id — id настроек. У факта plan_id отсутствует.",
+        "description": "Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.",
         "required": [
           "item_type",
           "id",
@@ -7308,6 +7308,19 @@
             "type": "string",
             "format": "uuid",
             "description": "Id настроек напоминания; присутствует только при item_type=reminder."
+          },
+          "plan_source": {
+            "$ref": "#/components/schemas/ReminderSourceEnum",
+            "description": "Источник настроек напоминания; присутствует только при item_type=reminder."
+          },
+          "plan_source_title": {
+            "type": "string",
+            "nullable": true,
+            "description": "Название лекарства либо вакцинации; null при plan_source=manual. Присутствует только при item_type=reminder."
+          },
+          "plan_unclosed_count": {
+            "type": "integer",
+            "description": "Сколько незавершённых напоминаний у настроек, включая это; по нему клиент выбирает «это / все» без запроса GET /reminders/{id}. Присутствует только при item_type=reminder."
           },
           "date": {
             "type": "string",

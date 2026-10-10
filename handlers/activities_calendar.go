@@ -111,17 +111,27 @@ func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.Activi
 	items := make([]models.ActivitiesDayItem, 0, len(rows))
 	for _, row := range rows {
 		planID := row.PlanID.String()
+		planSource := row.PlanSource
+		unclosed := row.PlanUnclosedCount
+		var sourceTitle *string
+		if row.PlanSourceTitle.Valid {
+			title := row.PlanSourceTitle.String
+			sourceTitle = &title
+		}
 		items = append(items, models.ActivitiesDayItem{
-			ItemType:   models.ActivityItemTypeReminder,
-			ID:         row.ID.String(),
-			PlanID:     &planID,
-			Date:       row.RemindAt.UTC().Format(time.RFC3339),
-			Type:       row.Type,
-			Notes:      effectiveReminderNotes(row.ReminderNotes, row.PlanNotes),
-			Value:      row.Value,
-			FilesCount: planFileCounts[row.PlanID] + ownFileCounts[row.ID],
-			PetID:      row.PetID.String(),
-			PetName:    row.PetName,
+			ItemType:          models.ActivityItemTypeReminder,
+			ID:                row.ID.String(),
+			PlanID:            &planID,
+			PlanSource:        &planSource,
+			PlanSourceTitle:   sourceTitle,
+			PlanUnclosedCount: &unclosed,
+			Date:              row.RemindAt.UTC().Format(time.RFC3339),
+			Type:              row.Type,
+			Notes:             effectiveReminderNotes(row.ReminderNotes, row.PlanNotes),
+			Value:             row.Value,
+			FilesCount:        planFileCounts[row.PlanID] + ownFileCounts[row.ID],
+			PetID:             row.PetID.String(),
+			PetName:           row.PetName,
 		})
 	}
 	return items, nil

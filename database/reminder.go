@@ -509,6 +509,13 @@ type ReminderCalendarRow struct {
 	Value         json.RawMessage
 	PetID         uuid.UUID
 	PetName       string
+	PlanSource    string
+	// PlanSourceTitle — название лекарства либо вакцинации; не задано у
+	// настроек manual.
+	PlanSourceTitle sql.NullString
+	// PlanUnclosedCount — число незавершённых напоминаний настроек, включая
+	// само напоминание.
+	PlanUnclosedCount int
 }
 
 func scanReminderCalendarRows(rows *sql.Rows) ([]ReminderCalendarRow, error) {
@@ -517,7 +524,8 @@ func scanReminderCalendarRows(rows *sql.Rows) ([]ReminderCalendarRow, error) {
 	for rows.Next() {
 		var it ReminderCalendarRow
 		var value []byte
-		if err := rows.Scan(&it.ID, &it.PlanID, &it.RemindAt, &it.ReminderNotes, &it.PlanNotes, &it.Type, &value, &it.PetID, &it.PetName); err != nil {
+		if err := rows.Scan(&it.ID, &it.PlanID, &it.RemindAt, &it.ReminderNotes, &it.PlanNotes, &it.Type, &value, &it.PetID, &it.PetName,
+			&it.PlanSource, &it.PlanSourceTitle, &it.PlanUnclosedCount); err != nil {
 			return nil, err
 		}
 		it.Value = json.RawMessage(value)
@@ -527,10 +535,11 @@ func scanReminderCalendarRows(rows *sql.Rows) ([]ReminderCalendarRow, error) {
 }
 
 const reminderCalendarSelect = `
-	SELECT r.id, r.plan_id, r.remind_at, r.notes, p.notes, p.type, p.value, p.pet_id, pet.name
+	SELECT r.id, r.plan_id, r.remind_at, r.notes, p.notes, p.type, p.value, p.pet_id, pet.name,
+	       p.source, COALESCE(med.name, vac.name),
+	       (SELECT COUNT(*) FROM reminder o WHERE o.plan_id = p.id AND o.closed_at IS NULL)
 	FROM reminder r
-	JOIN reminder_plan p ON p.id = r.plan_id
-	JOIN pet ON pet.id = p.pet_id
+	JOIN reminder_plan p ON p.id = r.plan_id` + reminderPlanJoins + `
 	WHERE pet.user_id = $1 AND pet.deleted_at IS NULL AND r.closed_at IS NULL`
 
 // GetRemindersByUserIDInRange возвращает незавершённые напоминания всех не

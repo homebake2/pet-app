@@ -300,7 +300,7 @@ type ActivitiesCalendarItem struct {
 	HasReminders bool `json:"has_reminders"`
 }
 
-// ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id — id настроек. У факта plan_id отсутствует.
+// ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pet_id/pet_name — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.
 type ActivitiesDayItem struct {
 	Date       time.Time          `json:"date"`
 	FilesCount int                `json:"files_count"`
@@ -314,7 +314,16 @@ type ActivitiesDayItem struct {
 
 	// PlanId Id настроек напоминания; присутствует только при item_type=reminder.
 	PlanId *openapi_types.UUID `json:"plan_id,omitempty"`
-	Type   GetEventEnum        `json:"type"`
+
+	// PlanSource Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+	PlanSource *ReminderSourceEnum `json:"plan_source,omitempty"`
+
+	// PlanSourceTitle Название лекарства либо вакцинации; null при plan_source=manual. Присутствует только при item_type=reminder.
+	PlanSourceTitle *string `json:"plan_source_title"`
+
+	// PlanUnclosedCount Сколько незавершённых напоминаний у настроек, включая это; по нему клиент выбирает «это / все» без запроса GET /reminders/{id}. Присутствует только при item_type=reminder.
+	PlanUnclosedCount *int         `json:"plan_unclosed_count,omitempty"`
+	Type              GetEventEnum `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//

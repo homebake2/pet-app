@@ -35,9 +35,9 @@ const calendarRemindersQuery = `SELECT r\.remind_at\s+FROM reminder r\s+JOIN rem
 
 // reminderCalendarQuery — выборка незавершённых напоминаний с данными
 // настроек (GET /activities/day).
-const reminderCalendarQuery = `SELECT r\.id, r\.plan_id, r\.remind_at, r\.notes, p\.notes, p\.type, p\.value, p\.pet_id, pet\.name\s+FROM reminder r`
+const reminderCalendarQuery = `SELECT r\.id, r\.plan_id, r\.remind_at, r\.notes, p\.notes, p\.type, p\.value, p\.pet_id, pet\.name,\s+p\.source, COALESCE\(med\.name, vac\.name\),\s+\(SELECT COUNT\(\*\) FROM reminder o WHERE o\.plan_id = p\.id AND o\.closed_at IS NULL\)\s+FROM reminder r`
 
-var reminderCalendarColumns = []string{"id", "plan_id", "remind_at", "notes", "notes", "type", "value", "pet_id", "name"}
+var reminderCalendarColumns = []string{"id", "plan_id", "remind_at", "notes", "notes", "type", "value", "pet_id", "name", "source", "source_title", "unclosed"}
 
 type calendarResponse struct {
 	Items []struct {
@@ -247,7 +247,7 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	mock.ExpectQuery(reminderCalendarQuery).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns).
-			AddRow(reminderID, planID, time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC), "2 пипетки", "1 таблетка", "medication", []byte(`{"name":"Нурофен"}`), testPetID, "Rex"))
+			AddRow(reminderID, planID, time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC), "2 пипетки", "1 таблетка", "medication", []byte(`{"name":"Нурофен"}`), testPetID, "Rex", "medication", "Нурофен", 4))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WithArgs("reminder_plan_file", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(planID, 1))
@@ -266,6 +266,9 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 			ItemType   string  `json:"item_type"`
 			ID         string  `json:"id"`
 			PlanID     *string `json:"plan_id"`
+			PlanSource *string `json:"plan_source"`
+			PlanTitle  *string `json:"plan_source_title"`
+			Unclosed   *int    `json:"plan_unclosed_count"`
 			Date       string  `json:"date"`
 			Notes      *string `json:"notes"`
 			FilesCount int     `json:"files_count"`
@@ -282,6 +285,12 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	assert.Equal(t, reminderID, resp.Items[0].ID)
 	require.NotNil(t, resp.Items[0].PlanID)
 	assert.Equal(t, planID, *resp.Items[0].PlanID)
+	require.NotNil(t, resp.Items[0].PlanSource)
+	assert.Equal(t, "medication", *resp.Items[0].PlanSource)
+	require.NotNil(t, resp.Items[0].PlanTitle)
+	assert.Equal(t, "Нурофен", *resp.Items[0].PlanTitle)
+	require.NotNil(t, resp.Items[0].Unclosed)
+	assert.Equal(t, 4, *resp.Items[0].Unclosed)
 	require.NotNil(t, resp.Items[0].Notes)
 	assert.Equal(t, "2 пипетки", *resp.Items[0].Notes)
 	assert.Equal(t, 3, resp.Items[0].FilesCount)
@@ -290,6 +299,8 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	assert.Equal(t, "event", resp.Items[1].ItemType)
 	assert.Equal(t, eventID, resp.Items[1].ID)
 	assert.Nil(t, resp.Items[1].PlanID)
+	assert.Nil(t, resp.Items[1].PlanSource)
+	assert.Nil(t, resp.Items[1].Unclosed)
 	assert.Equal(t, 2, resp.Items[1].FilesCount)
 	assert.Equal(t, testPetID, resp.Items[1].PetID)
 	assert.Equal(t, "Rex", resp.Items[1].PetName)
