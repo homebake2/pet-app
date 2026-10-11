@@ -21,7 +21,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -119,43 +118,20 @@ func eventDateString(t time.Time) string {
 	return t.UTC().Format(time.RFC3339)
 }
 
-// truncateRunes обрезает строку до maxLen рун (не байт) — используется для
-// value.label синтетических событий "other", создаваемых по прививке: имя
-// прививки может быть длиннее лимита label (см. eventreg "other": 1-50).
-func truncateRunes(s string, maxLen int) string {
-	r := []rune(s)
-	if len(r) <= maxLen {
-		return s
+// vaccinationEventValue строит value записей типа vaccination: {"name": name}
+// у факта и основного напоминания, {"name": name, "vaccination_at": RFC3339}
+// у дополнительных напоминаний (at != nil) — момент записывается со смещением
+// пояса loc. Сервер не формирует локализованных подписей: название типа
+// подставляет клиент.
+func vaccinationEventValue(name string, at *time.Time, loc *time.Location) (json.RawMessage, error) {
+	value := struct {
+		Name          string `json:"name"`
+		VaccinationAt string `json:"vaccination_at,omitempty"`
+	}{Name: name}
+	if at != nil {
+		value.VaccinationAt = at.In(loc).Format(time.RFC3339)
 	}
-	return string(r[:maxLen])
-}
-
-// vaccinationEventLabelPrefix — префикс подписи события-напоминания по
-// умолчанию: value.label = "Вакцинация: " + name (см. «Вакцинации —
-// Backend», шаг 4 создания).
-const vaccinationEventLabelPrefix = "Вакцинация: "
-
-// otherEventLabelMaxRunes — лимит value.label события type=other (см.
-// eventreg "other": 1-50).
-const otherEventLabelMaxRunes = 50
-
-// vaccinationEventLabel возвращает подпись связанного события прививки.
-// У сервера нет локали пользователя, поэтому клиент может передать уже
-// локализованную подпись в event_label (например, "Vaccination: Rabies") —
-// так сетевой режим даёт ту же подпись, что и локальный (dataSource=local),
-// где её формирует i18n клиента. Если event_label не передан или пуст —
-// подпись по умолчанию "Вакцинация: " + name.
-func vaccinationEventLabel(requested *string, name string) string {
-	if requested != nil && strings.TrimSpace(*requested) != "" {
-		return *requested
-	}
-	return vaccinationEventLabelPrefix + name
-}
-
-// otherEventValue строит value события type=other: {"label": <label,
-// обрезано до 50 рун>}.
-func otherEventValue(label string) (json.RawMessage, error) {
-	return json.Marshal(map[string]string{"label": truncateRunes(label, otherEventLabelMaxRunes)})
+	return json.Marshal(value)
 }
 
 // vaccinationFactMoment строит момент факта на дату введения и проверяет
@@ -169,13 +145,13 @@ func vaccinationFactMoment(date time.Time, timeOfDay *string, loc *time.Location
 	return moment, nil
 }
 
-// createVaccinationFact создаёт факт type=other со значением
-// {"label": <label, обрезано до 50 рун>} на дату введения прививки —
+// createVaccinationFact создаёт факт type=vaccination со значением
+// {"name": <название вакцины>} на дату введения прививки —
 // побочный эффект POST/PATCH /pet/{id}/vaccinations (факт создаётся
 // всегда). Ошибка возвращается вызывающему: создание
 // факта входит в основной контракт ответа (administered_event_id).
-func createVaccinationFact(exec database.Executor, userID string, petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, label string) (uuid.UUID, error) {
-	value, err := otherEventValue(label)
+func createVaccinationFact(exec database.Executor, userID string, petID uuid.UUID, date time.Time, timeOfDay *string, loc *time.Location, name string) (uuid.UUID, error) {
+	value, err := vaccinationEventValue(name, nil, loc)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -185,7 +161,7 @@ func createVaccinationFact(exec database.Executor, userID string, petID uuid.UUI
 	}
 	return database.InsertEventWith(exec, userID, []uuid.UUID{petID}, models.EventFields{
 		Date:  eventDateString(moment),
-		Type:  "other",
+		Type:  "vaccination",
 		Value: value,
 	}, "")
 }
@@ -206,10 +182,13 @@ func vaccinationReminderMoment(nextDate time.Time, timeOfDay *string, loc *time.
 }
 
 // createVaccinationReminderPlan создаёт настройки напоминания на дату
-// следующей вакцинации: source=vaccination, разовое расписание на
-// next_date, одно напоминание. Возвращает id настроек.
-func createVaccinationReminderPlan(exec database.Executor, userID string, petID, vaccinationID uuid.UUID, nextDate time.Time, timeOfDay *string, loc *time.Location, tz, label string, now time.Time) (uuid.UUID, error) {
-	value, err := otherEventValue(label)
+// следующей вакцинации: type=vaccination, разовое расписание на
+// next_date, одно напоминание. source — vaccination (напоминание на
+// следующую вакцинацию) либо vaccination_extra (дополнительное).
+// vaccinationAt — момент следующей вакцинации для value.vaccination_at
+// дополнительного напоминания (nil у основного). Возвращает id настроек.
+func createVaccinationReminderPlan(exec database.Executor, source, userID string, petID, vaccinationID uuid.UUID, nextDate time.Time, timeOfDay *string, loc *time.Location, tz, name string, vaccinationAt *time.Time, now time.Time) (uuid.UUID, error) {
+	value, err := vaccinationEventValue(name, vaccinationAt, loc)
 	if err != nil {
 		return uuid.Nil, err
 	}
@@ -225,9 +204,9 @@ func createVaccinationReminderPlan(exec database.Executor, userID string, petID,
 	plan := models.ReminderPlanDB{
 		ID:            planID,
 		UserID:        ownerID,
-		Source:        models.ReminderSourceVaccination,
+		Source:        source,
 		SourceID:      uuid.NullUUID{UUID: vaccinationID, Valid: true},
-		Type:          "other",
+		Type:          "vaccination",
 		Value:         value,
 		FrequencyType: models.ReminderFrequencyOnce,
 		Times:         []string{normalizedTime},
@@ -284,8 +263,8 @@ func rescheduleVaccinationReminderPlan(exec database.Executor, plan models.Remin
 //     запросе переданы administered_date либо administered_time — создаётся
 //     новый;
 //   - факт существует и в запросе изменилась дата (dateChanged), передано
-//     время либо изменилась подпись (relabel) — обновляются его дата/время и
-//     подпись; время суток, не переданное в этом запросе, берётся из
+//     время либо изменилось название (rename) — обновляются его дата/время и
+//     value.name; время суток, не переданное в этом запросе, берётся из
 //     сохранённого в прививке administered_time (administeredTime — итоговое
 //     значение), а не из текущего времени факта;
 //   - иначе факт не трогается.
@@ -295,7 +274,7 @@ func rescheduleVaccinationReminderPlan(exec database.Executor, plan models.Remin
 //
 // Возвращает новое значение ссылки на факт для UpdateVaccinationWith, либо
 // nil, если ссылку менять не нужно.
-func syncVaccinationFact(exec database.Executor, userID string, petID uuid.UUID, currentEventID uuid.NullUUID, date sql.NullTime, dateChanged bool, administeredTime string, timeProvided bool, relabel bool, loc *time.Location, label string) (*uuid.NullUUID, error) {
+func syncVaccinationFact(exec database.Executor, userID string, petID uuid.UUID, currentEventID uuid.NullUUID, date sql.NullTime, dateChanged bool, administeredTime string, timeProvided bool, rename bool, loc *time.Location, name string) (*uuid.NullUUID, error) {
 	var existing *models.EventDB
 	if currentEventID.Valid {
 		event, err := database.GetEventByIDForUpdateWith(exec, currentEventID.UUID)
@@ -311,14 +290,14 @@ func syncVaccinationFact(exec database.Executor, userID string, petID uuid.UUID,
 		if !date.Valid || (!dateChanged && !timeProvided) {
 			return nil, nil
 		}
-		newEventID, err := createVaccinationFact(exec, userID, petID, date.Time, &administeredTime, loc, label)
+		newEventID, err := createVaccinationFact(exec, userID, petID, date.Time, &administeredTime, loc, name)
 		if err != nil {
 			return nil, err
 		}
 		return &uuid.NullUUID{UUID: newEventID, Valid: true}, nil
 	}
 
-	if !dateChanged && !timeProvided && !relabel {
+	if !dateChanged && !timeProvided && !rename {
 		return nil, nil
 	}
 
@@ -328,8 +307,8 @@ func syncVaccinationFact(exec database.Executor, userID string, petID uuid.UUID,
 	}
 	dateTime = dateTime.UTC()
 	var value *json.RawMessage
-	if relabel {
-		v, err := otherEventValue(label)
+	if rename {
+		v, err := vaccinationEventValue(name, nil, loc)
 		if err != nil {
 			return nil, err
 		}
@@ -352,14 +331,15 @@ func syncVaccinationFact(exec database.Executor, userID string, petID uuid.UUID,
 //   - add_reminder_on_next=true, настроек нет — создаются новые (момент
 //     обязан быть в будущем);
 //   - настройки есть, а их расписание отличается от итогового момента
-//     следующей вакцинации — расписание переносится на него (подпись при этом
-//     меняется только вместе с флагом true).
+//     следующей вакцинации — расписание переносится на него.
+//
+// Изменение названия (rename) обновляет value.name существующих настроек.
 //
 // effectiveNextTime — итоговое время суток следующей вакцинации (HH:MM).
 // Возвращает новое значение ссылки на настройки для UpdateVaccinationWith,
 // либо nil, если ссылку менять не нужно; признак того, что напоминание на
 // следующую дату существует после операции; и ключи объектов S3 без ссылок.
-func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccination *models.VaccinationDB, req models.UpdateVaccinationRequest, effectiveNextDate sql.NullTime, effectiveNextTime string, loc *time.Location, tz, label string, now time.Time) (link *uuid.NullUUID, exists bool, orphanKeys []string, err error) {
+func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccination *models.VaccinationDB, req models.UpdateVaccinationRequest, effectiveNextDate sql.NullTime, effectiveNextTime string, loc *time.Location, tz, name string, rename bool, now time.Time) (link *uuid.NullUUID, exists bool, orphanKeys []string, err error) {
 	var existing *database.ReminderPlanFull
 	if vaccination.NextPlanID.Valid {
 		plan, lookupErr := database.GetReminderPlanForUserWith(exec, vaccination.NextPlanID.UUID, userID, true)
@@ -392,15 +372,15 @@ func syncVaccinationReminderPlan(exec database.Executor, userID string, vaccinat
 		if flag == nil || !*flag {
 			return nil, false, nil, nil
 		}
-		planID, err := createVaccinationReminderPlan(exec, userID, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, &effectiveNextTime, loc, tz, label, now)
+		planID, err := createVaccinationReminderPlan(exec, models.ReminderSourceVaccination, userID, vaccination.PetID, vaccination.ID, effectiveNextDate.Time, &effectiveNextTime, loc, tz, name, nil, now)
 		if err != nil {
 			return nil, false, nil, err
 		}
 		return &uuid.NullUUID{UUID: planID, Valid: true}, true, nil, nil
 	}
 
-	if flag != nil && *flag {
-		value, err := otherEventValue(label)
+	if rename {
+		value, err := vaccinationEventValue(name, nil, loc)
 		if err != nil {
 			return nil, false, nil, err
 		}
@@ -540,9 +520,6 @@ func validateCreateVaccinationRequest(req models.CreateVaccinationRequest) strin
 	if req.NextTime != nil && *req.NextTime != "" && !isValidTimeOfDay(*req.NextTime) {
 		return "Некорректный формат next_time, ожидается HH:MM[:SS]"
 	}
-	if req.EventLabel != nil && utf8.RuneCountInString(*req.EventLabel) > models.VaccinationEventLabelMaxLen {
-		return "Поле event_label превышает допустимую длину"
-	}
 	if msg := validateVaccinationExtraReminderItems(req.ExtraReminders, false); msg != "" {
 		return msg
 	}
@@ -635,7 +612,6 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 
 	administeredDate, _ := parseDateOnly(req.AdministeredDate)
 	administeredTime := database.VaccinationTimeOfDay(req.AdministeredTime)
-	eventLabel := vaccinationEventLabel(req.EventLabel, req.Name)
 	now := time.Now().UTC()
 
 	// Моменты дополнительных напоминаний проверяются после повтора по
@@ -655,7 +631,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	err := database.RunInTx(func(tx *sql.Tx) error {
 		administeredEventID, nextPlanID = uuid.NullUUID{}, uuid.NullUUID{}
 		if !req.SkipAdministeredEvent {
-			factID, err := createVaccinationFact(tx, userID, petID, administeredDate, &administeredTime, loc, eventLabel)
+			factID, err := createVaccinationFact(tx, userID, petID, administeredDate, &administeredTime, loc, req.Name)
 			if err != nil {
 				return err
 			}
@@ -674,13 +650,14 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		nextDate, _ := parseDateOnly(*req.NextDate)
 		if req.AddReminderOnNext != nil && *req.AddReminderOnNext {
 			nextTime := database.VaccinationTimeOfDay(req.NextTime)
-			planID, err := createVaccinationReminderPlan(tx, userID, petID, newID, nextDate, &nextTime, loc, tz, eventLabel, now)
+			planID, err := createVaccinationReminderPlan(tx, models.ReminderSourceVaccination, userID, petID, newID, nextDate, &nextTime, loc, tz, req.Name, nil, now)
 			if err != nil {
 				return err
 			}
 			nextPlanID = uuid.NullUUID{UUID: planID, Valid: true}
 		}
-		if err := createVaccinationExtraReminders(tx, userID, petID, newID, req.ExtraReminders, loc, tz, eventLabel, now); err != nil {
+		nextMoment := localMoment(nextDate, database.VaccinationTimeOfDay(req.NextTime), loc)
+		if err := createVaccinationExtraReminders(tx, userID, petID, newID, req.ExtraReminders, loc, tz, req.Name, nextMoment, now); err != nil {
 			return err
 		}
 		if nextPlanID.Valid {
@@ -799,10 +776,6 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат next_time, ожидается HH:MM[:SS]")
 		return
 	}
-	if req.EventLabel != nil && utf8.RuneCountInString(*req.EventLabel) > models.VaccinationEventLabelMaxLen {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле event_label превышает допустимую длину")
-		return
-	}
 	if req.ExtraReminders != nil {
 		if msg := validateVaccinationExtraReminderItems(*req.ExtraReminders, true); msg != "" {
 			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -819,7 +792,7 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 	if req.Name != nil {
 		effectiveName = *req.Name
 	}
-	eventLabel := vaccinationEventLabel(req.EventLabel, effectiveName)
+	rename := req.Name != nil
 
 	effectiveAdministeredDate := sql.NullTime{Time: vaccination.AdministeredDate, Valid: true}
 	if req.AdministeredDate != nil {
@@ -879,7 +852,7 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 			administeredTimeUpdate = &effectiveAdministeredTime
 		}
 
-		administeredLink, err := syncVaccinationFact(tx, userID, locked.PetID, locked.AdministeredEventID, effectiveAdministeredDate, req.AdministeredDate != nil, effectiveAdministeredTime, administeredTimeProvided, req.Name != nil || req.EventLabel != nil, loc, eventLabel)
+		administeredLink, err := syncVaccinationFact(tx, userID, locked.PetID, locked.AdministeredEventID, effectiveAdministeredDate, req.AdministeredDate != nil, effectiveAdministeredTime, administeredTimeProvided, rename, loc, effectiveName)
 		if err != nil {
 			return err
 		}
@@ -890,13 +863,13 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		if err != nil {
 			return err
 		}
-		nextLink, hasMain, keys, err := syncVaccinationReminderPlan(tx, userID, locked, req, effectiveNextDate, effectiveNextTime, loc, tz, eventLabel, now)
+		nextLink, hasMain, keys, err := syncVaccinationReminderPlan(tx, userID, locked, req, effectiveNextDate, effectiveNextTime, loc, tz, effectiveName, rename, now)
 		if err != nil {
 			return err
 		}
 		orphanKeys = keys
 
-		extraKeys, err := syncVaccinationExtraReminders(tx, userID, locked, req, existingExtras, effectiveNextDate, effectiveNextTime, nextChanged, hasMain, req.Name != nil || req.EventLabel != nil, loc, tz, eventLabel, now)
+		extraKeys, err := syncVaccinationExtraReminders(tx, userID, locked, req, existingExtras, effectiveNextDate, effectiveNextTime, nextChanged, hasMain, rename, effectiveName, loc, tz, now)
 		if err != nil {
 			return err
 		}

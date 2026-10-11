@@ -129,8 +129,8 @@ func TestImportLocalData_ReminderPlansLinkedToMedicationAndVaccination(t *testin
 			{
 				"local_id":       "plan-vac",
 				"pet_local_ids":  []string{"local-cat"},
-				"type":           "other",
-				"value":          map[string]any{"label": "Вакцинация: Rabies"},
+				"type":           "vaccination",
+				"value":          map[string]any{"name": "Rabies"},
 				"frequency_type": "once",
 				"times":          []string{"09:00"},
 				"start_date":     futureDate(30),

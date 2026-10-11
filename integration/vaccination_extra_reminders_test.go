@@ -4,7 +4,10 @@ package integration
 
 import (
 	"net/http"
+	"os"
 	"testing"
+
+	"myauthservice/database"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -85,12 +88,16 @@ func TestVaccinationExtras_CreateAndList(t *testing.T) {
 	require.Equal(t, futureDate(20), item.ExtraReminders[1].Date)
 	require.Equal(t, "09:00", item.ExtraReminders[1].Time)
 
-	// Основное + два дополнительных — отдельные настройки source=vaccination
-	// с одним напоминанием каждые.
-	require.Equal(t, 3, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND source_id = $1`, id))
+	// Основное (source=vaccination) + два дополнительных
+	// (source=vaccination_extra) — отдельные настройки с одним напоминанием
+	// каждые.
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND source_id = $1`, id))
+	require.Equal(t, 2, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination_extra' AND source_id = $1`, id))
 	require.Equal(t, 3, countRows(t, `SELECT COUNT(*) FROM reminder`))
 	extra := getReminderPlan(t, tokens.AccessToken, item.ExtraReminders[0].PlanID)
-	require.Equal(t, "vaccination", extra.Source)
+	require.Equal(t, "vaccination_extra", extra.Source)
+	require.NotNil(t, extra.SourceTitle)
+	require.Equal(t, "Rabies", *extra.SourceTitle)
 	require.Equal(t, "once", extra.FrequencyType)
 	require.Len(t, extra.Reminders, 1)
 	require.Equal(t, futureDate(10)+"T08:00:00Z", extra.Reminders[0].RemindAt)
@@ -216,9 +223,10 @@ func TestVaccinationExtras_PatchFullSet(t *testing.T) {
 	require.Equalf(t, http.StatusOK, rename.status, "%s", rename.body)
 	items := listVaccinations(t, tokens.AccessToken, petID)
 	require.Len(t, items[0].ExtraReminders, 2)
-	// Подпись дополнительных обновляется вместе с именем.
+	// Название дополнительных обновляется вместе с именем.
 	renamed := getReminderPlan(t, tokens.AccessToken, keptID)
-	require.Equal(t, "Вакцинация: Rabies 2", renamed.Value.Label)
+	require.Equal(t, "vaccination", renamed.Type)
+	require.Equal(t, "Rabies 2", renamed.Value.Name)
 
 	// Обновить на месте, добавить новое, убрать второе.
 	patch := doRequest(t, http.MethodPatch, path, map[string]any{
@@ -431,15 +439,15 @@ func TestVaccinationExtras_DeleteCascades(t *testing.T) {
 }
 
 // Импорт: next_time, completed_at и extra_reminder_plan_local_ids переносятся;
-// настройки дополнительных получают source=vaccination и source_id.
+// настройки дополнительных получают source=vaccination_extra и source_id.
 func TestImportLocalData_VaccinationExtrasAndCompletion(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "correct-password")
 
 	oncePlan := func(localID, date, timeOfDay string) map[string]any {
 		return map[string]any{
-			"local_id": localID, "pet_local_ids": []string{"local-cat"}, "type": "other",
-			"value": map[string]any{"label": "Вакцинация: Rabies"}, "frequency_type": "once",
+			"local_id": localID, "pet_local_ids": []string{"local-cat"}, "type": "vaccination",
+			"value": map[string]any{"name": "Rabies"}, "frequency_type": "once",
 			"times": []string{timeOfDay}, "start_date": date, "tz": "UTC",
 			"reminders": []map[string]any{{"local_id": localID + "-r", "remind_at": date + "T" + timeOfDay + ":00Z"}},
 		}
@@ -478,7 +486,8 @@ func TestImportLocalData_VaccinationExtrasAndCompletion(t *testing.T) {
 	require.Len(t, result.Vaccinations, 2)
 	activeID := result.Vaccinations[0].ID
 
-	require.Equal(t, 3, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND source_id = $1`, activeID))
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND source_id = $1`, activeID))
+	require.Equal(t, 2, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination_extra' AND source_id = $1`, activeID))
 
 	pets := doRequest(t, http.MethodGet, "/pet", nil, tokens.AccessToken)
 	var petsBody struct {
@@ -509,8 +518,8 @@ func TestImportLocalData_VaccinationExtrasRejected(t *testing.T) {
 	tokens := registerUser(t, uniqueLogin(t), "correct-password")
 
 	plan := map[string]any{
-		"local_id": "plan-1", "pet_local_ids": []string{"local-cat"}, "type": "other",
-		"value": map[string]any{"label": "Вакцинация: Rabies"}, "frequency_type": "once",
+		"local_id": "plan-1", "pet_local_ids": []string{"local-cat"}, "type": "vaccination",
+		"value": map[string]any{"name": "Rabies"}, "frequency_type": "once",
 		"times": []string{"10:00"}, "start_date": futureDate(10), "tz": "UTC",
 		"reminders": []map[string]any{{"local_id": "rem-1", "remind_at": futureDate(10) + "T10:00:00Z"}},
 	}
@@ -545,4 +554,72 @@ func TestImportLocalData_VaccinationExtrasRejected(t *testing.T) {
 		require.Equalf(t, http.StatusBadRequest, resp.status, "%s: %s", name, resp.body)
 	}
 	require.Equal(t, 0, countRows(t, `SELECT COUNT(*) FROM vaccination`))
+}
+
+// Список дня: основное напоминание — plan_source=vaccination, дополнительное —
+// plan_source=vaccination_extra; название вакцинации у обоих; type/value и
+// питомец связанных настроек не меняются, расписание — только разовое.
+func TestVaccinationExtras_PlanSourceInDayListAndLinkedRules(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "password123")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+	_, item := createVaccinationWithExtras(t, tokens.AccessToken, petID)
+
+	day := doRequest(t, http.MethodGet, "/activities/day?date="+futureDate(10)+"&tz=UTC", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, day.status)
+	var dayBody struct {
+		Items []struct {
+			ItemType        string  `json:"item_type"`
+			PlanSource      *string `json:"plan_source"`
+			PlanSourceTitle *string `json:"plan_source_title"`
+		} `json:"items"`
+	}
+	day.decode(t, &dayBody)
+	require.Len(t, dayBody.Items, 1)
+	require.Equal(t, "reminder", dayBody.Items[0].ItemType)
+	require.NotNil(t, dayBody.Items[0].PlanSource)
+	require.Equal(t, "vaccination_extra", *dayBody.Items[0].PlanSource)
+	require.NotNil(t, dayBody.Items[0].PlanSourceTitle)
+	require.Equal(t, "Rabies", *dayBody.Items[0].PlanSourceTitle)
+
+	mainDay := doRequest(t, http.MethodGet, "/activities/day?date="+futureDate(30)+"&tz=UTC", nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, mainDay.status)
+	dayBody.Items = nil
+	mainDay.decode(t, &dayBody)
+	require.Len(t, dayBody.Items, 1)
+	require.Equal(t, "vaccination", *dayBody.Items[0].PlanSource)
+
+	extraPath := "/reminder-plans/" + item.ExtraReminders[0].PlanID + "?tz=UTC"
+	data := doRequest(t, http.MethodPatch, extraPath, map[string]any{"notes": "x"}, tokens.AccessToken)
+	require.Equalf(t, http.StatusBadRequest, data.status, "%s", data.body)
+	pets := doRequest(t, http.MethodPatch, extraPath, map[string]any{"pet_ids": []string{petID}}, tokens.AccessToken)
+	require.Equalf(t, http.StatusBadRequest, pets.status, "%s", pets.body)
+	daily := doRequest(t, http.MethodPatch, extraPath, map[string]any{
+		"frequency_type": "daily", "times": []string{"08:00"}, "start_date": futureDate(10),
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusBadRequest, daily.status, "%s", daily.body)
+}
+
+// Миграция 000030: настройки source=vaccination, чей id не равен
+// vaccination.next_plan_id, переводятся в vaccination_extra; основное
+// напоминание остаётся vaccination.
+func TestVaccinationExtras_MigrationBackfillsSource(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "password123")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+	id, item := createVaccinationWithExtras(t, tokens.AccessToken, petID)
+
+	// Приводим данные к форме до миграции: дополнительные — тоже vaccination.
+	_, err := database.DB.Exec(`UPDATE reminder_plan SET source = 'vaccination' WHERE source = 'vaccination_extra'`)
+	require.NoError(t, err)
+	require.Equal(t, 3, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND source_id = $1`, id))
+
+	up, err := os.ReadFile("../database/migrations/000030_reminder_plan_source_vaccination_extra.up.sql")
+	require.NoError(t, err)
+	_, err = database.DB.Exec(string(up))
+	require.NoError(t, err)
+
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND source_id = $1`, id))
+	require.Equal(t, 2, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination_extra' AND source_id = $1`, id))
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM reminder_plan WHERE source = 'vaccination' AND id = $1`, *item.NextPlanID))
 }

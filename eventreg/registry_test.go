@@ -27,6 +27,7 @@ func TestRegistryCoversOpenAPIEventTypes(t *testing.T) {
 		openapi.GetEventEnumEggLaying,
 		openapi.GetEventEnumWaterQuality,
 		openapi.GetEventEnumHeatCycle,
+		openapi.GetEventEnumVaccination,
 	}
 
 	if len(specTypes) != len(Types()) {
@@ -49,7 +50,7 @@ func TestRegistryCoversOpenAPIEventTypes(t *testing.T) {
 }
 
 func TestIsValidType(t *testing.T) {
-	valid := []string{"weight", "temperature", "feeding", "water", "activity", "sleep", "medication", "hygiene", "mood", "urine", "defecation", "vomit", "diarrhea", "other", "molting", "egg_laying", "water_quality", "heat_cycle"}
+	valid := []string{"weight", "temperature", "feeding", "water", "activity", "sleep", "medication", "hygiene", "mood", "urine", "defecation", "vomit", "diarrhea", "other", "molting", "egg_laying", "water_quality", "heat_cycle", "vaccination"}
 	for _, v := range valid {
 		if !IsValidType(v) {
 			t.Errorf("ожидался валидный тип события %q", v)
@@ -64,16 +65,45 @@ func TestIsValidType(t *testing.T) {
 	}
 }
 
-// other (value_kind=label) не агрегируется и не входит в множество типов по
-// умолчанию для GET /events/stats.
+// other и vaccination (value_kind=label) не агрегируются и не входят в
+// множество типов по умолчанию для GET /events/stats.
 func TestAggregatableTypesExcludesLabel(t *testing.T) {
 	for _, eventType := range AggregatableTypes() {
-		if eventType == "other" {
-			t.Fatal("тип other не должен входить в множество агрегируемых типов")
+		if eventType == "other" || eventType == "vaccination" {
+			t.Fatalf("тип %s не должен входить в множество агрегируемых типов", eventType)
 		}
 	}
-	if len(AggregatableTypes()) != len(Types())-1 {
-		t.Fatalf("ожидалось %d агрегируемых типов, получено %d", len(Types())-1, len(AggregatableTypes()))
+	if len(AggregatableTypes()) != len(Types())-2 {
+		t.Fatalf("ожидалось %d агрегируемых типов, получено %d", len(Types())-2, len(AggregatableTypes()))
+	}
+}
+
+// vaccination — системный тип флоу «Вакцинации»: label, график не строится,
+// ровно один питомец, применим ко всем видам.
+func TestVaccinationSpec(t *testing.T) {
+	spec, ok := Spec("vaccination")
+	if !ok {
+		t.Fatal("тип vaccination отсутствует в реестре")
+	}
+	if spec.ValueKind != KindLabel {
+		t.Errorf("value_kind vaccination = %q, ожидалось label", spec.ValueKind)
+	}
+	if spec.AllowsMultiplePets {
+		t.Error("vaccination не допускает несколько питомцев")
+	}
+	if spec.Aggregatable() || SeriesFor("vaccination") != nil {
+		t.Error("по типу vaccination графики не строятся")
+	}
+	if spec.ApplicableSpecies != nil {
+		t.Error("vaccination применим ко всем видам")
+	}
+	if !IsSystemType("vaccination") || IsSystemType("other") {
+		t.Error("системным должен быть только vaccination")
+	}
+	for _, species := range []string{"CAT", "DOG", "FISH", "OTHER"} {
+		if !IsApplicableToSpecies("vaccination", species) {
+			t.Errorf("vaccination должен быть применим к виду %s", species)
+		}
 	}
 }
 
@@ -251,7 +281,7 @@ func TestIsFieldValueApplicableToSpecies(t *testing.T) {
 // допускают несколько питомцев; пересечение применимости не бывает пустым,
 // потому что feeding/medication/hygiene/other применимы ко всем видам.
 func TestAllowsMultiplePets(t *testing.T) {
-	measurement := map[string]bool{"weight": true, "temperature": true, "water_quality": true}
+	measurement := map[string]bool{"weight": true, "temperature": true, "water_quality": true, "vaccination": true}
 	for _, eventType := range Types() {
 		want := !measurement[eventType]
 		if got := AllowsMultiplePets(eventType); got != want {

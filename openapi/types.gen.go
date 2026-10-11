@@ -220,6 +220,7 @@ const (
 	GetEventEnumSleep        GetEventEnum = "sleep"
 	GetEventEnumTemperature  GetEventEnum = "temperature"
 	GetEventEnumUrine        GetEventEnum = "urine"
+	GetEventEnumVaccination  GetEventEnum = "vaccination"
 	GetEventEnumVomit        GetEventEnum = "vomit"
 	GetEventEnumWater        GetEventEnum = "water"
 	GetEventEnumWaterQuality GetEventEnum = "water_quality"
@@ -273,9 +274,10 @@ const (
 
 // Defines values for ReminderSourceEnum.
 const (
-	Manual      ReminderSourceEnum = "manual"
-	Medication  ReminderSourceEnum = "medication"
-	Vaccination ReminderSourceEnum = "vaccination"
+	Manual           ReminderSourceEnum = "manual"
+	Medication       ReminderSourceEnum = "medication"
+	Vaccination      ReminderSourceEnum = "vaccination"
+	VaccinationExtra ReminderSourceEnum = "vaccination_extra"
 )
 
 // Defines values for LanguageCode.
@@ -316,7 +318,7 @@ type ActivitiesDayItem struct {
 	// PlanId Id настроек напоминания; присутствует только при item_type=reminder.
 	PlanId *openapi_types.UUID `json:"plan_id,omitempty"`
 
-	// PlanSource Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+	// PlanSource Источник настроек: manual — создано пользователем; medication — набор напоминаний лекарства; vaccination — напоминание на дату и время следующей вакцинации; vaccination_extra — дополнительное напоминание вакцинации.
 	PlanSource *ReminderSourceEnum `json:"plan_source,omitempty"`
 
 	// PlanSourceTitle Название лекарства либо вакцинации; null при plan_source=manual. Присутствует только при item_type=reminder.
@@ -344,6 +346,7 @@ type ActivitiesDayItem struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -560,6 +563,7 @@ type EventTemperatureKindEnum string
 // * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 // * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 // * heat_cycle — phase (EventHeatCyclePhaseEnum)
+// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 //
 // Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 type EventValue struct {
@@ -596,7 +600,7 @@ type EventValue struct {
 	// Label Краткое обозначение события (type=other); подробности — в notes.
 	Label *string `json:"label,omitempty"`
 
-	// Name Название препарата (type=medication).
+	// Name Название препарата (type=medication) либо вакцины (type=vaccination).
 	Name *string `json:"name,omitempty"`
 
 	// Ph Водородный показатель воды (type=water_quality, опционально).
@@ -619,6 +623,9 @@ type EventValue struct {
 
 	// Unit Единица измерения кормления (value.unit при type=feeding). piece — счётные корма (кормовые грызуны, насекомые, мальки).
 	Unit *EventFeedingUnitEnum `json:"unit,omitempty"`
+
+	// VaccinationAt Момент вакцинации (type=vaccination, опционально): задан у дополнительных напоминаний вакцинации, поддерживается сервером при изменении даты следующей вакцинации; у фактов и напоминания на следующую вакцинацию отсутствует. Клиентом не задаётся.
+	VaccinationAt *time.Time `json:"vaccination_at,omitempty"`
 }
 
 // GetActivitiesCalendarResponse defines model for GetActivitiesCalendarResponse.
@@ -743,6 +750,7 @@ type GetEventIdResponseRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -776,6 +784,7 @@ type GetEventRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -812,6 +821,7 @@ type GetEventResponse struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -1089,10 +1099,7 @@ type GetVaccinationRequest struct {
 	// AdministeredTime Время суток введения (administered_date); если не передано — 00:00. Сохраняется в вакцинации и задаёт время факта на дату введения. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	AdministeredTime *string `json:"administered_time"`
 
-	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
-	EventLabel *string `json:"event_label"`
-
-	// ExtraReminders Дополнительные напоминания вакцинации (до 5); каждое создаётся отдельными разовыми настройками напоминания с source=vaccination независимо от add_reminder_on_next. Допускается только при заданном next_date — иначе 400. Моменты не совпадают между собой и с напоминанием на next_date.
+	// ExtraReminders Дополнительные напоминания вакцинации (до 5); каждое создаётся отдельными разовыми настройками напоминания с source=vaccination_extra независимо от add_reminder_on_next. Допускается только при заданном next_date — иначе 400. Моменты не совпадают между собой и с напоминанием на next_date.
 	ExtraReminders *[]VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
 	Name           string                             `json:"name"`
 	NextDate       *openapi_types.Date                `json:"next_date"`
@@ -1220,6 +1227,7 @@ type ImportLocalDataEvent struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -1403,6 +1411,7 @@ type ImportReminderPlan struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -1425,7 +1434,7 @@ type ImportVaccination struct {
 	// CompletedAt Момент завершения вакцинации; не допускается вместе с next_date.
 	CompletedAt *time.Time `json:"completed_at"`
 
-	// ExtraReminderPlanLocalIds local_id настроек дополнительных напоминаний из reminder_plans[] этого же запроса (до 5, различные, не включая next_reminder_plan_local_id); допускается только при заданной next_date. После импорта сервер запишет настройкам source=vaccination и source_id вакцинации.
+	// ExtraReminderPlanLocalIds local_id настроек дополнительных напоминаний из reminder_plans[] этого же запроса (до 5, различные, не включая next_reminder_plan_local_id); допускается только при заданной next_date. После импорта сервер запишет настройкам source=vaccination_extra и source_id вакцинации.
 	ExtraReminderPlanLocalIds *[]string `json:"extra_reminder_plan_local_ids"`
 
 	// LocalId Клиентский UUID прививки в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
@@ -1617,6 +1626,7 @@ type ReminderPlanRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -1650,7 +1660,7 @@ type ReminderPlanResponse struct {
 	// Reminders Незавершённые напоминания настроек.
 	Reminders []ReminderRef `json:"reminders"`
 
-	// Source Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+	// Source Источник настроек: manual — создано пользователем; medication — набор напоминаний лекарства; vaccination — напоминание на дату и время следующей вакцинации; vaccination_extra — дополнительное напоминание вакцинации.
 	Source ReminderSourceEnum `json:"source"`
 
 	// SourceId medication.id либо vaccination.id; null при source=manual.
@@ -1684,6 +1694,7 @@ type ReminderPlanResponse struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
@@ -1716,7 +1727,7 @@ type ReminderResponse struct {
 	PlanFiles []EventFile        `json:"plan_files"`
 	PlanId    openapi_types.UUID `json:"plan_id"`
 
-	// PlanSource Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+	// PlanSource Источник настроек: manual — создано пользователем; medication — набор напоминаний лекарства; vaccination — напоминание на дату и время следующей вакцинации; vaccination_extra — дополнительное напоминание вакцинации.
 	PlanSource ReminderSourceEnum `json:"plan_source"`
 
 	// PlanSourceTitle Название лекарства либо вакцинации; null при plan_source=manual.
@@ -1745,12 +1756,13 @@ type ReminderResponse struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
-// ReminderSourceEnum Источник настроек: создано пользователем либо набором напоминаний лекарства или датой следующей вакцинации.
+// ReminderSourceEnum Источник настроек: manual — создано пользователем; medication — набор напоминаний лекарства; vaccination — напоминание на дату и время следующей вакцинации; vaccination_extra — дополнительное напоминание вакцинации.
 type ReminderSourceEnum string
 
 // UpcomingReminderItem defines model for UpcomingReminderItem.
@@ -1809,6 +1821,7 @@ type UpdateEventRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value *EventValue `json:"value,omitempty"`
@@ -1917,6 +1930,7 @@ type UpdateReminderPlanRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value *EventValue `json:"value,omitempty"`
@@ -1933,9 +1947,6 @@ type UpdateVaccinationRequest struct {
 
 	// AdministeredTime Время суток введения. Если не передано — сохраняется прежнее значение (и прежнее время факта). Переданное значение обновляет administered_time вакцинации и время факта. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	AdministeredTime *string `json:"administered_time"`
-
-	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
-	EventLabel *string `json:"event_label"`
 
 	// ExtraReminders Если передан — полный итоговый набор дополнительных напоминаний: элемент с plan_id обновляется на месте, без plan_id — создаётся, отсутствующие в списке существующие — жёстко удаляются; пустой массив удаляет все. Если не передан — не меняются. Допускается только при заданной итоговой next_date — иначе 400. Моменты не позже next_date+next_time.
 	ExtraReminders *[]VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
@@ -1978,7 +1989,7 @@ type VaccinationExtraReminderResponse struct {
 	// Date Дата напоминания в часовом поясе настроек.
 	Date openapi_types.Date `json:"date"`
 
-	// PlanId id настроек дополнительного напоминания (reminder_plan с source=vaccination).
+	// PlanId id настроек дополнительного напоминания (reminder_plan с source=vaccination_extra).
 	PlanId openapi_types.UUID `json:"plan_id"`
 
 	// Time Время суток напоминания (HH:MM) в часовом поясе настроек.

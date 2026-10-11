@@ -39,6 +39,8 @@ const (
 	FieldNumber FieldType = iota
 	FieldString
 	FieldEnum
+	// FieldDateTime — строка с моментом времени в формате RFC3339.
+	FieldDateTime
 )
 
 // Field описывает одно поле объекта value: тип, обязательность и границы.
@@ -557,6 +559,23 @@ var specs = []TypeSpec{
 		// other — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 	{
+		// vaccination — системный тип флоу «Вакцинации» (факт на дату
+		// введения, напоминание на следующую вакцинацию, дополнительные
+		// напоминания). Создаётся только этим флоу и импортом локальных
+		// данных; POST /events и POST /reminder-plans с этим типом
+		// отклоняются, type/value через PATCH не меняются.
+		Type:               "vaccination",
+		AllowsMultiplePets: false,
+		ValueKind:          KindLabel,
+		Fields: []Field{
+			{Name: "name", Type: FieldString, Required: true, MinLen: 1, MaxLen: 100},
+			// vaccination_at задаётся только у дополнительных напоминаний;
+			// сервер поддерживает его актуальным.
+			{Name: "vaccination_at", Type: FieldDateTime},
+		},
+		// vaccination — применим ко всем видам справочника (ApplicableSpecies: nil).
+	},
+	{
 		Type:               "molting",
 		AllowsMultiplePets: true,
 		ValueKind:          KindCategory,
@@ -642,6 +661,13 @@ func Spec(eventType string) (TypeSpec, bool) {
 func AllowsMultiplePets(eventType string) bool {
 	spec, ok := Spec(eventType)
 	return ok && spec.AllowsMultiplePets
+}
+
+// IsSystemType сообщает, что тип создаётся только системным флоу (Ветпаспорт
+// «Вакцинации») и не принимается ни пользовательскими POST /events и
+// POST /reminder-plans, ни изменением type/value через PATCH.
+func IsSystemType(eventType string) bool {
+	return eventType == "vaccination"
 }
 
 // IsValidType сообщает, входит ли значение в справочник типов события.

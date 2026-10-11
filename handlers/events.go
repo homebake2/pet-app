@@ -419,6 +419,10 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректное значение type")
 		return
 	}
+	if eventreg.IsSystemType(req.Type) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип "+req.Type+" создаётся только системным флоу")
+		return
+	}
 
 	parsedDate, err := parseEventDate(req.Date)
 	if err != nil {
@@ -617,6 +621,17 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Type != nil && req.Value == nil {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "При смене type поле value обязательно в этом же запросе")
+		return
+	}
+
+	// Системный тип (vaccination): type и value записи через PATCH не
+	// меняются, а перевести в него другую запись нельзя.
+	if eventreg.IsSystemType(eventDB.Type) && (req.Type != nil || req.Value != nil) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип и значение события типа "+eventDB.Type+" меняются только через запись Ветпаспорта")
+		return
+	}
+	if req.Type != nil && eventreg.IsSystemType(*req.Type) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Тип "+*req.Type+" создаётся только системным флоу")
 		return
 	}
 

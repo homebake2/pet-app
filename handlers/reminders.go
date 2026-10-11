@@ -175,6 +175,9 @@ func prepareReminderPlanCreate(userID string, req models.ReminderPlanRequest, tz
 	if err != nil {
 		return nil, err
 	}
+	if eventreg.IsSystemType(req.Type) {
+		return nil, bad("Тип " + req.Type + " создаётся только системным флоу")
+	}
 	if msg := validateReminderPlanData(req.Type, req.Value, req.Notes); msg != "" {
 		return nil, bad(msg)
 	}
@@ -571,6 +574,12 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 		if linked && dataGiven {
 			return bad("Тип, значение и заметка настроек, связанных с записью Ветпаспорта, меняются только через неё")
 		}
+		if eventreg.IsSystemType(plan.Type) && (req.Type != nil || req.Value != nil) {
+			return bad("Тип и значение настроек типа " + plan.Type + " меняются только через запись Ветпаспорта")
+		}
+		if req.Type != nil && eventreg.IsSystemType(*req.Type) {
+			return bad("Тип " + *req.Type + " создаётся только системным флоу")
+		}
 		if linked && petsGiven {
 			return bad("Питомец настроек, связанных с записью Ветпаспорта, меняется только через неё")
 		}
@@ -578,7 +587,7 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 			if plan.Source == models.ReminderSourceMedication && spec.FrequencyType == models.ReminderFrequencyOnce {
 				return bad("Расписание лекарства не может быть разовым")
 			}
-			if plan.Source == models.ReminderSourceVaccination && spec.FrequencyType != models.ReminderFrequencyOnce {
+			if models.IsVaccinationReminderSource(plan.Source) && spec.FrequencyType != models.ReminderFrequencyOnce {
 				return bad("Напоминание вакцинации допускает только разовое расписание")
 			}
 		}
@@ -720,7 +729,7 @@ func applyScheduleToPlanOwner(tx *sql.Tx, plan models.ReminderPlanDB, med *model
 			req.EndDate.Value = &endDate
 		}
 		return database.UpdateMedicationWith(tx, med.ID, req)
-	case models.ReminderSourceVaccination:
+	case models.ReminderSourceVaccination, models.ReminderSourceVaccinationExtra:
 		if !plan.SourceID.Valid {
 			return nil
 		}
@@ -914,13 +923,17 @@ func CompleteReminderHandler(w http.ResponseWriter, r *http.Request, reminderID 
 		if done {
 			reason = models.ReminderCloseDone
 			notes := effectiveReminderNotes(reminder.Notes, full.Plan.Notes)
+			factValue, err := factValueFromPlanValue(full.Plan.Type, full.Plan.Value)
+			if err != nil {
+				return err
+			}
 			// Один факт, привязанный к видимым питомцам настроек на момент
 			// отметки.
 			eventID, err := database.InsertEventWith(tx, userID, petIDsOf(full.Pets), models.EventFields{
 				Date:  reminder.RemindAt.UTC().Format(time.RFC3339),
 				Type:  full.Plan.Type,
 				Notes: notes,
-				Value: full.Plan.Value,
+				Value: factValue,
 			}, "")
 			if err != nil {
 				return err
@@ -1055,7 +1068,7 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 		if full.Reminder.ClosedAt.Valid {
 			return sql.ErrNoRows
 		}
-		if full.Plan.Source == models.ReminderSourceVaccination {
+		if models.IsVaccinationReminderSource(full.Plan.Source) {
 			return newReminderHTTPError(http.StatusConflict, openapi.CONFLICT, "Замена напоминания вакцинации недоступна: измените его через «Изменить все»")
 		}
 		newType := ""
@@ -1152,6 +1165,9 @@ func prepareDetachEvent(userID string, req models.CreateEventRequest, now time.T
 	}
 	if !eventreg.IsValidType(req.Type) {
 		return nil, bad("Некорректное значение type")
+	}
+	if eventreg.IsSystemType(req.Type) {
+		return nil, bad("Тип " + req.Type + " создаётся только системным флоу")
 	}
 	date, err := parseEventDate(req.Date)
 	if err != nil {
@@ -1310,4 +1326,23 @@ func GetPetUpcomingRemindersHandler(w http.ResponseWriter, r *http.Request, petI
 		})
 	}
 	writeJSON(w, http.StatusOK, models.PetUpcomingRemindersResponse{Items: items})
+}
+
+// factValueFromPlanValue возвращает value факта, создаваемого отметкой
+// «выполнено»: value настроек как есть, кроме type=vaccination — у факта нет
+// value.vaccination_at (момент вакцинации хранят только дополнительные
+// напоминания).
+func factValueFromPlanValue(eventType string, value json.RawMessage) (json.RawMessage, error) {
+	if eventType != "vaccination" {
+		return value, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(value, &fields); err != nil {
+		return nil, err
+	}
+	if _, ok := fields["vaccination_at"]; !ok {
+		return value, nil
+	}
+	delete(fields, "vaccination_at")
+	return json.Marshal(fields)
 }

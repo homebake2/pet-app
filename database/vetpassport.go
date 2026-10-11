@@ -179,8 +179,8 @@ func GetVaccinationByIDWith(exec dbExecutor, id uuid.UUID, lock bool) (*models.V
 }
 
 // ListVaccinationExtraPlansWith возвращает настройки дополнительных
-// напоминаний прививок: настройки с source = vaccination и source_id из
-// vaccinationIDs, id которых не равен vaccination.next_plan_id. Порядок — по
+// напоминаний прививок: настройки с source = vaccination_extra и source_id из
+// vaccinationIDs. Порядок — по
 // прививке, затем по возрастанию момента (дата, время суток). lock=true
 // блокирует строки настроек до конца транзакции.
 func ListVaccinationExtraPlansWith(exec dbExecutor, vaccinationIDs []uuid.UUID, lock bool) ([]models.ReminderPlanDB, error) {
@@ -190,9 +190,7 @@ func ListVaccinationExtraPlansWith(exec dbExecutor, vaccinationIDs []uuid.UUID, 
 	query := `
 		SELECT ` + reminderPlanColumns + `
 		FROM reminder_plan p
-		JOIN vaccination vac ON vac.id = p.source_id
-		WHERE p.source = 'vaccination' AND p.source_id = ANY($1)
-		  AND p.id IS DISTINCT FROM vac.next_plan_id
+		WHERE p.source = 'vaccination_extra' AND p.source_id = ANY($1)
 		ORDER BY p.source_id, p.start_date, p.times[1], p.id`
 	if lock {
 		query += ` FOR UPDATE OF p`

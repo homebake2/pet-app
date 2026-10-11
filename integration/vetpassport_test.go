@@ -805,7 +805,9 @@ type petEventItem struct {
 	Date  string `json:"date"`
 	Type  string `json:"type"`
 	Value struct {
-		Label string `json:"label"`
+		Label         string `json:"label"`
+		Name          string `json:"name"`
+		VaccinationAt string `json:"vaccination_at"`
 	} `json:"value"`
 }
 
@@ -838,7 +840,7 @@ func listMedications(t *testing.T, token, petID string) []medicationBody {
 	return body.Items
 }
 
-// Связанный факт прививки: подпись с префиксом, PATCH обновляет его на месте
+// Связанный факт прививки: type=vaccination с value.name, PATCH обновляет его на месте
 // (а не создаёт новый), удаление прививки удаляет его.
 // Напоминание на следующую дату — настройки (не событие): включается и
 // выключается флагом, очищается вместе с next_date.
@@ -859,23 +861,23 @@ func TestVaccination_LinkedRecordsLifecycle(t *testing.T) {
 	events := listPetEvents(t, tokens.AccessToken, petID)
 	require.Len(t, events, 1)
 	eventID := events[0].ID
-	require.Equal(t, "other", events[0].Type)
-	require.Equal(t, "Вакцинация: Rabies", events[0].Value.Label)
+	require.Equal(t, "vaccination", events[0].Type)
+	require.Equal(t, "Rabies", events[0].Value.Name)
+	require.Empty(t, events[0].Value.Label)
 	require.Equal(t, "2024-01-01T14:45:00Z", events[0].Date)
 
 	// Повторный PATCH: тот же факт, новая дата, прежнее время
-	// суток, локализованная клиентом подпись.
+	// суток, обновлённое название.
 	patch := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=UTC", map[string]any{
 		"name":              "Rabies v2",
 		"administered_date": "2024-02-10",
-		"event_label":       "Vaccination: Rabies v2",
 	}, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 
 	events = listPetEvents(t, tokens.AccessToken, petID)
 	require.Len(t, events, 1, "PATCH не должен создавать второй факт")
 	require.Equal(t, eventID, events[0].ID)
-	require.Equal(t, "Vaccination: Rabies v2", events[0].Value.Label)
+	require.Equal(t, "Rabies v2", events[0].Value.Name)
 	require.Equal(t, "2024-02-10T14:45:00Z", events[0].Date)
 
 	// Перенос факта в будущее — 400, факт не меняется.

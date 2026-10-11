@@ -38,8 +38,8 @@ func expectDeleteReminderPlan(mock sqlmock.Sqlmock) {
 // напоминанием на момент remindAt (UTC).
 func expectNewReminderPlanInsert(mock sqlmock.Sqlmock, remindAt string) {
 	mock.ExpectExec(`INSERT INTO reminder_plan \(`).
-		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testUserID), "vaccination", uuid.MustParse(testVaccinationID), "other",
-			`{"label":"Вакцинация: Rabies"}`, sqlmock.AnyArg(), "once", sqlmock.AnyArg(), sqlmock.AnyArg(),
+		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testUserID), "vaccination_extra", uuid.MustParse(testVaccinationID), "vaccination",
+			`{"name":"Rabies","vaccination_at":"2098-01-02T10:00:00Z"}`, sqlmock.AnyArg(), "once", sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "UTC").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -258,7 +258,7 @@ func TestUpdateVaccinationHandler_NextDateNullDeletesAllReminders(t *testing.T) 
 	// Настройки напоминания на следующую дату.
 	mock.ExpectQuery(`FROM reminder_plan p`).
 		WillReturnRows(sqlmock.NewRows(reminderPlanSelectColumns).AddRow(
-			testNextPlanID, testUserID, "vaccination", testVaccinationID, "other", []byte(`{"label":"Вакцинация: Rabies"}`), nil, "once", nil, nil,
+			testNextPlanID, testUserID, "vaccination", testVaccinationID, "vaccination", []byte(`{"name":"Rabies"}`), nil, "once", nil, nil,
 			"{10:00}", timeParse("2098-01-02"), nil, "UTC", timeParse("2024-01-01"), "Rabies"))
 	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).AddRow(testNextPlanID, testPetID, "Rex", "DOG"))
@@ -397,8 +397,8 @@ func TestImportLocalDataHandler_VaccinationExtrasRejected(t *testing.T) {
 	oncePlan := func(localID string) models.ImportReminderPlan {
 		plan := validImportReminderPlan(localID, "local-1")
 		plan.FrequencyType = "once"
-		plan.Type = "other"
-		plan.Value = eventValue(`{"label":"Прививка"}`)
+		plan.Type = "vaccination"
+		plan.Value = eventValue(`{"name":"Прививка"}`)
 		return plan
 	}
 	base := func() models.ImportVaccination {

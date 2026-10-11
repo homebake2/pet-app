@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -114,6 +115,15 @@ func validateField(eventType string, field Field, raw json.RawMessage) string {
 		length := utf8.RuneCountInString(strings.TrimSpace(text))
 		if length < field.MinLen || length > field.MaxLen {
 			return fmt.Sprintf("Поле value.%s для type=%s должно быть от %d до %d символов", field.Name, eventType, field.MinLen, field.MaxLen)
+		}
+		return ""
+	case FieldDateTime:
+		var text string
+		if err := json.Unmarshal(raw, &text); err != nil {
+			return fmt.Sprintf("Поле value.%s для type=%s должно быть строкой", field.Name, eventType)
+		}
+		if _, err := time.Parse(time.RFC3339, text); err != nil {
+			return fmt.Sprintf("Поле value.%s для type=%s должно быть моментом времени в формате RFC3339", field.Name, eventType)
 		}
 		return ""
 	case FieldEnum:

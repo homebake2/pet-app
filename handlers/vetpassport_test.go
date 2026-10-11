@@ -167,7 +167,7 @@ const (
 
 // Запрос настроек дополнительных напоминаний прививки
 // (database.ListVaccinationExtraPlansWith): колонки reminderPlanColumns.
-const vaccinationExtrasRe = `FROM reminder_plan p\s+JOIN vaccination vac ON vac\.id = p\.source_id`
+const vaccinationExtrasRe = `FROM reminder_plan p\s+WHERE p\.source = .vaccination_extra.`
 
 var vaccinationExtraPlanColumns = []string{
 	"id", "user_id", "source", "source_id", "type", "value", "notes", "frequency_type", "weekdays", "interval_days",
@@ -176,7 +176,7 @@ var vaccinationExtraPlanColumns = []string{
 
 func vaccinationExtraPlanRow(planID, date, timeOfDay string) []driver.Value {
 	return []driver.Value{
-		planID, testUserID, "vaccination", testVaccinationID, "other", []byte(`{"label":"Вакцинация: Rabies"}`), nil, "once", nil, nil,
+		planID, testUserID, "vaccination_extra", testVaccinationID, "vaccination", []byte(`{"name":"Rabies","vaccination_at":"2098-01-02T10:00:00Z"}`), nil, "once", nil, nil,
 		"{" + timeOfDay + "}", timeParse(date), nil, "UTC", time.Now(),
 	}
 }
@@ -326,8 +326,8 @@ func TestCreateVaccinationHandler_ReminderCreatesPlan(t *testing.T) {
 	mock.ExpectQuery(`INSERT INTO vaccination`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
 	mock.ExpectExec(`INSERT INTO reminder_plan \(`).
-		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testUserID), "vaccination", uuid.MustParse(testVaccinationID), "other",
-			`{"label":"Вакцинация: Rabies"}`, sqlmock.AnyArg(), "once", sqlmock.AnyArg(), sqlmock.AnyArg(),
+		WithArgs(sqlmock.AnyArg(), uuid.MustParse(testUserID), "vaccination", uuid.MustParse(testVaccinationID), "vaccination",
+			`{"name":"Rabies"}`, sqlmock.AnyArg(), "once", sqlmock.AnyArg(), sqlmock.AnyArg(),
 			sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), "Europe/Moscow").
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -363,7 +363,7 @@ func TestCreateVaccinationHandler_FactInClientTimeZone(t *testing.T) {
 	expectPetOwnedForCreate(mock)
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO event \(`).
-		WithArgs(testUserID, mustRFC3339("2024-01-01T06:30:00Z"), "other", sqlmock.AnyArg(), `{"label":"Vaccination: Rabies"}`, sqlmock.AnyArg()).
+		WithArgs(testUserID, mustRFC3339("2024-01-01T06:30:00Z"), "vaccination", sqlmock.AnyArg(), `{"name":"Rabies"}`, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testAdministeredEventID))
 	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`INSERT INTO vaccination`).
@@ -371,10 +371,9 @@ func TestCreateVaccinationHandler_FactInClientTimeZone(t *testing.T) {
 	mock.ExpectCommit()
 
 	administeredTime := "09:30"
-	label := "Vaccination: Rabies"
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodPost, vaccinationsPath+"?tz=Europe/Moscow", models.CreateVaccinationRequest{
-		Name: "Rabies", AdministeredDate: "2024-01-01", AdministeredTime: &administeredTime, EventLabel: &label,
+		Name: "Rabies", AdministeredDate: "2024-01-01", AdministeredTime: &administeredTime,
 	}, true)
 	CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
 
@@ -1382,7 +1381,7 @@ func TestGetPetVaccinationsHandler_ReturnsAdministeredTime(t *testing.T) {
 			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "09:30", nil, nil, nil, nil, nil, nil))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
-	mock.ExpectQuery(`FROM reminder_plan p\s+JOIN vaccination vac ON vac\.id = p\.source_id`).
+	mock.ExpectQuery(`FROM reminder_plan p\s+WHERE p\.source = .vaccination_extra.`).
 		WillReturnRows(sqlmock.NewRows(vaccinationExtraPlanColumns))
 
 	w := httptest.NewRecorder()

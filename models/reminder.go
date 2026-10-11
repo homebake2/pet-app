@@ -10,10 +10,21 @@ import (
 
 // Значения reminder_plan.source (ReminderSourceEnum).
 const (
-	ReminderSourceManual      = "manual"
-	ReminderSourceMedication  = "medication"
+	ReminderSourceManual     = "manual"
+	ReminderSourceMedication = "medication"
+	// ReminderSourceVaccination — основное напоминание на следующую
+	// вакцинацию (id = vaccination.next_plan_id).
 	ReminderSourceVaccination = "vaccination"
+	// ReminderSourceVaccinationExtra — дополнительное напоминание
+	// вакцинации (source_id = id вакцинации).
+	ReminderSourceVaccinationExtra = "vaccination_extra"
 )
+
+// IsVaccinationReminderSource сообщает, что источник настроек — запись
+// вакцинации (основное либо дополнительное напоминание).
+func IsVaccinationReminderSource(source string) bool {
+	return source == ReminderSourceVaccination || source == ReminderSourceVaccinationExtra
+}
 
 // Значения reminder_plan.frequency_type (ReminderFrequencyTypeEnum).
 const (

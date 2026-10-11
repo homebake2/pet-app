@@ -14,9 +14,10 @@ import (
 )
 
 // Дополнительные напоминания вакцинации — см. «Вакцинации — Backend»: это
-// обычные настройки напоминания (source = vaccination, source_id = id
-// вакцинации, разовое расписание, одно напоминание), id которых не равен
-// vaccination.next_plan_id. Отдельной таблицы для них нет.
+// обычные настройки напоминания (source = vaccination_extra, source_id = id
+// вакцинации, разовое расписание, одно напоминание); напоминание на
+// следующую вакцинацию — source = vaccination, id = vaccination.next_plan_id.
+// Отдельной таблицы для дополнительных нет.
 
 func vaccinationBadRequest(msg string) error {
 	return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -104,13 +105,15 @@ func extraPlanMatches(plan models.ReminderPlanDB, date time.Time, timeOfDay stri
 }
 
 // createVaccinationExtraReminders создаёт настройки дополнительных
-// напоминаний (по одному напоминанию в каждых). Моменты проверены вызывающим
-// кодом (validateVaccinationExtraMoments).
-func createVaccinationExtraReminders(exec database.Executor, userID string, petID, vaccinationID uuid.UUID, items []models.VaccinationExtraReminderRequest, loc *time.Location, tz, label string, now time.Time) error {
+// напоминаний (по одному напоминанию в каждых) типа vaccination со значением
+// {name, vaccination_at}, где vaccination_at — момент следующей вакцинации
+// (nextMoment). Моменты проверены вызывающим кодом
+// (validateVaccinationExtraMoments).
+func createVaccinationExtraReminders(exec database.Executor, userID string, petID, vaccinationID uuid.UUID, items []models.VaccinationExtraReminderRequest, loc *time.Location, tz, name string, nextMoment time.Time, now time.Time) error {
 	for _, item := range items {
 		date, _ := parseDateOnly(item.Date)
 		timeOfDay := item.Time
-		if _, err := createVaccinationReminderPlan(exec, userID, petID, vaccinationID, date, &timeOfDay, loc, tz, label, now); err != nil {
+		if _, err := createVaccinationReminderPlan(exec, models.ReminderSourceVaccinationExtra, userID, petID, vaccinationID, date, &timeOfDay, loc, tz, name, &nextMoment, now); err != nil {
 			return err
 		}
 	}
@@ -148,9 +151,10 @@ func validateCreateVaccinationExtraReminders(req models.CreateVaccinationRequest
 //     следующей вакцинации проверяется, что ни одно не оказалось позже него.
 //
 // existing — текущие настройки дополнительных напоминаний (заблокированные).
-// relabel — изменились имя либо event_label: подпись обновляется у всех
-// остающихся. Возвращает ключи объектов S3 без ссылок.
-func syncVaccinationExtraReminders(exec database.Executor, userID string, vaccination *models.VaccinationDB, req models.UpdateVaccinationRequest, existing []models.ReminderPlanDB, effectiveNextDate sql.NullTime, effectiveNextTime string, nextChanged, hasMain, relabel bool, loc *time.Location, tz, label string, now time.Time) ([]string, error) {
+// rename — изменилось имя: value.name обновляется у всех остающихся.
+// Остающимся напоминаниям пересчитывается и value.vaccination_at, когда
+// изменился момент следующей вакцинации (nextChanged). Возвращает ключи объектов S3 без ссылок.
+func syncVaccinationExtraReminders(exec database.Executor, userID string, vaccination *models.VaccinationDB, req models.UpdateVaccinationRequest, existing []models.ReminderPlanDB, effectiveNextDate sql.NullTime, effectiveNextTime string, nextChanged, hasMain, rename bool, name string, loc *time.Location, tz string, now time.Time) ([]string, error) {
 	deleteIDs := func(plans []models.ReminderPlanDB) ([]string, error) {
 		ids := make([]uuid.UUID, 0, len(plans))
 		for _, p := range plans {
@@ -244,23 +248,23 @@ func syncVaccinationExtraReminders(exec database.Executor, userID string, vaccin
 		}
 		orphanKeys = append(orphanKeys, keys...)
 	}
-	if relabel {
-		value, err := otherEventValue(label)
+	if rename || nextChanged {
+		value, err := vaccinationEventValue(name, &nextMoment, loc)
 		if err != nil {
 			return nil, err
 		}
-		relabelled := make([]models.ReminderPlanDB, 0, len(keep)+len(moved))
-		relabelled = append(relabelled, keep...)
+		updated := make([]models.ReminderPlanDB, 0, len(keep)+len(moved))
+		updated = append(updated, keep...)
 		for _, m := range moved {
-			relabelled = append(relabelled, m.plan)
+			updated = append(updated, m.plan)
 		}
-		for _, p := range relabelled {
+		for _, p := range updated {
 			if err := database.UpdateReminderPlanWith(exec, p.ID, database.ReminderPlanUpdate{Value: &value}); err != nil {
 				return nil, err
 			}
 		}
 	}
-	if err := createVaccinationExtraReminders(exec, userID, vaccination.PetID, vaccination.ID, created, loc, tz, label, now); err != nil {
+	if err := createVaccinationExtraReminders(exec, userID, vaccination.PetID, vaccination.ID, created, loc, tz, name, nextMoment, now); err != nil {
 		return nil, err
 	}
 	return orphanKeys, nil
@@ -312,10 +316,10 @@ func deleteVaccinationExtraRemindersWith(exec database.Executor, vaccinationID u
 // проверяет инвариант «момент дополнительного напоминания не позже момента
 // следующей вакцинации»:
 //
-//   - напоминание на следующую вакцинацию (id = vaccination.next_plan_id) —
+//   - напоминание на следующую вакцинацию (source = vaccination) —
 //     дата записывается в next_date, время суток в next_time; перенос раньше
 //     любого дополнительного напоминания либо на его момент — 400;
-//   - дополнительное напоминание — поля вакцинации не меняются; перенос позже
+//   - дополнительное напоминание (source = vaccination_extra) — поля вакцинации не меняются; перенос позже
 //     следующей вакцинации либо на момент другого напоминания вакцинации —
 //     400.
 //
@@ -339,7 +343,7 @@ func applyScheduleToVaccination(tx *sql.Tx, plan models.ReminderPlanDB, spec rem
 		return err
 	}
 
-	isMain := vaccination.NextPlanID.Valid && vaccination.NextPlanID.UUID == plan.ID
+	isMain := plan.Source == models.ReminderSourceVaccination
 	if isMain {
 		for _, extra := range extras {
 			moment := localMoment(extra.StartDate, extraPlanTimeOfDay(extra), loc)
@@ -347,7 +351,10 @@ func applyScheduleToVaccination(tx *sql.Tx, plan models.ReminderPlanDB, spec rem
 				return vaccinationBadRequest("Момент напоминания на следующую вакцинацию не может быть раньше дополнительных напоминаний или совпадать с ними")
 			}
 		}
-		return database.SetVaccinationNextMomentWith(tx, vaccination.ID, spec.StartDate, timeOfDay)
+		if err := database.SetVaccinationNextMomentWith(tx, vaccination.ID, spec.StartDate, timeOfDay); err != nil {
+			return err
+		}
+		return refreshVaccinationExtraMoments(tx, vaccination, extras, spec.StartDate, timeOfDay, loc)
 	}
 
 	if vaccination.NextDate.Valid {
@@ -382,9 +389,9 @@ type vaccinationCompletion struct {
 }
 
 // findVaccinationCompletion возвращает завершение вакцинации, если plan —
-// напоминание на следующую вакцинацию (id = vaccination.next_plan_id); для
-// остальных настроек (в том числе дополнительного напоминания вакцинации,
-// поля которой при отметке не меняются) возвращает nil. Вызывается до
+// напоминание на следующую вакцинацию (source = vaccination); для остальных
+// настроек (в том числе дополнительного напоминания вакцинации, source =
+// vaccination_extra, поля которой при отметке не меняются) возвращает nil. Вызывается до
 // закрытия напоминания: вместе с опустевшими настройками ссылка next_plan_id
 // обнуляется.
 func findVaccinationCompletion(tx *sql.Tx, plan models.ReminderPlanDB) (*vaccinationCompletion, error) {
@@ -397,9 +404,6 @@ func findVaccinationCompletion(tx *sql.Tx, plan models.ReminderPlanDB) (*vaccina
 	}
 	if err != nil {
 		return nil, err
-	}
-	if !vaccination.NextPlanID.Valid || vaccination.NextPlanID.UUID != plan.ID {
-		return nil, nil
 	}
 	extras, err := database.ListVaccinationExtraPlansWith(tx, []uuid.UUID{vaccination.ID}, true)
 	if err != nil {
@@ -420,4 +424,35 @@ func (c *vaccinationCompletion) apply(tx *sql.Tx, now time.Time) ([]string, erro
 		return nil, err
 	}
 	return database.DeleteReminderPlansWith(tx, c.extraPlanIDs)
+}
+
+// refreshVaccinationExtraMoments пересчитывает value.vaccination_at у
+// дополнительных напоминаний по итоговому моменту следующей вакцинации, если
+// он изменился относительно сохранённого в вакцинации (перенос напоминания на
+// следующую вакцинацию из календаря). Расписание самих дополнительных
+// напоминаний не меняется.
+func refreshVaccinationExtraMoments(exec database.Executor, vaccination *models.VaccinationDB, extras []models.ReminderPlanDB, nextDate time.Time, nextTime string, loc *time.Location) error {
+	if len(extras) == 0 {
+		return nil
+	}
+	storedTime := "00:00"
+	if vaccination.NextTime.Valid {
+		storedTime = normalizeTimeOfDay(vaccination.NextTime.String)
+	}
+	if vaccination.NextDate.Valid &&
+		vaccination.NextDate.Time.Format("2006-01-02") == nextDate.Format("2006-01-02") &&
+		storedTime == normalizeTimeOfDay(nextTime) {
+		return nil
+	}
+	moment := localMoment(nextDate, nextTime, loc)
+	value, err := vaccinationEventValue(vaccination.Name, &moment, loc)
+	if err != nil {
+		return err
+	}
+	for _, extra := range extras {
+		if err := database.UpdateReminderPlanWith(exec, extra.ID, database.ReminderPlanUpdate{Value: &value}); err != nil {
+			return err
+		}
+	}
+	return nil
 }

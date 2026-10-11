@@ -414,7 +414,7 @@ func escapeLikePattern(s string) string {
 // "/pet/{id}/events" в open-api/spec.json): при непустом search в выборку
 // попадают только события, у которых notes, либо (для типов с собственным
 // свободнотекстовым подполем) value->>'label' (тип other) или value->>'name'
-// (тип medication) содержат search (регистронезависимо). Пустая
+// (типы medication и vaccination) содержат search (регистронезависимо). Пустая
 // строка/её отсутствие — фильтр не применяется. В каждом событии отдаются все
 // его видимые питомцы.
 func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]EventFull, error) {

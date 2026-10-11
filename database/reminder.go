@@ -70,7 +70,7 @@ const reminderPlanColumns = `p.id, p.user_id, p.source, p.source_id, p.type, p.v
 
 const reminderPlanJoins = `
 	LEFT JOIN medication med ON p.source = 'medication' AND med.id = p.source_id
-	LEFT JOIN vaccination vac ON p.source = 'vaccination' AND vac.id = p.source_id`
+	LEFT JOIN vaccination vac ON p.source IN ('vaccination', 'vaccination_extra') AND vac.id = p.source_id`
 
 // reminderPlanVisibleClause — условие «у настроек p есть хотя бы один не
 // мягко удалённый питомец».

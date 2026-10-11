@@ -313,7 +313,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			}
 		}
 		// Настройки дополнительных напоминаний уже созданы клиентом локально:
-		// им записывается источник (source = vaccination, source_id = id
+		// им записывается источник (source = vaccination_extra, source_id = id
 		// прививки); расписание сервер не пересчитывает.
 		for _, extraLocalID := range v.ExtraReminderPlanLocalIDs {
 			serverID, found := planLocalIDToServerID[extraLocalID]
@@ -321,7 +321,7 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 				err = fmt.Errorf("import: extra_reminder_plan_local_ids %q не найден среди перенесённых настроек напоминаний (vaccination)", extraLocalID)
 				return result, err
 			}
-			err = SetReminderPlanSourceWith(tx, serverID, models.ReminderSourceVaccination, uuid.NullUUID{UUID: vaccinationID, Valid: true})
+			err = SetReminderPlanSourceWith(tx, serverID, models.ReminderSourceVaccinationExtra, uuid.NullUUID{UUID: vaccinationID, Valid: true})
 			if err != nil {
 				return result, err
 			}

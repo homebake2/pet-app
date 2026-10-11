@@ -17,8 +17,6 @@ import (
 // Лимиты длины текстовых полей — см. соответствующие схемы spec.json.
 const (
 	VaccinationNameMaxLen = 100
-	// VaccinationEventLabelMaxLen — лимит event_label в символах (рунах).
-	VaccinationEventLabelMaxLen = 150
 	// VaccinationExtraRemindersMax — максимум дополнительных напоминаний
 	// одной прививки.
 	VaccinationExtraRemindersMax = 5
@@ -156,10 +154,6 @@ type CreateVaccinationRequest struct {
 	// только вместе с next_date.
 	AdministeredTime *string `json:"administered_time,omitempty"`
 	NextTime         *string `json:"next_time,omitempty"`
-	// EventLabel — опциональная, уже локализованная клиентом подпись
-	// создаваемых записей (value.label, обрезается сервером до 50 рун). Если
-	// не передана — "Вакцинация: " + name. Не хранится в самой прививке.
-	EventLabel *string `json:"event_label,omitempty"`
 	// ExtraReminders — дополнительные напоминания (до 5), допустимы только
 	// при заданной next_date.
 	ExtraReminders []VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
@@ -177,8 +171,6 @@ type UpdateVaccinationRequest struct {
 	AddReminderOnNext *bool   `json:"add_reminder_on_next,omitempty"`
 	AdministeredTime  *string `json:"administered_time,omitempty"`
 	NextTime          *string `json:"next_time,omitempty"`
-	// EventLabel — см. CreateVaccinationRequest.EventLabel.
-	EventLabel *string `json:"event_label,omitempty"`
 	// ExtraReminders — полный итоговый набор дополнительных напоминаний; nil
 	// (поле не передано) — не менять. Пустой срез — передан [].
 	ExtraReminders *[]VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`

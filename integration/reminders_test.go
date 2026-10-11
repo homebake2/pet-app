@@ -55,8 +55,9 @@ type planBody struct {
 	Pets  []petRefBody `json:"pets"`
 	Type  string       `json:"type"`
 	Value struct {
-		Name  string `json:"name"`
-		Label string `json:"label"`
+		Name          string `json:"name"`
+		Label         string `json:"label"`
+		VaccinationAt string `json:"vaccination_at"`
 	} `json:"value"`
 	Notes                         *string           `json:"notes"`
 	FrequencyType                 string            `json:"frequency_type"`
