@@ -1774,6 +1774,29 @@ type UpcomingReminderItem struct {
 	PlanId   openapi_types.UUID `json:"plan_id"`
 	RemindAt time.Time          `json:"remind_at"`
 	Type     GetEventEnum       `json:"type"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value EventValue `json:"value"`
 }
 
 // UpdateAllergyRequest defines model for UpdateAllergyRequest.

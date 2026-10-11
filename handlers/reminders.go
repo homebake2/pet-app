@@ -1289,6 +1289,7 @@ func GetUpcomingRemindersHandler(w http.ResponseWriter, r *http.Request) {
 			RemindAt: row.RemindAt.UTC().Format(time.RFC3339),
 			Pets:     database.EventPetRefs(row.Pets),
 			Type:     row.Type,
+			Value:    row.Value,
 		})
 	}
 	writeJSON(w, http.StatusOK, models.UpcomingRemindersResponse{Items: items})

@@ -600,6 +600,41 @@ func TestVaccinationExtras_PlanSourceInDayListAndLinkedRules(t *testing.T) {
 	require.Equalf(t, http.StatusBadRequest, daily.status, "%s", daily.body)
 }
 
+// GET /reminders/upcoming отдаёт value настроек: у дополнительных напоминаний
+// вакцинации есть name и vaccination_at (момент вакцинации), у основного —
+// только name.
+func TestVaccinationExtras_UpcomingRemindersValue(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "password123")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+	createVaccinationWithExtras(t, tokens.AccessToken, petID)
+
+	resp := doRequest(t, http.MethodGet, "/reminders/upcoming", nil, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+	var body struct {
+		Items []struct {
+			Type  string `json:"type"`
+			Value struct {
+				Name          string  `json:"name"`
+				VaccinationAt *string `json:"vaccination_at"`
+			} `json:"value"`
+		} `json:"items"`
+	}
+	resp.decode(t, &body)
+	require.Len(t, body.Items, 3)
+
+	// Порядок по remind_at: два дополнительных, затем основное.
+	for _, it := range body.Items[:2] {
+		require.Equal(t, "vaccination", it.Type)
+		require.Equal(t, "Rabies", it.Value.Name)
+		require.NotNil(t, it.Value.VaccinationAt)
+		require.Equal(t, futureDate(30)+"T10:00:00Z", *it.Value.VaccinationAt)
+	}
+	require.Equal(t, "vaccination", body.Items[2].Type)
+	require.Equal(t, "Rabies", body.Items[2].Value.Name)
+	require.Nil(t, body.Items[2].Value.VaccinationAt)
+}
+
 // Миграция 000030: настройки source=vaccination, чей id не равен
 // vaccination.next_plan_id, переводятся в vaccination_extra; основное
 // напоминание остаётся vaccination.

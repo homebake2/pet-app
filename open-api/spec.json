@@ -7945,7 +7945,8 @@
           "plan_id",
           "remind_at",
           "pets",
-          "type"
+          "type",
+          "value"
         ],
         "properties": {
           "id": {
@@ -7971,6 +7972,10 @@
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue",
+            "description": "Значение напоминания (value настроек): по нему клиент собирает текст локального уведомления, например название вакцины и момент вакцинации."
           }
         }
       },

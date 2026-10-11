@@ -935,6 +935,9 @@ func TestRemindersUpcoming(t *testing.T) {
 			PlanID string       `json:"plan_id"`
 			Pets   []petRefBody `json:"pets"`
 			Type   string       `json:"type"`
+			Value  struct {
+				Amount float64 `json:"amount"`
+			} `json:"value"`
 		} `json:"items"`
 	}
 	resp.decode(t, &body)
@@ -944,6 +947,10 @@ func TestRemindersUpcoming(t *testing.T) {
 	require.Len(t, body.Items[1].Pets, 1)
 	require.Equal(t, "Рекс", body.Items[1].Pets[0].PetName)
 	require.Equal(t, cat.Reminders[1].ID, body.Items[2].ID)
+	// value — value настроек соответствующего напоминания.
+	require.InDelta(t, 4.2, body.Items[0].Value.Amount, 0.0001)
+	require.InDelta(t, 12.0, body.Items[1].Value.Amount, 0.0001)
+	require.InDelta(t, 4.2, body.Items[2].Value.Amount, 0.0001)
 
 	// По умолчанию — все (до 64), по питомцу — только его напоминания.
 	all := doRequest(t, http.MethodGet, "/reminders/upcoming", nil, tokens.AccessToken)

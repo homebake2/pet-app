@@ -230,6 +230,9 @@ type UpcomingReminderItem struct {
 	RemindAt string        `json:"remind_at"`
 	Pets     []EventPetRef `json:"pets"`
 	Type     string        `json:"type"`
+	// Value — value настроек напоминания: по нему клиент собирает текст
+	// локального уведомления.
+	Value json.RawMessage `json:"value"`
 }
 
 // UpcomingRemindersResponse — тело ответа GET /reminders/upcoming.
