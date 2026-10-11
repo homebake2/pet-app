@@ -660,7 +660,7 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 			}
 			update.Schedule = planScheduleFromSpec(spec, tz)
 
-			if err := applyScheduleToPlanOwner(tx, plan.ReminderPlanDB, med, spec); err != nil {
+			if err := applyScheduleToPlanOwner(tx, plan.ReminderPlanDB, med, spec, loc); err != nil {
 				return err
 			}
 		}
@@ -683,8 +683,10 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 
 // applyScheduleToPlanOwner применяет новое расписание настроек к записи
 // владельца в той же транзакции: лекарство получает поля расписания и
-// времена с сохранёнными дозами, прививка — дату следующей вакцинации.
-func applyScheduleToPlanOwner(tx *sql.Tx, plan models.ReminderPlanDB, med *models.MedicationDB, spec reminderScheduleSpec) error {
+// времена с сохранёнными дозами, прививка — дату и время суток следующей
+// вакцинации (для напоминания на следующую вакцинацию; у дополнительного
+// напоминания поля прививки не меняются, проверяется только инвариант).
+func applyScheduleToPlanOwner(tx *sql.Tx, plan models.ReminderPlanDB, med *models.MedicationDB, spec reminderScheduleSpec, loc *time.Location) error {
 	switch plan.Source {
 	case models.ReminderSourceMedication:
 		if med == nil {
@@ -722,8 +724,7 @@ func applyScheduleToPlanOwner(tx *sql.Tx, plan models.ReminderPlanDB, med *model
 		if !plan.SourceID.Valid {
 			return nil
 		}
-		startDate := spec.StartDate
-		return database.SetVaccinationNextDateWith(tx, plan.SourceID.UUID, &startDate)
+		return applyScheduleToVaccination(tx, plan, spec, loc)
 	}
 	return nil
 }
@@ -930,16 +931,30 @@ func CompleteReminderHandler(w http.ResponseWriter, r *http.Request, reminderID 
 			factEventID = uuid.NullUUID{UUID: eventID, Valid: true}
 		}
 
+		// Отметка «выполнено» напоминания на следующую вакцинацию завершает
+		// вакцинацию (см. findVaccinationCompletion): основное
+		// напоминание определяется до закрытия — вместе с опустевшими
+		// настройками обнуляется vaccination.next_plan_id.
+		var completion *vaccinationCompletion
+		if done {
+			completion, err = findVaccinationCompletion(tx, full.Plan)
+			if err != nil {
+				return err
+			}
+		}
+
 		var closeErr error
 		orphanKeys, _, closeErr = database.CloseReminderWith(tx, reminder, reason, factEventID, now)
 		if closeErr != nil {
 			return closeErr
 		}
 
-		// Отметка «выполнено» напоминания на следующую вакцинацию очищает
-		// next_date вакцинации: она перестаёт быть «просроченной».
-		if done && full.Plan.Source == models.ReminderSourceVaccination && full.Plan.SourceID.Valid {
-			return database.SetVaccinationNextDateWith(tx, full.Plan.SourceID.UUID, nil)
+		if completion != nil {
+			keys, err := completion.apply(tx, now)
+			if err != nil {
+				return err
+			}
+			orphanKeys = append(orphanKeys, keys...)
 		}
 		return nil
 	})

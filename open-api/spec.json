@@ -1916,7 +1916,7 @@
       },
       "post": {
         "summary": "/pet/{id}/vaccinations",
-        "description": "Создание прививки для питомца. Всегда создаёт факт type=other на дату введения (administered_date + administered_time) и, при add_reminder_on_next, напоминание на дату следующей прививки (next_date + next_time) — с подписью value.label = event_label, а если он не передан — \"Вакцинация: \" + name (обрезается до 50 символов). Заголовок Idempotency-Key: повторная отправка с тем же ключом для того же питомца возвращает 201 с id ранее созданной записи, новая запись не создаётся. Даты и время суток (administered_time, next_time) трактуются как местное время часового пояса tz (обязательный параметр).",
+        "description": "Создание прививки для питомца. Дополнительно создаёт до 5 дополнительных напоминаний (extra_reminders; только при next_date). Если skip_administered_event=true — факт на дату введения не создаётся. Иначе всегда создаёт факт type=other на дату введения (administered_date + administered_time) и, при add_reminder_on_next, напоминание на дату следующей прививки (next_date + next_time) — с подписью value.label = event_label, а если он не передан — \"Вакцинация: \" + name (обрезается до 50 символов). Заголовок Idempotency-Key: повторная отправка с тем же ключом для того же питомца возвращает 201 с id ранее созданной записи, новая запись не создаётся. Даты и время суток (administered_time, next_time) трактуются как местное время часового пояса tz (обязательный параметр).",
         "tags": [
           "vaccination-controller"
         ],
@@ -6195,6 +6195,7 @@
           "pet_id",
           "name",
           "administered_date",
+          "administered_time",
           "files_count"
         ],
         "properties": {
@@ -6213,6 +6214,11 @@
           "administered_date": {
             "type": "string",
             "format": "date"
+          },
+          "administered_time": {
+            "type": "string",
+            "format": "time",
+            "description": "Время суток введения (HH:MM), местное время часового пояса запроса создания/редактирования. Хранится в вакцинации; по умолчанию 00:00."
           },
           "next_date": {
             "type": "string",
@@ -6234,6 +6240,77 @@
             "format": "uuid",
             "nullable": true,
             "description": "id настроек напоминания на дату следующей прививки; null, если напоминание не создавалось либо его настроек уже нет (напоминание удалено или отмечено в календаре)."
+          },
+          "next_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true,
+            "description": "Время суток следующей вакцинации (HH:MM). Задано, только когда задан next_date; null иначе."
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Момент завершения вакцинации — отметка «выполнено» напоминания на следующую вакцинацию. У завершённой вакцинации next_date отсутствует, дополнительные напоминания удалены. null, если вакцинация не завершена."
+          },
+          "extra_reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Дополнительные напоминания вакцинации (до 5), по возрастанию момента. Пустой массив, если их нет.",
+            "items": {
+              "$ref": "#/components/schemas/VaccinationExtraReminderResponse"
+            }
+          }
+        }
+      },
+      "VaccinationExtraReminderResponse": {
+        "title": "VaccinationExtraReminderResponse",
+        "type": "object",
+        "required": [
+          "plan_id",
+          "date",
+          "time"
+        ],
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "id настроек дополнительного напоминания (reminder_plan с source=vaccination)."
+          },
+          "date": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата напоминания в часовом поясе настроек."
+          },
+          "time": {
+            "type": "string",
+            "format": "time",
+            "description": "Время суток напоминания (HH:MM) в часовом поясе настроек."
+          }
+        }
+      },
+      "VaccinationExtraReminderRequest": {
+        "title": "VaccinationExtraReminderRequest",
+        "type": "object",
+        "required": [
+          "date",
+          "time"
+        ],
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "id существующего дополнительного напоминания этой вакцинации (при обновлении): элемент с plan_id обновляется на месте, без plan_id — создаётся новое. Не может совпадать с next_plan_id и не принадлежать другой вакцинации — иначе 400."
+          },
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "time": {
+            "type": "string",
+            "format": "time",
+            "description": "Время суток напоминания (HH:MM[:SS]). Момент date+time (местное время часового пояса tz) обязан быть строго в будущем (для создаваемых и изменяемых элементов), не позже момента следующей вакцинации (next_date+next_time) и отличаться от моментов других напоминаний вакцинации — иначе 400."
           }
         }
       },
@@ -6262,13 +6339,13 @@
             "type": "string",
             "format": "time",
             "nullable": true,
-            "description": "Время суток факта на дату введения (administered_date); если не передано — 00:00. Момент факта не может быть позднее текущего — иначе 400. Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz."
+            "description": "Время суток введения (administered_date); если не передано — 00:00. Сохраняется в вакцинации и задаёт время факта на дату введения. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz."
           },
           "next_time": {
             "type": "string",
             "format": "time",
             "nullable": true,
-            "description": "Время суток напоминания на next_date; если не передано — 00:00. Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz."
+            "description": "Время суток следующей вакцинации и напоминания на next_date; если не передано — 00:00. Сохраняется в вакцинации (только вместе с next_date; без next_date игнорируется). Трактуется как местное время часового пояса из обязательного query-параметра tz."
           },
           "event_label": {
             "type": "string",
@@ -6279,6 +6356,19 @@
           "add_reminder_on_next": {
             "type": "boolean",
             "description": "Если true и передан next_date — сервер дополнительно создаёт напоминание на дату next_date (настройки с source=vaccination и одним напоминанием). Момент напоминания обязан быть строго в будущем — иначе 400."
+          },
+          "extra_reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Дополнительные напоминания вакцинации (до 5); каждое создаётся отдельными разовыми настройками напоминания с source=vaccination независимо от add_reminder_on_next. Допускается только при заданном next_date — иначе 400. Моменты не совпадают между собой и с напоминанием на next_date.",
+            "items": {
+              "$ref": "#/components/schemas/VaccinationExtraReminderRequest"
+            }
+          },
+          "skip_administered_event": {
+            "type": "boolean",
+            "default": false,
+            "description": "true — факт на дату введения не создаётся, administered_event_id остаётся пустым. Используется, когда вакцинация вносится после отметки «выполнено» напоминания на предыдущую вакцинацию, чей факт уже есть в календаре."
           }
         }
       },
@@ -6298,19 +6388,27 @@
             "type": "string",
             "format": "date",
             "nullable": true,
-            "description": "null (или пустая строка) очищает дату следующей вакцинации и жёстко удаляет настройки напоминания на неё."
+            "description": "null (или пустая строка) очищает дату следующей вакцинации и next_time, жёстко удаляет настройки напоминания на неё и все дополнительные напоминания (непустой extra_reminders вместе с null — 400). Если вакцинация была завершена (completed_at), заданная next_date снова делает её активной (completed_at очищается)."
           },
           "administered_time": {
             "type": "string",
             "format": "time",
             "nullable": true,
-            "description": "Время суток факта на дату введения. Если не передано при обновлении существующего факта — сохраняется его прежнее время. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz."
+            "description": "Время суток введения. Если не передано — сохраняется прежнее значение (и прежнее время факта). Переданное значение обновляет administered_time вакцинации и время факта. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz."
           },
           "next_time": {
             "type": "string",
             "format": "time",
             "nullable": true,
-            "description": "Время суток напоминания на next_date. Если не передано при обновлении существующего напоминания — сохраняется его прежнее время. Трактуется как местное время часового пояса из обязательного query-параметра tz."
+            "description": "Время суток следующей вакцинации и напоминания на next_date. Если не передано — сохраняется прежнее время (при переданной только next_date). Обновляет сохранённое next_time и переносит существующее напоминание на следующую дату. Трактуется как местное время часового пояса из обязательного query-параметра tz."
+          },
+          "extra_reminders": {
+            "type": "array",
+            "maxItems": 5,
+            "description": "Если передан — полный итоговый набор дополнительных напоминаний: элемент с plan_id обновляется на месте, без plan_id — создаётся, отсутствующие в списке существующие — жёстко удаляются; пустой массив удаляет все. Если не передан — не меняются. Допускается только при заданной итоговой next_date — иначе 400. Моменты не позже next_date+next_time.",
+            "items": {
+              "$ref": "#/components/schemas/VaccinationExtraReminderRequest"
+            }
           },
           "event_label": {
             "type": "string",
@@ -7007,6 +7105,33 @@
             "type": "string",
             "nullable": true,
             "description": "local_id настроек напоминания из reminder_plans[] этого же запроса; после импорта сервер свяжет их с полем next_plan_id прививки и запишет настройкам source=vaccination."
+          },
+          "next_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true,
+            "description": "Время суток следующей вакцинации (HH:MM); допускается только при заданной next_date."
+          },
+          "administered_time": {
+            "type": "string",
+            "format": "time",
+            "nullable": true,
+            "description": "Время суток введения (HH:MM); если не передано — 00:00."
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Момент завершения вакцинации; не допускается вместе с next_date."
+          },
+          "extra_reminder_plan_local_ids": {
+            "type": "array",
+            "maxItems": 5,
+            "nullable": true,
+            "description": "local_id настроек дополнительных напоминаний из reminder_plans[] этого же запроса (до 5, различные, не включая next_reminder_plan_local_id); допускается только при заданной next_date. После импорта сервер запишет настройкам source=vaccination и source_id вакцинации.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },

@@ -19,24 +19,27 @@ const (
 	VaccinationNameMaxLen = 100
 	// VaccinationEventLabelMaxLen — лимит event_label в символах (рунах).
 	VaccinationEventLabelMaxLen = 150
-	DiseaseNameMaxLen           = 100
-	DiseaseNoteMaxLen           = 1000
-	VetVisitReasonMaxLen        = 200
-	VetVisitClinicMaxLen        = 200
-	VetVisitNoteMaxLen          = 1000
-	AllergyAllergenMaxLen       = 100
-	AllergyReactionMaxLen       = 200
-	AllergyNoteMaxLen           = 1000
-	MedicationNameMaxLen        = 100
-	MedicationDosageMaxLen      = 100
-	MedicationNoteMaxLen        = 1000
-	MedicationDoseNoteMaxLen    = 100
-	MedicationMinIntervalDays   = 2
-	MedicationMaxIntervalDays   = 365
-	MedicationMinWeekday        = 1
-	MedicationMaxWeekday        = 7
-	MedicationMinTimesCount     = 1
-	MedicationMaxTimesCount     = 4
+	// VaccinationExtraRemindersMax — максимум дополнительных напоминаний
+	// одной прививки.
+	VaccinationExtraRemindersMax = 5
+	DiseaseNameMaxLen            = 100
+	DiseaseNoteMaxLen            = 1000
+	VetVisitReasonMaxLen         = 200
+	VetVisitClinicMaxLen         = 200
+	VetVisitNoteMaxLen           = 1000
+	AllergyAllergenMaxLen        = 100
+	AllergyReactionMaxLen        = 200
+	AllergyNoteMaxLen            = 1000
+	MedicationNameMaxLen         = 100
+	MedicationDosageMaxLen       = 100
+	MedicationNoteMaxLen         = 1000
+	MedicationDoseNoteMaxLen     = 100
+	MedicationMinIntervalDays    = 2
+	MedicationMaxIntervalDays    = 365
+	MedicationMinWeekday         = 1
+	MedicationMaxWeekday         = 7
+	MedicationMinTimesCount      = 1
+	MedicationMaxTimesCount      = 4
 	// MedicationScheduleMaxLookaheadDays — предохранитель от бесконечного
 	// перебора дат в расчёте next_dose: теоретический случай, недостижимый на
 	// валидных weekdays/interval_days.
@@ -102,16 +105,43 @@ func IsValidAllergySeverity(v string) bool {
 // ---------------------------------------------------------------------------
 
 type VaccinationDB struct {
-	ID                  uuid.UUID
-	PetID               uuid.UUID
-	Name                string
-	AdministeredDate    time.Time
-	NextDate            sql.NullTime
+	ID               uuid.UUID
+	PetID            uuid.UUID
+	Name             string
+	AdministeredDate time.Time
+	// AdministeredTime — время суток введения, 'HH:MM' (всегда задано;
+	// местное время пояса запроса, не зависит от правок факта в календаре).
+	AdministeredTime string
+	NextDate         sql.NullTime
+	// NextTime — время суток следующей вакцинации, 'HH:MM'; задано, только
+	// когда задана NextDate.
+	NextTime sql.NullString
+	// CompletedAt — момент завершения (отметка «выполнено» напоминания на
+	// следующую вакцинацию); при заданном CompletedAt NextDate пуст.
+	CompletedAt         sql.NullTime
 	AdministeredEventID uuid.NullUUID
 	// NextPlanID — настройки напоминания на дату следующей вакцинации;
 	// NULL, если напоминания нет либо его настроек уже нет.
 	NextPlanID uuid.NullUUID
 	DeletedAt  sql.NullTime
+}
+
+// VaccinationExtraReminderRequest — элемент extra_reminders запросов
+// создания и редактирования прививки: момент дополнительного напоминания
+// (местное время часового пояса tz). PlanID задаётся только при
+// редактировании существующего дополнительного напоминания.
+type VaccinationExtraReminderRequest struct {
+	PlanID *string `json:"plan_id,omitempty"`
+	Date   string  `json:"date"`
+	Time   string  `json:"time"`
+}
+
+// VaccinationExtraReminderResponse — дополнительное напоминание прививки в
+// ответе GET: id настроек и момент в часовом поясе настроек.
+type VaccinationExtraReminderResponse struct {
+	PlanID string `json:"plan_id"`
+	Date   string `json:"date"`
+	Time   string `json:"time"`
 }
 
 // CreateVaccinationRequest — тело запроса POST /pet/{id}/vaccinations.
@@ -120,16 +150,21 @@ type CreateVaccinationRequest struct {
 	AdministeredDate  string  `json:"administered_date"`
 	NextDate          *string `json:"next_date,omitempty"`
 	AddReminderOnNext *bool   `json:"add_reminder_on_next,omitempty"`
-	// AdministeredTime — время суток факта на дату введения (факт создаётся
-	// всегда); NextTime — время суток напоминания на next_date. Не
-	// хранятся в самой прививке (см. описание GetVaccinationRequest в
-	// spec.json).
+	// AdministeredTime — время суток введения: хранится в прививке и задаёт
+	// время факта на дату введения (по умолчанию — полночь); NextTime —
+	// время суток следующей вакцинации и напоминания на next_date, хранится
+	// только вместе с next_date.
 	AdministeredTime *string `json:"administered_time,omitempty"`
 	NextTime         *string `json:"next_time,omitempty"`
 	// EventLabel — опциональная, уже локализованная клиентом подпись
 	// создаваемых записей (value.label, обрезается сервером до 50 рун). Если
 	// не передана — "Вакцинация: " + name. Не хранится в самой прививке.
 	EventLabel *string `json:"event_label,omitempty"`
+	// ExtraReminders — дополнительные напоминания (до 5), допустимы только
+	// при заданной next_date.
+	ExtraReminders []VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
+	// SkipAdministeredEvent — не создавать факт на дату введения.
+	SkipAdministeredEvent bool `json:"skip_administered_event,omitempty"`
 }
 
 // UpdateVaccinationRequest — тело запроса PATCH /vaccinations/{id}. Nullable
@@ -144,17 +179,24 @@ type UpdateVaccinationRequest struct {
 	NextTime          *string `json:"next_time,omitempty"`
 	// EventLabel — см. CreateVaccinationRequest.EventLabel.
 	EventLabel *string `json:"event_label,omitempty"`
+	// ExtraReminders — полный итоговый набор дополнительных напоминаний; nil
+	// (поле не передано) — не менять. Пустой срез — передан [].
+	ExtraReminders *[]VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
 }
 
 type VaccinationResponse struct {
-	ID                  string  `json:"id"`
-	PetID               string  `json:"pet_id"`
-	Name                string  `json:"name"`
-	AdministeredDate    string  `json:"administered_date"`
-	NextDate            *string `json:"next_date,omitempty"`
-	AdministeredEventID *string `json:"administered_event_id,omitempty"`
-	NextPlanID          *string `json:"next_plan_id,omitempty"`
-	FilesCount          int     `json:"files_count"`
+	ID                  string                             `json:"id"`
+	PetID               string                             `json:"pet_id"`
+	Name                string                             `json:"name"`
+	AdministeredDate    string                             `json:"administered_date"`
+	AdministeredTime    string                             `json:"administered_time"`
+	NextDate            *string                            `json:"next_date,omitempty"`
+	NextTime            *string                            `json:"next_time,omitempty"`
+	CompletedAt         *string                            `json:"completed_at,omitempty"`
+	AdministeredEventID *string                            `json:"administered_event_id,omitempty"`
+	NextPlanID          *string                            `json:"next_plan_id,omitempty"`
+	ExtraReminders      []VaccinationExtraReminderResponse `json:"extra_reminders"`
+	FilesCount          int                                `json:"files_count"`
 }
 
 type VaccinationListResponse struct {

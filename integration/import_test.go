@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"myauthservice/database"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -456,4 +458,47 @@ func TestImportLocalData_Unauthorized(t *testing.T) {
 	resp := doRequest(t, http.MethodPost, "/import/local-data", body, "",
 		map[string]string{"Idempotency-Key": uuid.NewString()})
 	require.Equal(t, http.StatusUnauthorized, resp.status)
+}
+
+// administered_time вакцинации при переносе сохраняется (HH:MM); не
+// переданное — 00:00; некорректный формат — 400 без побочных записей.
+func TestImportLocalData_VaccinationAdministeredTime(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+
+	body := map[string]any{
+		"pets":           []map[string]any{{"local_id": "local-cat", "name": "Барсик", "species": "cat"}},
+		"events":         []map[string]any{},
+		"reminder_plans": []map[string]any{},
+		"vaccinations": []map[string]any{
+			{"local_id": "vac-1", "pet_local_id": "local-cat", "name": "Rabies", "administered_date": "2024-01-01", "administered_time": "09:30"},
+			{"local_id": "vac-2", "pet_local_id": "local-cat", "name": "Distemper", "administered_date": "2024-02-01"},
+		},
+	}
+	resp := doRequest(t, http.MethodPost, "/import/local-data", body, tokens.AccessToken,
+		map[string]string{"Idempotency-Key": uuid.NewString()})
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+
+	var times []string
+	rows, err := database.DB.Query(`SELECT to_char(administered_time, 'HH24:MI') FROM vaccination ORDER BY administered_date`)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var s string
+		require.NoError(t, rows.Scan(&s))
+		times = append(times, s)
+	}
+	require.Equal(t, []string{"09:30", "00:00"}, times)
+
+	badBody := map[string]any{
+		"pets":           []map[string]any{{"local_id": "local-dog", "name": "Рекс", "species": "dog"}},
+		"events":         []map[string]any{},
+		"reminder_plans": []map[string]any{},
+		"vaccinations": []map[string]any{
+			{"local_id": "vac-3", "pet_local_id": "local-dog", "name": "Rabies", "administered_date": "2024-01-01", "administered_time": "25:61"},
+		},
+	}
+	bad := doRequest(t, http.MethodPost, "/import/local-data", badBody, tokens.AccessToken,
+		map[string]string{"Idempotency-Key": uuid.NewString()})
+	require.Equal(t, http.StatusBadRequest, bad.status)
 }

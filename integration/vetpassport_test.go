@@ -190,6 +190,126 @@ func TestVaccination_AutoCreatesFactAndReminder(t *testing.T) {
 	require.Equal(t, nextDate+"T09:30:00Z", plan.Reminders[0].RemindAt)
 }
 
+// administered_time хранится в вакцинации: отдаётся списком, сохраняется при
+// PATCH без этого поля (и время факта остаётся прежним), обновляется
+// переданным значением вместе со временем факта.
+func TestVaccination_AdministeredTimeStoredAndUpdated(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	type vaccinationItem struct {
+		AdministeredDate string `json:"administered_date"`
+		AdministeredTime string `json:"administered_time"`
+	}
+	listItems := func() []vaccinationItem {
+		list := doRequest(t, http.MethodGet, "/pet/"+petID+"/vaccinations", nil, tokens.AccessToken)
+		require.Equal(t, http.StatusOK, list.status)
+		var body struct {
+			Items []vaccinationItem `json:"items"`
+		}
+		list.decode(t, &body)
+		return body.Items
+	}
+
+	// Не передано — полночь.
+	defResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
+		"name":              "Distemper",
+		"administered_date": "2023-06-01",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, defResp.status, "%s", defResp.body)
+
+	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=Europe/Moscow", map[string]any{
+		"name":              "Rabies",
+		"administered_date": "2024-01-01",
+		"administered_time": "09:30:45",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
+	var created idResponse
+	createResp.decode(t, &created)
+
+	byDate := func() map[string]string {
+		out := map[string]string{}
+		for _, item := range listItems() {
+			out[item.AdministeredDate] = item.AdministeredTime
+		}
+		return out
+	}
+	require.Equal(t, map[string]string{"2023-06-01": "00:00", "2024-01-01": "09:30"}, byDate())
+
+	eventDates := func() []string {
+		dates := []string{}
+		for _, e := range listPetEvents(t, tokens.AccessToken, petID) {
+			dates = append(dates, e.Date)
+		}
+		return dates
+	}
+	require.ElementsMatch(t, []string{"2023-06-01T00:00:00Z", "2024-01-01T06:30:00Z"}, eventDates())
+
+	// PATCH без administered_time: значение и время факта прежние.
+	rename := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=Europe/Moscow", map[string]any{
+		"name": "Rabies v2",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, rename.status, "%s", rename.body)
+	require.Equal(t, "09:30", byDate()["2024-01-01"])
+	require.ElementsMatch(t, []string{"2023-06-01T00:00:00Z", "2024-01-01T06:30:00Z"}, eventDates())
+
+	// PATCH с administered_time: обновляются поле и время факта.
+	retime := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=Europe/Moscow", map[string]any{
+		"administered_time": "11:15",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, retime.status, "%s", retime.body)
+	require.Equal(t, "11:15", byDate()["2024-01-01"])
+	require.ElementsMatch(t, []string{"2023-06-01T00:00:00Z", "2024-01-01T08:15:00Z"}, eventDates())
+
+	// Смена только даты берёт сохранённое время.
+	redate := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=Europe/Moscow", map[string]any{
+		"administered_date": "2024-01-02",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, redate.status, "%s", redate.body)
+	require.Equal(t, "11:15", byDate()["2024-01-02"])
+	require.ElementsMatch(t, []string{"2023-06-01T00:00:00Z", "2024-01-02T08:15:00Z"}, eventDates())
+
+	// Некорректный формат — 400.
+	bad := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=UTC", map[string]any{
+		"administered_time": "25:99",
+	}, tokens.AccessToken)
+	require.Equal(t, http.StatusBadRequest, bad.status)
+}
+
+// Поле вакцинации обновляется и без связанного факта (он удалён из
+// календаря): создаётся новый факт на сохранённое время.
+func TestVaccination_AdministeredTimeUpdatedWithoutFact(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	createResp := doRequest(t, http.MethodPost, "/pet/"+petID+"/vaccinations?tz=UTC", map[string]any{
+		"name":                    "Rabies",
+		"administered_date":       "2024-01-01",
+		"administered_time":       "08:00",
+		"skip_administered_event": true,
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusCreated, createResp.status, "%s", createResp.body)
+	var created idResponse
+	createResp.decode(t, &created)
+
+	patch := doRequest(t, http.MethodPatch, "/vaccinations/"+created.ID+"?tz=UTC", map[string]any{
+		"administered_time": "10:45",
+	}, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
+
+	list := doRequest(t, http.MethodGet, "/pet/"+petID+"/vaccinations", nil, tokens.AccessToken)
+	var body struct {
+		Items []struct {
+			AdministeredTime string `json:"administered_time"`
+		} `json:"items"`
+	}
+	list.decode(t, &body)
+	require.Len(t, body.Items, 1)
+	require.Equal(t, "10:45", body.Items[0].AdministeredTime)
+}
+
 func TestDisease_CRUDHappyPath(t *testing.T) {
 	resetDB(t)
 	tokens := registerUser(t, uniqueLogin(t), "correct-password")

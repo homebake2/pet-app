@@ -129,6 +129,7 @@ type ImportVaccination struct {
 	PetLocalID               string  `json:"pet_local_id"`
 	Name                     string  `json:"name"`
 	AdministeredDate         string  `json:"administered_date"`
+	AdministeredTime         *string `json:"administered_time,omitempty"`
 	NextDate                 *string `json:"next_date,omitempty"`
 	AddReminderOnNext        *bool   `json:"add_reminder_on_next,omitempty"`
 	AdministeredEventLocalID *string `json:"administered_event_local_id,omitempty"`
@@ -136,6 +137,17 @@ type ImportVaccination struct {
 	// запроса: уже созданные локально настройки напоминания на следующую
 	// дату (сервер расписание не пересчитывает).
 	NextReminderPlanLocalID *string `json:"next_reminder_plan_local_id,omitempty"`
+	// NextTime — время суток следующей вакцинации ('HH:MM'); допустимо
+	// только при заданной next_date.
+	NextTime *string `json:"next_time,omitempty"`
+	// CompletedAt — момент завершения (RFC 3339); не допускается вместе с
+	// next_date.
+	CompletedAt *string `json:"completed_at,omitempty"`
+	// ExtraReminderPlanLocalIDs — ссылки на элементы reminder_plans этого же
+	// запроса: уже созданные локально настройки дополнительных напоминаний
+	// (до 5, различные, без next_reminder_plan_local_id; допустимы только при
+	// заданной next_date).
+	ExtraReminderPlanLocalIDs []string `json:"extra_reminder_plan_local_ids,omitempty"`
 }
 
 // ToCreateVaccinationRequest конвертирует элемент vaccinations[] в тот же
@@ -144,7 +156,9 @@ func (v ImportVaccination) ToCreateVaccinationRequest() CreateVaccinationRequest
 	return CreateVaccinationRequest{
 		Name:              v.Name,
 		AdministeredDate:  v.AdministeredDate,
+		AdministeredTime:  v.AdministeredTime,
 		NextDate:          v.NextDate,
+		NextTime:          v.NextTime,
 		AddReminderOnNext: v.AddReminderOnNext,
 	}
 }

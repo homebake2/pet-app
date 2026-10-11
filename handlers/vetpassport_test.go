@@ -141,7 +141,7 @@ func TestGetPetVaccinationsHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, deleted_at\s+FROM vaccination`).
+	mock.ExpectQuery(`SELECT id, pet_id, name, administered_date, to_char\(administered_time, 'HH24:MI'\), next_date, to_char\(next_time, 'HH24:MI'\), completed_at, administered_event_id, next_plan_id, deleted_at\s+FROM vaccination`).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns))
 
 	w := httptest.NewRecorder()
@@ -155,9 +155,9 @@ func TestGetPetVaccinationsHandler_Success(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-var vaccinationSelect = `SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, deleted_at\s+FROM vaccination\s+WHERE id = \$1 AND deleted_at IS NULL`
+var vaccinationSelect = `SELECT id, pet_id, name, administered_date, to_char\(administered_time, 'HH24:MI'\), next_date, to_char\(next_time, 'HH24:MI'\), completed_at, administered_event_id, next_plan_id, deleted_at\s+FROM vaccination\s+WHERE id = \$1 AND deleted_at IS NULL`
 
-var vaccinationColumns = []string{"id", "pet_id", "name", "administered_date", "next_date", "administered_event_id", "next_plan_id", "deleted_at"}
+var vaccinationColumns = []string{"id", "pet_id", "name", "administered_date", "administered_time", "next_date", "next_time", "completed_at", "administered_event_id", "next_plan_id", "deleted_at"}
 
 const (
 	testVaccinationID       = "55555555-5555-5555-5555-555555555555"
@@ -165,17 +165,44 @@ const (
 	testNextPlanID          = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 )
 
+// Запрос настроек дополнительных напоминаний прививки
+// (database.ListVaccinationExtraPlansWith): колонки reminderPlanColumns.
+const vaccinationExtrasRe = `FROM reminder_plan p\s+JOIN vaccination vac ON vac\.id = p\.source_id`
+
+var vaccinationExtraPlanColumns = []string{
+	"id", "user_id", "source", "source_id", "type", "value", "notes", "frequency_type", "weekdays", "interval_days",
+	"times", "start_date", "end_date", "tz", "created_at",
+}
+
+func vaccinationExtraPlanRow(planID, date, timeOfDay string) []driver.Value {
+	return []driver.Value{
+		planID, testUserID, "vaccination", testVaccinationID, "other", []byte(`{"label":"Вакцинация: Rabies"}`), nil, "once", nil, nil,
+		"{" + timeOfDay + "}", timeParse(date), nil, "UTC", time.Now(),
+	}
+}
+
+// expectVaccinationExtras — ожидание чтения дополнительных напоминаний
+// прививки с заданными строками (planID, date, time).
+func expectVaccinationExtras(mock sqlmock.Sqlmock, rows ...[]driver.Value) {
+	result := sqlmock.NewRows(vaccinationExtraPlanColumns)
+	for _, row := range rows {
+		result.AddRow(row...)
+	}
+	mock.ExpectQuery(vaccinationExtrasRe).WillReturnRows(result)
+}
+
 func TestUpdateVaccinationHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(vaccinationSelect).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), nil, nil, nil, nil))
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", nil, nil, nil, nil, nil, nil))
 	expectPetBelongsToUser(mock, true)
 	mock.ExpectBegin()
 	mock.ExpectQuery(vaccinationSelect).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), nil, nil, nil, nil))
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", nil, nil, nil, nil, nil, nil))
+	expectVaccinationExtras(mock)
 	mock.ExpectExec(`UPDATE vaccination SET`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -195,7 +222,7 @@ func TestUpdateVaccinationHandler_MissingTimeZone(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(vaccinationSelect).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), nil, nil, nil, nil))
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", nil, nil, nil, nil, nil, nil))
 	expectPetBelongsToUser(mock, true)
 
 	newName := "Rabies v2"
@@ -214,7 +241,7 @@ func TestUpdateVaccinationHandler_InvalidTimeZone(t *testing.T) {
 			expectTokensValid(mock, testUserID)
 			mock.ExpectQuery(vaccinationSelect).
 				WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-					AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), nil, nil, nil, nil))
+					AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", nil, nil, nil, nil, nil, nil))
 			expectPetBelongsToUser(mock, true)
 
 			name := "Rabies v2"
@@ -233,7 +260,7 @@ func TestUpdateVaccinationHandler_NotOwned(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(vaccinationSelect).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), nil, nil, nil, nil))
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", nil, nil, nil, nil, nil, nil))
 	expectPetBelongsToUser(mock, false)
 
 	newName := "Rabies v2"
@@ -363,7 +390,7 @@ func TestDeleteVaccinationHandler_DeletesLinkedRecords(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(vaccinationSelect).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), timeParse("2025-01-01"), testAdministeredEventID, testNextPlanID, nil))
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", timeParse("2025-01-01"), "10:00", nil, testAdministeredEventID, testNextPlanID, nil))
 	expectPetBelongsToUser(mock, true)
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE vaccination SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -374,6 +401,7 @@ func TestDeleteVaccinationHandler_DeletesLinkedRecords(t *testing.T) {
 		WithArgs(reminderPlanFileOwnerType, sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"object_key"}))
 	mock.ExpectExec(`DELETE FROM reminder_plan WHERE id = ANY`).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVaccinationExtras(mock)
 	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
@@ -389,10 +417,11 @@ func TestDeleteVaccinationHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(vaccinationSelect).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
-			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), nil, nil, nil, nil))
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "00:00", nil, nil, nil, nil, nil, nil))
 	expectPetBelongsToUser(mock, true)
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE vaccination SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectVaccinationExtras(mock)
 	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
@@ -1339,4 +1368,123 @@ func TestCreateMedicationHandler_ScheduleTimesInClientTimeZone(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
+}
+
+// GET списка отдаёт хранимое administered_time (HH:MM) каждой прививки.
+func TestGetPetVaccinationsHandler_ReturnsAdministeredTime(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	expectNoWeightEvent(mock)
+	mock.ExpectQuery(`FROM vaccination\s+WHERE pet_id = \$1 AND deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "09:30", nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
+		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
+	mock.ExpectQuery(`FROM reminder_plan p\s+JOIN vaccination vac ON vac\.id = p\.source_id`).
+		WillReturnRows(sqlmock.NewRows(vaccinationExtraPlanColumns))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, vaccinationsPath, nil, true)
+	GetPetVaccinationsHandler(w, r, uuid.MustParse(testPetID))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp models.VaccinationListResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.Len(t, resp.Items, 1)
+	assert.Equal(t, "09:30", resp.Items[0].AdministeredTime)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// POST сохраняет administered_time в прививке как HH:MM (секунды
+// отбрасываются); не переданное — полночь.
+func TestCreateVaccinationHandler_StoresAdministeredTime(t *testing.T) {
+	cases := []struct {
+		name     string
+		input    *string
+		expected string
+	}{
+		{"with seconds", strPtr("09:30:45"), "09:30"},
+		{"omitted", nil, "00:00"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mock := setupMockDB(t)
+			expectTokensValid(mock, testUserID)
+			expectPetOwnedForCreate(mock)
+			mock.ExpectBegin()
+			expectVaccinationFactInsert(mock)
+			mock.ExpectQuery(`INSERT INTO vaccination`).
+				WithArgs(testPetID, "Rabies", sqlmock.AnyArg(), c.expected, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+				WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
+			mock.ExpectCommit()
+
+			w := httptest.NewRecorder()
+			r := petRequest(t, http.MethodPost, vaccinationsPath+"?tz=UTC", models.CreateVaccinationRequest{
+				Name: "Rabies", AdministeredDate: "2024-01-01", AdministeredTime: c.input,
+			}, true)
+			CreateVaccinationHandler(w, r, uuid.MustParse(testPetID))
+
+			assert.Equal(t, http.StatusCreated, w.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// PATCH с administered_time обновляет поле вакцинации, даже когда связанного
+// факта нет (он создаётся заново).
+func TestUpdateVaccinationHandler_AdministeredTimeUpdatesField(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(vaccinationSelect).
+		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "08:00", nil, nil, nil, nil, nil, nil))
+	expectPetBelongsToUser(mock, true)
+	mock.ExpectBegin()
+	mock.ExpectQuery(vaccinationSelect).
+		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "08:00", nil, nil, nil, nil, nil, nil))
+	expectVaccinationFactInsert(mock)
+	expectVaccinationExtras(mock)
+	mock.ExpectExec(`UPDATE vaccination SET administered_time = \$1::time, administered_event_id = \$2 WHERE id = \$3`).
+		WithArgs("09:30", sqlmock.AnyArg(), testVaccinationID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	adminTime := "09:30:00"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID+"?tz=UTC", models.UpdateVaccinationRequest{AdministeredTime: &adminTime}, true)
+	VaccinationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// PATCH без administered_time оставляет сохранённое значение: поле в UPDATE
+// не входит.
+func TestUpdateVaccinationHandler_AdministeredTimeKeptWhenOmitted(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(vaccinationSelect).
+		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "08:00", nil, nil, nil, nil, nil, nil))
+	expectPetBelongsToUser(mock, true)
+	mock.ExpectBegin()
+	mock.ExpectQuery(vaccinationSelect).
+		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
+			AddRow(testVaccinationID, testPetID, "Rabies", timeParse("2024-01-01"), "08:00", nil, nil, nil, nil, nil, nil))
+	expectVaccinationExtras(mock)
+	mock.ExpectExec(`UPDATE vaccination SET name = \$1 WHERE id = \$2`).
+		WithArgs("Rabies v2", testVaccinationID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	newName := "Rabies v2"
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodPatch, "/vaccinations/"+testVaccinationID+"?tz=UTC", models.UpdateVaccinationRequest{Name: &newName}, true)
+	VaccinationByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

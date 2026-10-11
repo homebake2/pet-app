@@ -292,13 +292,36 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 			}
 			nextPlanID = uuid.NullUUID{UUID: serverID, Valid: true}
 		}
+		var completedAt sql.NullTime
+		if v.CompletedAt != nil && *v.CompletedAt != "" {
+			var completed time.Time
+			completed, err = time.Parse(time.RFC3339, *v.CompletedAt)
+			if err != nil {
+				return result, err
+			}
+			completedAt = sql.NullTime{Time: completed.UTC(), Valid: true}
+		}
 		var vaccinationID uuid.UUID
-		vaccinationID, err = insertVaccinationWith(tx, petID, v.ToCreateVaccinationRequest(), administeredEventID, nextPlanID, "")
+		vaccinationID, err = insertVaccinationWith(tx, petID, v.ToCreateVaccinationRequest(), administeredEventID, nextPlanID, completedAt, "")
 		if err != nil {
 			return result, err
 		}
 		if nextPlanID.Valid {
 			err = SetReminderPlanSourceWith(tx, nextPlanID.UUID, models.ReminderSourceVaccination, uuid.NullUUID{UUID: vaccinationID, Valid: true})
+			if err != nil {
+				return result, err
+			}
+		}
+		// Настройки дополнительных напоминаний уже созданы клиентом локально:
+		// им записывается источник (source = vaccination, source_id = id
+		// прививки); расписание сервер не пересчитывает.
+		for _, extraLocalID := range v.ExtraReminderPlanLocalIDs {
+			serverID, found := planLocalIDToServerID[extraLocalID]
+			if !found {
+				err = fmt.Errorf("import: extra_reminder_plan_local_ids %q не найден среди перенесённых настроек напоминаний (vaccination)", extraLocalID)
+				return result, err
+			}
+			err = SetReminderPlanSourceWith(tx, serverID, models.ReminderSourceVaccination, uuid.NullUUID{UUID: vaccinationID, Valid: true})
 			if err != nil {
 				return result, err
 			}

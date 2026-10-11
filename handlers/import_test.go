@@ -680,3 +680,31 @@ func TestImportLocalDataHandler_EventPetLocalIDsRejected(t *testing.T) {
 		})
 	}
 }
+
+// administered_time вакцинации должен быть HH:MM[:SS]; иначе 400 до записи.
+func TestImportLocalDataHandler_VaccinationAdministeredTimeRejected(t *testing.T) {
+	for _, bad := range []string{"25:00", "9:30", "abc"} {
+		t.Run(bad, func(t *testing.T) {
+			mock := setupMockDB(t)
+			expectTokensValid(mock, testUserID)
+			mock.ExpectExec(`INSERT INTO import_local_data_idempotency_key`).
+				WithArgs(testUserID, testImportIdempotencyKey).
+				WillReturnResult(sqlmock.NewResult(0, 1))
+
+			req := models.ImportLocalDataRequest{
+				Pets:          []models.ImportLocalDataPet{validImportPet("local-1")},
+				Events:        []models.ImportLocalDataEvent{},
+				ReminderPlans: []models.ImportReminderPlan{},
+				Vaccinations: []models.ImportVaccination{{
+					LocalID: "vac-1", PetLocalID: "local-1", Name: "Бешенство", AdministeredDate: "2024-01-01",
+					AdministeredTime: strPtr(bad),
+				}},
+			}
+			w := httptest.NewRecorder()
+			ImportLocalDataHandler(w, importRequest(t, req, true, testImportIdempotencyKey))
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // ---------------------------------------------------------------------------
@@ -73,33 +74,45 @@ func GetVetPassportEntityIDByIdempotencyKey(table VetPassportTable, petID uuid.U
 // прививки нужен настройкам как source_id, поэтому ссылка записывается
 // отдельно (SetVaccinationLinksWith).
 func InsertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
-	return insertVaccinationWith(exec, petID, req, administeredEventID, uuid.NullUUID{}, idempotencyKey)
+	return insertVaccinationWith(exec, petID, req, administeredEventID, uuid.NullUUID{}, sql.NullTime{}, idempotencyKey)
+}
+
+// VaccinationTimeOfDay приводит время суток следующей вакцинации к виду
+// 'HH:MM' (секунды отбрасываются); пустое значение — полночь.
+func VaccinationTimeOfDay(s *string) string {
+	if s == nil || len(*s) < 5 {
+		return "00:00"
+	}
+	return (*s)[:5]
 }
 
 // insertVaccinationWith — то же самое, что InsertVaccination, но принимает
 // произвольный dbExecutor: используется как для обычных запросов (DB), так
 // и внутри транзакции переноса локальных данных (см. ImportLocalData).
-func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextPlanID uuid.NullUUID, idempotencyKey string) (uuid.UUID, error) {
+// next_time сохраняется, только если задан next_date (по умолчанию — полночь).
+func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVaccinationRequest, administeredEventID, nextPlanID uuid.NullUUID, completedAt sql.NullTime, idempotencyKey string) (uuid.UUID, error) {
 	administeredDate, err := time.Parse("2006-01-02", req.AdministeredDate)
 	if err != nil {
 		return uuid.Nil, err
 	}
 
 	var nextDate sql.NullTime
-	if req.NextDate != nil {
+	var nextTime sql.NullString
+	if req.NextDate != nil && *req.NextDate != "" {
 		t, err := time.Parse("2006-01-02", *req.NextDate)
 		if err != nil {
 			return uuid.Nil, err
 		}
 		nextDate = sql.NullTime{Time: t, Valid: true}
+		nextTime = sql.NullString{String: VaccinationTimeOfDay(req.NextTime), Valid: true}
 	}
 
 	var newID uuid.UUID
 	err = exec.QueryRow(`
-		INSERT INTO vaccination (pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, idempotency_key)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO vaccination (pet_id, name, administered_date, administered_time, next_date, next_time, completed_at, administered_event_id, next_plan_id, idempotency_key)
+		VALUES ($1, $2, $3, $4::time, $5, $6::time, $7, $8, $9, $10)
 		RETURNING id
-	`, petID, req.Name, administeredDate, nextDate, administeredEventID, nextPlanID, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
+	`, petID, req.Name, administeredDate, VaccinationTimeOfDay(req.AdministeredTime), nextDate, nextTime, completedAt, administeredEventID, nextPlanID, idempotencyKeyToNullString(idempotencyKey)).Scan(&newID)
 	if err != nil {
 		log.Println("InsertVaccination error:", err)
 		return uuid.Nil, err
@@ -107,12 +120,25 @@ func insertVaccinationWith(exec dbExecutor, petID uuid.UUID, req models.CreateVa
 	return newID, nil
 }
 
+// vaccinationColumns — столбцы прививки в порядке scanVaccination; время
+// суток следующей вакцинации отдаётся строкой 'HH:MM'.
+const vaccinationColumns = `id, pet_id, name, administered_date, to_char(administered_time, 'HH24:MI'), next_date, to_char(next_time, 'HH24:MI'), completed_at, administered_event_id, next_plan_id, deleted_at`
+
+func scanVaccination(scan func(dest ...any) error) (models.VaccinationDB, error) {
+	var v models.VaccinationDB
+	err := scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.AdministeredTime, &v.NextDate, &v.NextTime, &v.CompletedAt, &v.AdministeredEventID, &v.NextPlanID, &v.DeletedAt)
+	return v, err
+}
+
+// GetVaccinationsByPetID возвращает неудалённые прививки питомца: сначала с
+// ближайшей next_date, затем без next_date — по administered_date по
+// убыванию.
 func GetVaccinationsByPetID(petID uuid.UUID, limit, offset int) ([]models.VaccinationDB, error) {
 	rows, err := DB.Query(`
-		SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, deleted_at
+		SELECT `+vaccinationColumns+`
 		FROM vaccination
 		WHERE pet_id = $1 AND deleted_at IS NULL
-		ORDER BY administered_date DESC
+		ORDER BY next_date ASC NULLS LAST, administered_date DESC, created_at DESC
 		LIMIT $2 OFFSET $3
 	`, petID, limit, offset)
 	if err != nil {
@@ -122,8 +148,8 @@ func GetVaccinationsByPetID(petID uuid.UUID, limit, offset int) ([]models.Vaccin
 
 	var items []models.VaccinationDB
 	for rows.Next() {
-		var v models.VaccinationDB
-		if err := rows.Scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.NextDate, &v.AdministeredEventID, &v.NextPlanID, &v.DeletedAt); err != nil {
+		v, err := scanVaccination(rows.Scan)
+		if err != nil {
 			return nil, err
 		}
 		items = append(items, v)
@@ -139,25 +165,63 @@ func GetVaccinationByIDForUpdate(id uuid.UUID) (*models.VaccinationDB, error) {
 // dbExecutor; lock=true блокирует строку до конца транзакции.
 func GetVaccinationByIDWith(exec dbExecutor, id uuid.UUID, lock bool) (*models.VaccinationDB, error) {
 	query := `
-		SELECT id, pet_id, name, administered_date, next_date, administered_event_id, next_plan_id, deleted_at
+		SELECT ` + vaccinationColumns + `
 		FROM vaccination
 		WHERE id = $1 AND deleted_at IS NULL`
 	if lock {
 		query += ` FOR UPDATE`
 	}
-	var v models.VaccinationDB
-	err := exec.QueryRow(query, id).Scan(&v.ID, &v.PetID, &v.Name, &v.AdministeredDate, &v.NextDate, &v.AdministeredEventID, &v.NextPlanID, &v.DeletedAt)
+	v, err := scanVaccination(exec.QueryRow(query, id).Scan)
 	if err != nil {
 		return nil, err
 	}
 	return &v, nil
 }
 
+// ListVaccinationExtraPlansWith возвращает настройки дополнительных
+// напоминаний прививок: настройки с source = vaccination и source_id из
+// vaccinationIDs, id которых не равен vaccination.next_plan_id. Порядок — по
+// прививке, затем по возрастанию момента (дата, время суток). lock=true
+// блокирует строки настроек до конца транзакции.
+func ListVaccinationExtraPlansWith(exec dbExecutor, vaccinationIDs []uuid.UUID, lock bool) ([]models.ReminderPlanDB, error) {
+	if len(vaccinationIDs) == 0 {
+		return nil, nil
+	}
+	query := `
+		SELECT ` + reminderPlanColumns + `
+		FROM reminder_plan p
+		JOIN vaccination vac ON vac.id = p.source_id
+		WHERE p.source = 'vaccination' AND p.source_id = ANY($1)
+		  AND p.id IS DISTINCT FROM vac.next_plan_id
+		ORDER BY p.source_id, p.start_date, p.times[1], p.id`
+	if lock {
+		query += ` FOR UPDATE OF p`
+	}
+	rows, err := exec.Query(query, pq.Array(vaccinationIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var plans []models.ReminderPlanDB
+	for rows.Next() {
+		plan, err := scanReminderPlan(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, rows.Err()
+}
+
 // UpdateVaccinationWith обновляет только переданные поля.
 // administeredEventID/nextPlanID передаются non-nil только когда PATCH
 // создал, заменил либо убрал связанную запись (в том числе Valid=false —
 // очистить ссылку) — иначе существующие значения не трогаются.
-func UpdateVaccinationWith(exec dbExecutor, id uuid.UUID, req models.UpdateVaccinationRequest, administeredEventID, nextPlanID *uuid.NullUUID) error {
+// administeredTime — итоговое administered_time 'HH:MM' (nil — не менять);
+// nextTime и completedAt — итоговые значения next_time/completed_at
+// (Valid=false очищает), non-nil только когда их нужно записать.
+func UpdateVaccinationWith(exec dbExecutor, id uuid.UUID, req models.UpdateVaccinationRequest, administeredEventID, nextPlanID *uuid.NullUUID, administeredTime *string, nextTime *sql.NullString, completedAt *sql.NullTime) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -188,6 +252,19 @@ func UpdateVaccinationWith(exec dbExecutor, id uuid.UUID, req models.UpdateVacci
 			add("next_date", sql.NullTime{Time: t, Valid: true})
 		}
 	}
+	if administeredTime != nil {
+		setParts = append(setParts, "administered_time = $"+strconv.Itoa(argID)+"::time")
+		args = append(args, *administeredTime)
+		argID++
+	}
+	if nextTime != nil {
+		setParts = append(setParts, "next_time = $"+strconv.Itoa(argID)+"::time")
+		args = append(args, *nextTime)
+		argID++
+	}
+	if completedAt != nil {
+		add("completed_at", *completedAt)
+	}
 	if administeredEventID != nil {
 		add("administered_event_id", *administeredEventID)
 	}
@@ -214,15 +291,21 @@ func SetVaccinationLinksWith(exec dbExecutor, id uuid.UUID, administeredEventID,
 	return err
 }
 
-// SetVaccinationNextDateWith записывает next_date прививки (nil очищает
-// дату): дата напоминания, перенесённого из календаря, и очистка даты при
-// отметке напоминания «выполнено».
-func SetVaccinationNextDateWith(exec dbExecutor, id uuid.UUID, nextDate *time.Time) error {
-	var v sql.NullTime
-	if nextDate != nil {
-		v = sql.NullTime{Time: *nextDate, Valid: true}
-	}
-	_, err := exec.Exec(`UPDATE vaccination SET next_date = $1 WHERE id = $2`, v, id)
+// SetVaccinationNextMomentWith записывает next_date и next_time прививки:
+// момент следующей вакцинации, перенесённый из календаря («Изменить все»
+// напоминания на следующую вакцинацию).
+func SetVaccinationNextMomentWith(exec dbExecutor, id uuid.UUID, nextDate time.Time, nextTime string) error {
+	_, err := exec.Exec(`UPDATE vaccination SET next_date = $1, next_time = $2::time WHERE id = $3`,
+		nextDate, VaccinationTimeOfDay(&nextTime), id)
+	return err
+}
+
+// CompleteVaccinationWith завершает прививку: очищает next_date и next_time
+// и записывает момент завершения (отметка «выполнено» напоминания на
+// следующую вакцинацию).
+func CompleteVaccinationWith(exec dbExecutor, id uuid.UUID, completedAt time.Time) error {
+	_, err := exec.Exec(`UPDATE vaccination SET next_date = NULL, next_time = NULL, completed_at = $1 WHERE id = $2`,
+		completedAt.UTC(), id)
 	return err
 }
 

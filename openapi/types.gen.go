@@ -1086,16 +1086,22 @@ type GetVaccinationRequest struct {
 	AddReminderOnNext *bool              `json:"add_reminder_on_next,omitempty"`
 	AdministeredDate  openapi_types.Date `json:"administered_date"`
 
-	// AdministeredTime Время суток факта на дату введения (administered_date); если не передано — 00:00. Момент факта не может быть позднее текущего — иначе 400. Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	// AdministeredTime Время суток введения (administered_date); если не передано — 00:00. Сохраняется в вакцинации и задаёт время факта на дату введения. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	AdministeredTime *string `json:"administered_time"`
 
 	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
-	EventLabel *string             `json:"event_label"`
-	Name       string              `json:"name"`
-	NextDate   *openapi_types.Date `json:"next_date"`
+	EventLabel *string `json:"event_label"`
 
-	// NextTime Время суток напоминания на next_date; если не передано — 00:00. Не хранится в самой прививке. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	// ExtraReminders Дополнительные напоминания вакцинации (до 5); каждое создаётся отдельными разовыми настройками напоминания с source=vaccination независимо от add_reminder_on_next. Допускается только при заданном next_date — иначе 400. Моменты не совпадают между собой и с напоминанием на next_date.
+	ExtraReminders *[]VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
+	Name           string                             `json:"name"`
+	NextDate       *openapi_types.Date                `json:"next_date"`
+
+	// NextTime Время суток следующей вакцинации и напоминания на next_date; если не передано — 00:00. Сохраняется в вакцинации (только вместе с next_date; без next_date игнорируется). Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	NextTime *string `json:"next_time"`
+
+	// SkipAdministeredEvent true — факт на дату введения не создаётся, administered_event_id остаётся пустым. Используется, когда вакцинация вносится после отметки «выполнено» напоминания на предыдущую вакцинацию, чей факт уже есть в календаре.
+	SkipAdministeredEvent *bool `json:"skip_administered_event,omitempty"`
 }
 
 // GetVaccinationResponse defines model for GetVaccinationResponse.
@@ -1105,6 +1111,15 @@ type GetVaccinationResponse struct {
 	// AdministeredEventId id факта, связанного с этой прививкой на дату введения; null, если факт не создавался.
 	AdministeredEventId *openapi_types.UUID `json:"administered_event_id"`
 
+	// AdministeredTime Время суток введения (HH:MM), местное время часового пояса запроса создания/редактирования. Хранится в вакцинации; по умолчанию 00:00.
+	AdministeredTime string `json:"administered_time"`
+
+	// CompletedAt Момент завершения вакцинации — отметка «выполнено» напоминания на следующую вакцинацию. У завершённой вакцинации next_date отсутствует, дополнительные напоминания удалены. null, если вакцинация не завершена.
+	CompletedAt *time.Time `json:"completed_at"`
+
+	// ExtraReminders Дополнительные напоминания вакцинации (до 5), по возрастанию момента. Пустой массив, если их нет.
+	ExtraReminders *[]VaccinationExtraReminderResponse `json:"extra_reminders,omitempty"`
+
 	// FilesCount Количество прикреплённых файлов прививки (0, если файлов нет).
 	FilesCount int                 `json:"files_count"`
 	Id         openapi_types.UUID  `json:"id"`
@@ -1113,7 +1128,10 @@ type GetVaccinationResponse struct {
 
 	// NextPlanId id настроек напоминания на дату следующей прививки; null, если напоминание не создавалось либо его настроек уже нет (напоминание удалено или отмечено в календаре).
 	NextPlanId *openapi_types.UUID `json:"next_plan_id"`
-	PetId      openapi_types.UUID  `json:"pet_id"`
+
+	// NextTime Время суток следующей вакцинации (HH:MM). Задано, только когда задан next_date; null иначе.
+	NextTime *string            `json:"next_time"`
+	PetId    openapi_types.UUID `json:"pet_id"`
 }
 
 // GetVetVisitIdResponseRequest defines model for GetVetVisitIdResponseRequest.
@@ -1401,6 +1419,15 @@ type ImportVaccination struct {
 	// AdministeredEventLocalId local_id связанного local-события (факта) из events[] этого же запроса, если оно уже было создано на устройстве; после импорта сервер свяжет его с полем administered_event_id прививки.
 	AdministeredEventLocalId *string `json:"administered_event_local_id"`
 
+	// AdministeredTime Время суток введения (HH:MM); если не передано — 00:00.
+	AdministeredTime *string `json:"administered_time"`
+
+	// CompletedAt Момент завершения вакцинации; не допускается вместе с next_date.
+	CompletedAt *time.Time `json:"completed_at"`
+
+	// ExtraReminderPlanLocalIds local_id настроек дополнительных напоминаний из reminder_plans[] этого же запроса (до 5, различные, не включая next_reminder_plan_local_id); допускается только при заданной next_date. После импорта сервер запишет настройкам source=vaccination и source_id вакцинации.
+	ExtraReminderPlanLocalIds *[]string `json:"extra_reminder_plan_local_ids"`
+
 	// LocalId Клиентский UUID прививки в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса и как ключ соответствия в ответе, не сохраняется на сервере.
 	LocalId  string              `json:"local_id"`
 	Name     string              `json:"name"`
@@ -1408,6 +1435,9 @@ type ImportVaccination struct {
 
 	// NextReminderPlanLocalId local_id настроек напоминания из reminder_plans[] этого же запроса; после импорта сервер свяжет их с полем next_plan_id прививки и запишет настройкам source=vaccination.
 	NextReminderPlanLocalId *string `json:"next_reminder_plan_local_id"`
+
+	// NextTime Время суток следующей вакцинации (HH:MM); допускается только при заданной next_date.
+	NextTime *string `json:"next_time"`
 
 	// PetLocalId Должен совпадать с одним из pets[].local_id этого же запроса.
 	PetLocalId string `json:"pet_local_id"`
@@ -1901,17 +1931,20 @@ type UpdateVaccinationRequest struct {
 	AddReminderOnNext *bool               `json:"add_reminder_on_next,omitempty"`
 	AdministeredDate  *openapi_types.Date `json:"administered_date,omitempty"`
 
-	// AdministeredTime Время суток факта на дату введения. Если не передано при обновлении существующего факта — сохраняется его прежнее время. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	// AdministeredTime Время суток введения. Если не передано — сохраняется прежнее значение (и прежнее время факта). Переданное значение обновляет administered_time вакцинации и время факта. Момент факта не может быть позднее текущего — иначе 400. Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	AdministeredTime *string `json:"administered_time"`
 
 	// EventLabel Опциональная, уже локализованная клиентом подпись связанных записей (value.label события type=other; сервер обрезает её до 50 символов). У сервера нет локали пользователя: если поле не передано или пусто, используется "Вакцинация: " + name. Не хранится в самой прививке.
 	EventLabel *string `json:"event_label"`
-	Name       *string `json:"name,omitempty"`
 
-	// NextDate null (или пустая строка) очищает дату следующей вакцинации и жёстко удаляет настройки напоминания на неё.
+	// ExtraReminders Если передан — полный итоговый набор дополнительных напоминаний: элемент с plan_id обновляется на месте, без plan_id — создаётся, отсутствующие в списке существующие — жёстко удаляются; пустой массив удаляет все. Если не передан — не меняются. Допускается только при заданной итоговой next_date — иначе 400. Моменты не позже next_date+next_time.
+	ExtraReminders *[]VaccinationExtraReminderRequest `json:"extra_reminders,omitempty"`
+	Name           *string                            `json:"name,omitempty"`
+
+	// NextDate null (или пустая строка) очищает дату следующей вакцинации и next_time, жёстко удаляет настройки напоминания на неё и все дополнительные напоминания (непустой extra_reminders вместе с null — 400). Если вакцинация была завершена (completed_at), заданная next_date снова делает её активной (completed_at очищается).
 	NextDate *openapi_types.Date `json:"next_date"`
 
-	// NextTime Время суток напоминания на next_date. Если не передано при обновлении существующего напоминания — сохраняется его прежнее время. Трактуется как местное время часового пояса из обязательного query-параметра tz.
+	// NextTime Время суток следующей вакцинации и напоминания на next_date. Если не передано — сохраняется прежнее время (при переданной только next_date). Обновляет сохранённое next_time и переносит существующее напоминание на следующую дату. Трактуется как местное время часового пояса из обязательного query-параметра tz.
 	NextTime *string `json:"next_time"`
 }
 
@@ -1927,6 +1960,29 @@ type UpdateVetVisitRequest struct {
 	Note      *string             `json:"note"`
 	Reason    *string             `json:"reason,omitempty"`
 	VisitDate *openapi_types.Date `json:"visit_date,omitempty"`
+}
+
+// VaccinationExtraReminderRequest defines model for VaccinationExtraReminderRequest.
+type VaccinationExtraReminderRequest struct {
+	Date openapi_types.Date `json:"date"`
+
+	// PlanId id существующего дополнительного напоминания этой вакцинации (при обновлении): элемент с plan_id обновляется на месте, без plan_id — создаётся новое. Не может совпадать с next_plan_id и не принадлежать другой вакцинации — иначе 400.
+	PlanId *openapi_types.UUID `json:"plan_id"`
+
+	// Time Время суток напоминания (HH:MM[:SS]). Момент date+time (местное время часового пояса tz) обязан быть строго в будущем (для создаваемых и изменяемых элементов), не позже момента следующей вакцинации (next_date+next_time) и отличаться от моментов других напоминаний вакцинации — иначе 400.
+	Time string `json:"time"`
+}
+
+// VaccinationExtraReminderResponse defines model for VaccinationExtraReminderResponse.
+type VaccinationExtraReminderResponse struct {
+	// Date Дата напоминания в часовом поясе настроек.
+	Date openapi_types.Date `json:"date"`
+
+	// PlanId id настроек дополнительного напоминания (reminder_plan с source=vaccination).
+	PlanId openapi_types.UUID `json:"plan_id"`
+
+	// Time Время суток напоминания (HH:MM) в часовом поясе настроек.
+	Time string `json:"time"`
 }
 
 // IdempotencyKey defines model for IdempotencyKey.

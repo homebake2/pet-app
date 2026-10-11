@@ -205,7 +205,41 @@ func validateImportVaccination(v models.ImportVaccination) string {
 	if strings.TrimSpace(v.PetLocalID) == "" {
 		return "Поле pet_local_id обязательно для каждой прививки"
 	}
-	return validateCreateVaccinationRequest(v.ToCreateVaccinationRequest())
+	if msg := validateCreateVaccinationRequest(v.ToCreateVaccinationRequest()); msg != "" {
+		return msg
+	}
+	hasNextDate := v.NextDate != nil && *v.NextDate != ""
+	if v.NextTime != nil && *v.NextTime != "" && !hasNextDate {
+		return "Поле next_time допускается только при заданной next_date"
+	}
+	if v.CompletedAt != nil && *v.CompletedAt != "" {
+		if _, err := time.Parse(time.RFC3339, *v.CompletedAt); err != nil {
+			return "Некорректный формат completed_at, ожидается дата и время RFC 3339"
+		}
+		if hasNextDate {
+			return "Поле completed_at не допускается вместе с next_date"
+		}
+	}
+	if len(v.ExtraReminderPlanLocalIDs) > models.VaccinationExtraRemindersMax {
+		return "Дополнительных напоминаний вакцинации не может быть больше пяти"
+	}
+	if len(v.ExtraReminderPlanLocalIDs) > 0 && !hasNextDate {
+		return "Дополнительные напоминания вакцинации допускаются только при заданной next_date"
+	}
+	seen := make(map[string]bool, len(v.ExtraReminderPlanLocalIDs))
+	for _, localID := range v.ExtraReminderPlanLocalIDs {
+		if strings.TrimSpace(localID) == "" {
+			return "Элементы extra_reminder_plan_local_ids не должны быть пустыми"
+		}
+		if seen[localID] {
+			return "Элементы extra_reminder_plan_local_ids должны быть различными"
+		}
+		if v.NextReminderPlanLocalID != nil && *v.NextReminderPlanLocalID == localID {
+			return "extra_reminder_plan_local_ids не должен включать next_reminder_plan_local_id"
+		}
+		seen[localID] = true
+	}
+	return ""
 }
 
 func validateImportDisease(d models.ImportDisease) string {
@@ -453,13 +487,19 @@ func ImportLocalDataHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		vaccinationLocalIDs[v.LocalID] = true
 
-		// Настройки напоминания на следующую дату уже созданы клиентом
-		// локально: сервер переносит их как есть, но источник проверяет —
-		// на настройки ссылается одна запись, а расписание разовое.
+		// Настройки напоминания на следующую дату и дополнительных
+		// напоминаний уже созданы клиентом локально: сервер переносит их как
+		// есть, но источник проверяет — на настройки ссылается одна запись,
+		// расписание разовое, питомец один.
+		referencedPlans := make([]string, 0, 1+len(v.ExtraReminderPlanLocalIDs))
 		if v.NextReminderPlanLocalID != nil && *v.NextReminderPlanLocalID != "" {
-			plan, found := planLocalIDs[*v.NextReminderPlanLocalID]
+			referencedPlans = append(referencedPlans, *v.NextReminderPlanLocalID)
+		}
+		referencedPlans = append(referencedPlans, v.ExtraReminderPlanLocalIDs...)
+		for _, planLocalID := range referencedPlans {
+			plan, found := planLocalIDs[planLocalID]
 			if !found {
-				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле next_reminder_plan_local_id прививки не совпадает ни с одним local_id настроек напоминаний запроса")
+				writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поля next_reminder_plan_local_id и extra_reminder_plan_local_ids прививки должны совпадать с local_id настроек напоминаний запроса")
 				return
 			}
 			if plan.FrequencyType != models.ReminderFrequencyOnce {
