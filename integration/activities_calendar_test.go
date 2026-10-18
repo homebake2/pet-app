@@ -101,6 +101,7 @@ func TestGetActivitiesDay_MixesAllPetsSortedByDateTime(t *testing.T) {
 			Pets []struct {
 				PetID   string `json:"pet_id"`
 				PetName string `json:"pet_name"`
+				Species string `json:"species"`
 			} `json:"pets"`
 		} `json:"items"`
 	}
@@ -110,6 +111,9 @@ func TestGetActivitiesDay_MixesAllPetsSortedByDateTime(t *testing.T) {
 	require.Len(t, result.Items[0].Pets, 1)
 	require.Equal(t, catID, result.Items[0].Pets[0].PetID)
 	require.Equal(t, "Барсик", result.Items[0].Pets[0].PetName)
+	// Вид питомца берётся из самого питомца.
+	require.Equal(t, "cat", result.Items[0].Pets[0].Species)
+	require.Equal(t, "cat", result.Items[1].Pets[0].Species)
 	require.Len(t, result.Items[1].Pets, 1)
 	require.Equal(t, dogID, result.Items[1].Pets[0].PetID)
 	require.Equal(t, "Рекс", result.Items[1].Pets[0].PetName)

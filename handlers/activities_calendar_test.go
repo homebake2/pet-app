@@ -278,6 +278,7 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 			Pets       []struct {
 				PetID   string `json:"pet_id"`
 				PetName string `json:"pet_name"`
+				Species string `json:"species"`
 			} `json:"pets"`
 			Type string `json:"type"`
 		} `json:"items"`
@@ -310,9 +311,13 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	require.Len(t, resp.Items[1].Pets, 1)
 	assert.Equal(t, testPetID, resp.Items[1].Pets[0].PetID)
 	assert.Equal(t, "Rex", resp.Items[1].Pets[0].PetName)
+	// species питомца отдаётся и у факта, и у напоминания.
+	assert.Equal(t, "DOG", resp.Items[1].Pets[0].Species)
 	// Напоминание общих настроек отдаётся один раз со всеми питомцами.
 	require.Len(t, resp.Items[0].Pets, 2)
 	assert.Equal(t, "Tom", resp.Items[0].Pets[1].PetName)
+	assert.Equal(t, "DOG", resp.Items[0].Pets[0].Species)
+	assert.Equal(t, "CAT", resp.Items[0].Pets[1].Species)
 	assert.Equal(t, "weight", resp.Items[1].Type)
 	require.NoError(t, mock.ExpectationsWereMet())
 }

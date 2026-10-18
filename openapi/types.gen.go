@@ -313,8 +313,8 @@ type ActivitiesDayItem struct {
 	ItemType ActivitiesItemTypeEnum `json:"item_type"`
 	Notes    *string                `json:"notes,omitempty"`
 
-	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).
-	Pets []EventPetRef `json:"pets"`
+	// Pets Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»). species нужен клиенту для фильтра списка дня по виду животного.
+	Pets []ActivitiesDayPetRef `json:"pets"`
 
 	// PlanId Id настроек напоминания; присутствует только при item_type=reminder.
 	PlanId *openapi_types.UUID `json:"plan_id,omitempty"`
@@ -351,6 +351,15 @@ type ActivitiesDayItem struct {
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
+}
+
+// ActivitiesDayPetRef Питомец записи в списке дня календаря: ссылка на питомца плюс его вид.
+type ActivitiesDayPetRef struct {
+	PetId   openapi_types.UUID `json:"pet_id"`
+	PetName string             `json:"pet_name"`
+
+	// Species Значение справочника видов питомцев.
+	Species string `json:"species"`
 }
 
 // ActivitiesItemTypeEnum event — факт (уже произошедшее событие), reminder — незавершённое напоминание.
@@ -1545,6 +1554,21 @@ type MedicationTimeSlot struct {
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
 
+// PetEventsAvailableFilters Агрегаты по всем не удалённым событиям питомца без учёта search, types, from/to. Присутствует только в ответе на запрос первой страницы (offset=0). По ним клиент определяет доступность фильтров независимо от текущего выбора.
+type PetEventsAvailableFilters struct {
+	// DistinctDays Число различных календарных дней событий в часовом поясе tz (UTC, если tz не передан).
+	DistinctDays int `json:"distinct_days"`
+
+	// Total Число всех событий питомца.
+	Total int `json:"total"`
+
+	// Types Типы, присутствующие у питомца, с числом событий каждого типа.
+	Types []struct {
+		Count int          `json:"count"`
+		Type  GetEventEnum `json:"type"`
+	} `json:"types"`
+}
+
 // PetUpcomingReminderItem defines model for PetUpcomingReminderItem.
 type PetUpcomingReminderItem struct {
 	Id       openapi_types.UUID `json:"id"`
@@ -2162,6 +2186,18 @@ type GetPetEventsParams struct {
 
 	// Search Полнотекстовый фильтр без учёта регистра по notes и по свободнотекстовому подполю значения события (other.label, medication.name). Пустая строка или отсутствие параметра — фильтр не применяется.
 	Search *string `form:"search,omitempty" json:"search,omitempty"`
+
+	// Types Перечень типов события через запятую (значения GetEventEnum); в выборку попадают события любого из перечисленных типов. Неизвестное значение — 400. Пустое значение или отсутствие параметра — фильтр не применяется.
+	Types *string `form:"types,omitempty" json:"types,omitempty"`
+
+	// From Начало периода (YYYY-MM-DD, включительно): календарный день события определяется по date_time в часовом поясе tz. Требует tz. Позже to или неверный формат — 400.
+	From *openapi_types.Date `form:"from,omitempty" json:"from,omitempty"`
+
+	// To Конец периода (YYYY-MM-DD, включительно): календарный день события определяется по date_time в часовом поясе tz. Требует tz. Раньше from или неверный формат — 400.
+	To *openapi_types.Date `form:"to,omitempty" json:"to,omitempty"`
+
+	// Tz Имя часового пояса IANA. Обязателен, если передан from или to, иначе — 400. Если передан без from/to, используется для distinct_days в available_filters; без tz distinct_days считается в UTC.
+	Tz *string `form:"tz,omitempty" json:"tz,omitempty"`
 }
 
 // GetPetMedicationsParams defines parameters for GetPetMedications.

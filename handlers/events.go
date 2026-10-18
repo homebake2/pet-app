@@ -10,6 +10,7 @@ import (
 	"myauthservice/openapi"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -208,10 +209,26 @@ type PetEventItem struct {
 	Pets []models.EventPetRef `json:"pets"`
 }
 
-// PetEventsResponse - тело ответа GET /pet/{id}/events.
+// PetEventTypeCountItem - элемент available_filters.types.
+type PetEventTypeCountItem struct {
+	Type  string `json:"type"`
+	Count int    `json:"count"`
+}
+
+// PetEventsAvailableFiltersItem - блок available_filters ответа
+// GET /pet/{id}/events.
+type PetEventsAvailableFiltersItem struct {
+	Total        int                     `json:"total"`
+	Types        []PetEventTypeCountItem `json:"types"`
+	DistinctDays int                     `json:"distinct_days"`
+}
+
+// PetEventsResponse - тело ответа GET /pet/{id}/events. AvailableFilters
+// заполнен только при offset=0.
 type PetEventsResponse struct {
-	Items []PetEventItem `json:"items"`
-	Total int            `json:"total"`
+	Items            []PetEventItem                 `json:"items"`
+	Total            int                            `json:"total"`
+	AvailableFilters *PetEventsAvailableFiltersItem `json:"available_filters,omitempty"`
 }
 
 const (
@@ -249,12 +266,80 @@ func parsePetEventsPaging(r *http.Request) (limit, offset int, ok bool) {
 	return limit, offset, true
 }
 
+// parsePetEventsFilter разбирает фильтры GET /pet/{id}/events: search,
+// types (CSV типов события), from/to (YYYY-MM-DD включительно) и tz (имя
+// IANA; обязателен при from/to). Календарные границы переводятся в моменты
+// времени в поясе tz. Возвращает также имя пояса для available_filters
+// ("UTC", если tz не передан). При ошибке сама пишет 400 и возвращает ok=false.
+func parsePetEventsFilter(w http.ResponseWriter, r *http.Request) (filter database.PetEventsFilter, tzName string, ok bool) {
+	query := r.URL.Query()
+	filter.Search = query.Get("search")
+
+	seenTypes := make(map[string]bool)
+	for _, raw := range strings.Split(query.Get("types"), ",") {
+		eventType := strings.TrimSpace(raw)
+		if eventType == "" {
+			continue
+		}
+		if !eventreg.IsValidType(eventType) {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Неизвестный тип события в параметре types: "+eventType)
+			return filter, "", false
+		}
+		if !seenTypes[eventType] {
+			seenTypes[eventType] = true
+			filter.Types = append(filter.Types, eventType)
+		}
+	}
+
+	var fromDate, toDate *time.Time
+	for _, param := range []struct {
+		name   string
+		target **time.Time
+	}{{"from", &fromDate}, {"to", &toDate}} {
+		raw := query.Get(param.name)
+		if raw == "" {
+			continue
+		}
+		parsed, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный формат даты "+param.name+" (ожидается YYYY-MM-DD)")
+			return filter, "", false
+		}
+		*param.target = &parsed
+	}
+	if fromDate != nil && toDate != nil && fromDate.After(*toDate) {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметр from не может быть позже to")
+		return filter, "", false
+	}
+
+	tzName = "UTC"
+	tzRaw := query.Get("tz")
+	if tzRaw != "" || fromDate != nil || toDate != nil {
+		loc, locOK := parseTimeZoneParam(w, r)
+		if !locOK {
+			return filter, "", false
+		}
+		tzName = loc.String()
+		if fromDate != nil {
+			start, _ := localDaysBounds(*fromDate, *fromDate, loc)
+			filter.From = &start
+		}
+		if toDate != nil {
+			_, end := localDaysBounds(*toDate, *toDate, loc)
+			filter.To = &end
+		}
+	}
+
+	return filter, tzName, true
+}
+
 // GET /pet/{id}/events возвращает плоский список событий питомца (сортировка
-// date_time DESC, пагинация limit/offset, опциональный полнотекстовый фильтр
-// search) вместе с total — общим количеством подходящих под search событий
-// без учёта limit/offset. Используется превью-блоком событий на карточке
-// питомца и экраном полного списка событий с бесконечной пагинацией и
-// поиском.
+// date_time DESC, пагинация limit/offset, фильтры search, types и from/to/tz
+// по «И») вместе с total — общим количеством подходящих под все фильтры
+// событий без учёта limit/offset. При offset=0 добавляет блок
+// available_filters — агрегаты по всем событиям питомца без учёта фильтров.
+// Используется превью-блоком событий на карточке питомца и экраном полного
+// списка событий с бесконечной пагинацией, поиском и фильтрами.
 func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID) {
 	userID, ok := requireUserID(w, r)
 	if !ok {
@@ -267,6 +352,11 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		return
 	}
 
+	filter, tzName, ok := parsePetEventsFilter(w, r)
+	if !ok {
+		return
+	}
+
 	// Питомец должен существовать, не быть удалён (deleted_at IS NULL) и
 	// принадлежать userID — то же условие, что и в GET /pet/{id}. Иначе
 	// события мягко удалённого/чужого/несуществующего питомца "утекают".
@@ -274,15 +364,13 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		return
 	}
 
-	search := r.URL.Query().Get("search")
-
-	eventsDB, err := database.GetEventsByPetID(petID, limit, offset, search)
+	eventsDB, err := database.GetEventsByPetID(petID, limit, offset, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
 		return
 	}
 
-	total, err := database.CountEventsByPetID(petID, search)
+	total, err := database.CountEventsByPetID(petID, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества событий")
 		return
@@ -316,7 +404,25 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		})
 	}
 
-	writeJSON(w, http.StatusOK, PetEventsResponse{Items: items, Total: total})
+	response := PetEventsResponse{Items: items, Total: total}
+	if offset == 0 {
+		available, err := database.GetPetEventsAvailableFilters(petID, tzName)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения доступных фильтров событий")
+			return
+		}
+		types := make([]PetEventTypeCountItem, 0, len(available.Types))
+		for _, t := range available.Types {
+			types = append(types, PetEventTypeCountItem{Type: t.Type, Count: t.Count})
+		}
+		response.AvailableFilters = &PetEventsAvailableFiltersItem{
+			Total:        available.Total,
+			Types:        types,
+			DistinctDays: available.DistinctDays,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, response)
 }
 
 // EventIDResponseHandler обрабатывает /events/{id}: получение, частичное

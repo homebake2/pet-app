@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 )
 
 // EventFull — событие вместе с его видимыми (не мягко удалёнными)
@@ -410,25 +411,26 @@ func escapeLikePattern(s string) string {
 
 // GetEventsByPetID - получить события, привязанные к питомцу (через
 // event_pet), отсортированные по date_time по убыванию (сначала последние), с
-// пагинацией limit/offset и опциональным полнотекстовым фильтром search (см.
-// "/pet/{id}/events" в open-api/spec.json): при непустом search в выборку
-// попадают только события, у которых notes, либо (для типов с собственным
-// свободнотекстовым подполем) value->>'label' (тип other) или value->>'name'
-// (типы medication и vaccination) содержат search (регистронезависимо). Пустая
-// строка/её отсутствие — фильтр не применяется. В каждом событии отдаются все
-// его видимые питомцы.
-func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]EventFull, error) {
+// пагинацией limit/offset и фильтрами PetEventsFilter (см. "/pet/{id}/events"
+// в open-api/spec.json): при непустом Search в выборку попадают только
+// события, у которых notes, либо (для типов с собственным свободнотекстовым
+// подполем) value->>'label' (тип other) или value->>'name' (типы medication и
+// vaccination) содержат search (регистронезависимо); Types, From и To
+// ограничивают тип и момент события. Незаданный фильтр не применяется. В
+// каждом событии отдаются все его видимые питомцы.
+func GetEventsByPetID(petID uuid.UUID, limit, offset int, filter PetEventsFilter) ([]EventFull, error) {
+	where, filterArgs := petEventsWhere(filter, 4)
 	query := `
 	SELECT ` + eventColumns + `
 	FROM event e
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
-	` + petEventsSearchClause(search, 4) + `
+	` + where + `
 	ORDER BY e.date_time DESC, e.id DESC
 	LIMIT $2 OFFSET $3
 	`
-	args := petEventsQueryArgs(petID, limit, offset, search)
+	args := append([]any{petID, limit, offset}, filterArgs...)
 
 	rows, err := DB.Query(query, args...)
 	if err != nil {
@@ -446,22 +448,18 @@ func GetEventsByPetID(petID uuid.UUID, limit, offset int, search string) ([]Even
 // привязанных к питомцу, подходящих под тот же search-фильтр, что и
 // GetEventsByPetID, без учёта limit/offset — используется для поля total в
 // ответе GET /pet/{id}/events.
-func CountEventsByPetID(petID uuid.UUID, search string) (int, error) {
+func CountEventsByPetID(petID uuid.UUID, filter PetEventsFilter) (int, error) {
+	where, filterArgs := petEventsWhere(filter, 2)
 	query := `
 	SELECT COUNT(*)
 	FROM event e
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
-	` + petEventsSearchClause(search, 2)
-
-	args := []any{petID}
-	if search != "" {
-		args = append(args, "%"+escapeLikePattern(search)+"%")
-	}
+	` + where
 
 	var total int
-	if err := DB.QueryRow(query, args...).Scan(&total); err != nil {
+	if err := DB.QueryRow(query, append([]any{petID}, filterArgs...)...).Scan(&total); err != nil {
 		log.Println("CountEventsByPetID error:", err)
 		return 0, err
 	}
@@ -469,29 +467,113 @@ func CountEventsByPetID(petID uuid.UUID, search string) (int, error) {
 	return total, nil
 }
 
-// petEventsSearchClause возвращает WHERE-условие для search-фильтра
-// GET /pet/{id}/events. placeholderIdx — позиционный номер плейсхолдера
-// параметра search в конкретном запросе (GetEventsByPetID передаёт search
-// последним, за pet_id/limit/offset, поэтому 4; CountEventsByPetID передаёт
-// его сразу за pet_id, поэтому 2 — см. petEventsQueryArgs и вызовы выше).
-func petEventsSearchClause(search string, placeholderIdx int) string {
-	if search == "" {
-		return ""
+// PetEventsFilter — необязательные фильтры GET /pet/{id}/events; все
+// заданные условия объединяются по «И». Нулевое значение — «без фильтра».
+type PetEventsFilter struct {
+	// Search — подстрока (регистронезависимо) в notes и свободнотекстовых
+	// подполях value (label, name).
+	Search string
+	// Types — типы события; событие подходит, если его тип входит в список.
+	Types []string
+	// From — включительная нижняя граница date_time (начало первого дня
+	// периода в часовом поясе клиента); nil — без нижней границы.
+	From *time.Time
+	// To — исключительная верхняя граница date_time (начало суток после
+	// последнего дня периода в часовом поясе клиента); nil — без верхней
+	// границы.
+	To *time.Time
+}
+
+// PetEventsAvailableFilters — агрегаты по всем не удалённым событиям питомца
+// без учёта фильтров (available_filters в ответе GET /pet/{id}/events).
+type PetEventsAvailableFilters struct {
+	Total        int
+	Types        []PetEventTypeCount
+	DistinctDays int
+}
+
+// PetEventTypeCount — число событий питомца одного типа.
+type PetEventTypeCount struct {
+	Type  string
+	Count int
+}
+
+// petEventsWhere возвращает условия фильтра (каждое с ведущим AND) и их
+// аргументы; первый плейсхолдер условий получает номер firstIdx. Порядок
+// условий и аргументов фиксирован: search, types, from, to.
+func petEventsWhere(f PetEventsFilter, firstIdx int) (string, []any) {
+	var clause strings.Builder
+	var args []any
+	next := func(v any) string {
+		args = append(args, v)
+		return "$" + strconv.Itoa(firstIdx+len(args)-1)
 	}
-	placeholder := fmt.Sprintf("$%d", placeholderIdx)
-	return `AND (
+
+	if f.Search != "" {
+		placeholder := next("%" + escapeLikePattern(f.Search) + "%")
+		clause.WriteString(`AND (
 		e.notes ILIKE ` + placeholder + ` ESCAPE '\' OR
 		e.value ->> 'label' ILIKE ` + placeholder + ` ESCAPE '\' OR
 		e.value ->> 'name' ILIKE ` + placeholder + ` ESCAPE '\'
-	)`
+	)
+	`)
+	}
+	if len(f.Types) > 0 {
+		clause.WriteString("AND e.type = ANY(" + next(pq.Array(f.Types)) + ")\n\t")
+	}
+	if f.From != nil {
+		clause.WriteString("AND e.date_time >= " + next(f.From.UTC()) + "\n\t")
+	}
+	if f.To != nil {
+		clause.WriteString("AND e.date_time < " + next(f.To.UTC()) + "\n\t")
+	}
+	return clause.String(), args
 }
 
-// petEventsQueryArgs строит позиционные аргументы для GetEventsByPetID в
-// соответствии с petEventsSearchClause (search, если непустой, всегда $4).
-func petEventsQueryArgs(petID uuid.UUID, limit, offset int, search string) []any {
-	args := []any{petID, limit, offset}
-	if search != "" {
-		args = append(args, "%"+escapeLikePattern(search)+"%")
+// GetPetEventsAvailableFilters считает агрегаты available_filters по всем не
+// удалённым событиям питомца без учёта search/types/from/to: общее число,
+// число событий по типам и число различных календарных дней в часовом поясе
+// tzName (имя IANA, понятное и Go, и Postgres). Питомец должен быть уже
+// проверен вызывающим как видимый.
+func GetPetEventsAvailableFilters(petID uuid.UUID, tzName string) (*PetEventsAvailableFilters, error) {
+	result := &PetEventsAvailableFilters{Types: []PetEventTypeCount{}}
+
+	err := DB.QueryRow(`
+	SELECT COUNT(*), COUNT(DISTINCT (e.date_time AT TIME ZONE $2)::date)
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	AND e.deleted_at IS NULL
+	`, petID, tzName).Scan(&result.Total, &result.DistinctDays)
+	if err != nil {
+		log.Println("GetPetEventsAvailableFilters totals error:", err)
+		return nil, err
 	}
-	return args
+
+	rows, err := DB.Query(`
+	SELECT e.type, COUNT(*)
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	AND e.deleted_at IS NULL
+	GROUP BY e.type
+	ORDER BY COUNT(*) DESC, e.type ASC
+	`, petID)
+	if err != nil {
+		log.Println("GetPetEventsAvailableFilters types error:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var item PetEventTypeCount
+		if err := rows.Scan(&item.Type, &item.Count); err != nil {
+			return nil, err
+		}
+		result.Types = append(result.Types, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

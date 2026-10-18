@@ -624,11 +624,19 @@ func TestReminder_OwnNotesWinOverPlanNotes(t *testing.T) {
 			PlanSource      *string `json:"plan_source"`
 			PlanSourceTitle *string `json:"plan_source_title"`
 			PlanUnclosed    *int    `json:"plan_unclosed_count"`
+			Pets            []struct {
+				PetID   string `json:"pet_id"`
+				Species string `json:"species"`
+			} `json:"pets"`
 		} `json:"items"`
 	}
 	day.decode(t, &dayBody)
 	require.Len(t, dayBody.Items, 2)
 	require.Equal(t, "reminder", dayBody.Items[0].ItemType)
+	// Питомцы напоминания в списке дня несут вид (species).
+	require.Len(t, dayBody.Items[0].Pets, 1)
+	require.Equal(t, petID, dayBody.Items[0].Pets[0].PetID)
+	require.Equal(t, "cat", dayBody.Items[0].Pets[0].Species)
 	// Данные настроек для выбора «это / все» приходят в самом списке дня.
 	require.NotNil(t, dayBody.Items[0].PlanSource)
 	require.Equal(t, "medication", *dayBody.Items[0].PlanSource)

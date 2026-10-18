@@ -45,6 +45,16 @@ func EventPetRefs(pets []LinkedPet) []models.EventPetRef {
 	return refs
 }
 
+// ActivitiesDayPetRefs превращает питомцев записи в элементы pets ответа
+// GET /activities/day (с видом питомца).
+func ActivitiesDayPetRefs(pets []LinkedPet) []models.ActivitiesDayPetRef {
+	refs := make([]models.ActivitiesDayPetRef, 0, len(pets))
+	for _, pet := range pets {
+		refs = append(refs, models.ActivitiesDayPetRef{PetID: pet.ID.String(), PetName: pet.Name, Species: pet.Species})
+	}
+	return refs
+}
+
 // visibleExistsClause — условие «у записи есть хотя бы один видимый питомец»
 // для запроса, в котором запись доступна под алиасом ownerAlias.
 func (l petLinks) visibleExistsClause(ownerAlias, ownerIDColumn string) string {

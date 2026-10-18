@@ -1085,7 +1085,7 @@
       ],
       "get": {
         "summary": "/pet/{id}/events",
-        "description": "Список событий питомца, отсортированный по date_time по убыванию (сначала последние), с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0) и опциональным полнотекстовым фильтром search. Используется превью-блоком событий на карточке питомца (limit=5, без search) и экраном полного списка событий питомца с бесконечной пагинацией и поиском.",
+        "description": "Список событий питомца, отсортированный по date_time по убыванию (сначала последние), с пагинацией через query-параметры limit (по умолчанию 50, максимум 200) и offset (по умолчанию 0), опциональным полнотекстовым фильтром search и фильтрами types (типы события) и from/to/tz (период). Фильтры и search объединяются по «И». В ответ на первую страницу (offset=0) добавляется блок available_filters, не зависящий от search/types/from/to. Используется превью-блоком событий на карточке питомца (limit=5, без фильтров) и экраном полного списка событий питомца с бесконечной пагинацией, поиском и фильтрами.",
         "tags": [
           "event-controller"
         ],
@@ -1109,7 +1109,10 @@
                     },
                     "total": {
                       "type": "integer",
-                      "description": "Общее количество событий питомца, подходящих под текущий search (или всех событий питомца, если search не передан), без учёта limit/offset."
+                      "description": "Общее количество событий питомца, подходящих под текущие search, types и from/to (или всех событий питомца, если они не переданы), без учёта limit/offset."
+                    },
+                    "available_filters": {
+                      "$ref": "#/components/schemas/PetEventsAvailableFilters"
                     }
                   }
                 }
@@ -1183,6 +1186,44 @@
             "in": "query",
             "required": false,
             "description": "Полнотекстовый фильтр без учёта регистра по notes и по свободнотекстовому подполю значения события (other.label, medication.name). Пустая строка или отсутствие параметра — фильтр не применяется."
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "types",
+            "in": "query",
+            "required": false,
+            "description": "Перечень типов события через запятую (значения GetEventEnum); в выборку попадают события любого из перечисленных типов. Неизвестное значение — 400. Пустое значение или отсутствие параметра — фильтр не применяется."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Начало периода (YYYY-MM-DD, включительно): календарный день события определяется по date_time в часовом поясе tz. Требует tz. Позже to или неверный формат — 400."
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Конец периода (YYYY-MM-DD, включительно): календарный день события определяется по date_time в часовом поясе tz. Требует tz. Раньше from или неверный формат — 400."
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "tz",
+            "in": "query",
+            "required": false,
+            "description": "Имя часового пояса IANA. Обязателен, если передан from или to, иначе — 400. Если передан без from/to, используется для distinct_days в available_filters; без tz distinct_days считается в UTC."
           }
         ]
       }
@@ -7474,9 +7515,9 @@
             "type": "array",
             "minItems": 1,
             "maxItems": 10,
-            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»).",
+            "description": "Видимые (не мягко удалённые) питомцы записи, от 1 до 10; запись одна на всех питомцев (см. «Общие требования: Несколько питомцев в событии и напоминании»). species нужен клиенту для фильтра списка дня по виду животного.",
             "items": {
-              "$ref": "#/components/schemas/EventPetRef"
+              "$ref": "#/components/schemas/ActivitiesDayPetRef"
             }
           }
         }
@@ -8214,6 +8255,68 @@
           },
           "pet_name": {
             "type": "string"
+          }
+        }
+      },
+      "ActivitiesDayPetRef": {
+        "title": "ActivitiesDayPetRef",
+        "type": "object",
+        "description": "Питомец записи в списке дня календаря: ссылка на питомца плюс его вид.",
+        "required": [
+          "pet_id",
+          "pet_name",
+          "species"
+        ],
+        "properties": {
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pet_name": {
+            "type": "string"
+          },
+          "species": {
+            "type": "string",
+            "description": "Значение справочника видов питомцев."
+          }
+        }
+      },
+      "PetEventsAvailableFilters": {
+        "title": "PetEventsAvailableFilters",
+        "type": "object",
+        "description": "Агрегаты по всем не удалённым событиям питомца без учёта search, types, from/to. Присутствует только в ответе на запрос первой страницы (offset=0). По ним клиент определяет доступность фильтров независимо от текущего выбора.",
+        "required": [
+          "total",
+          "types",
+          "distinct_days"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "description": "Число всех событий питомца."
+          },
+          "types": {
+            "type": "array",
+            "description": "Типы, присутствующие у питомца, с числом событий каждого типа.",
+            "items": {
+              "type": "object",
+              "required": [
+                "type",
+                "count"
+              ],
+              "properties": {
+                "type": {
+                  "$ref": "#/components/schemas/GetEventEnum"
+                },
+                "count": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "distinct_days": {
+            "type": "integer",
+            "description": "Число различных календарных дней событий в часовом поясе tz (UTC, если tz не передан)."
           }
         }
       }

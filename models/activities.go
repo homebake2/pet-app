@@ -59,15 +59,23 @@ type ActivitiesDayItem struct {
 	PlanID *string `json:"plan_id,omitempty"`
 	// PlanSource, PlanSourceTitle, PlanUnclosedCount — данные настроек для
 	// выбора «это / все» без отдельного запроса; только у item_type=reminder.
-	PlanSource        *string         `json:"plan_source,omitempty"`
-	PlanSourceTitle   *string         `json:"plan_source_title,omitempty"`
-	PlanUnclosedCount *int            `json:"plan_unclosed_count,omitempty"`
-	Date              string          `json:"date"`
-	Type              string          `json:"type"`
-	Notes             *string         `json:"notes,omitempty"`
-	Value             json.RawMessage `json:"value"`
-	FilesCount        int             `json:"files_count"`
-	Pets              []EventPetRef   `json:"pets"`
+	PlanSource        *string               `json:"plan_source,omitempty"`
+	PlanSourceTitle   *string               `json:"plan_source_title,omitempty"`
+	PlanUnclosedCount *int                  `json:"plan_unclosed_count,omitempty"`
+	Date              string                `json:"date"`
+	Type              string                `json:"type"`
+	Notes             *string               `json:"notes,omitempty"`
+	Value             json.RawMessage       `json:"value"`
+	FilesCount        int                   `json:"files_count"`
+	Pets              []ActivitiesDayPetRef `json:"pets"`
+}
+
+// ActivitiesDayPetRef — питомец элемента списка дня: ссылка на питомца плюс
+// его вид (по нему клиент фильтрует список дня по виду животного).
+type ActivitiesDayPetRef struct {
+	PetID   string `json:"pet_id"`
+	PetName string `json:"pet_name"`
+	Species string `json:"species"`
 }
 
 // ActivitiesDayResponse — тело ответа GET /activities/day.

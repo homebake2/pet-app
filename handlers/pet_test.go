@@ -804,6 +804,7 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	expectAvailableFilters(mock, 0, 0)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
@@ -814,6 +815,7 @@ func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Empty(t, resp.Items)
 	assert.Equal(t, 0, resp.Total)
+	require.NotNil(t, resp.AvailableFilters)
 }
 
 func TestPetByIDHandler_EventsWrongMethod(t *testing.T) {
@@ -872,6 +874,7 @@ func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	expectAvailableFilters(mock, 0, 0)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
@@ -942,6 +945,7 @@ func TestGetPetEventsHandler_SearchFiltersAndReturnsTotal(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
+	expectAvailableFilters(mock, 0, 0)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?search=%D0%B2%D0%B0%D0%BA%D1%86%D0%B8%D0%BD%D0%B0", nil, true)
@@ -970,6 +974,7 @@ func TestGetPetEventsHandler_EmptySearchOmitsFilter(t *testing.T) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	expectAvailableFilters(mock, 0, 0)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?search=", nil, true)
@@ -977,4 +982,150 @@ func TestGetPetEventsHandler_EmptySearchOmitsFilter(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// expectAvailableFilters мокирует два запроса блока available_filters
+// (итоги + разбивка по типам) с заданным числом событий и дней.
+func expectAvailableFilters(mock sqlmock.Sqlmock, total, days int, typeCounts ...any) {
+	mock.ExpectQuery(`SELECT COUNT\(\*\), COUNT\(DISTINCT \(e\.date_time AT TIME ZONE \$2\)::date\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
+		WillReturnRows(sqlmock.NewRows([]string{"count", "days"}).AddRow(total, days))
+	rows := sqlmock.NewRows([]string{"type", "count"})
+	for i := 0; i+1 < len(typeCounts); i += 2 {
+		rows.AddRow(typeCounts[i], typeCounts[i+1])
+	}
+	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+GROUP BY e\.type`).
+		WillReturnRows(rows)
+}
+
+// Фильтры types/from/to/tz: в обе выборки попадают условия в порядке
+// search, types, from, to; границы периода переводятся в моменты времени в
+// поясе tz (конец — начало суток после to).
+func TestGetPetEventsHandler_TypesAndPeriodFilters(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	expectNoWeightEvent(mock)
+	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.FixedZone("", 3*3600))
+	to := time.Date(2026, 10, 11, 0, 0, 0, 0, time.FixedZone("", 3*3600))
+	mock.ExpectQuery(`(?s)AND e\.deleted_at IS NULL\s+AND \(\s*e\.notes ILIKE \$4.*\)\s+AND e\.type = ANY\(\$5\)\s+AND e\.date_time >= \$6\s+AND e\.date_time < \$7\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
+		WithArgs(sqlmock.AnyArg(), 50, 10, "%кот%", sqlmock.AnyArg(), from.UTC(), to.UTC()).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event e.*AND \(\s*e\.notes ILIKE \$2.*\)\s+AND e\.type = ANY\(\$3\)\s+AND e\.date_time >= \$4\s+AND e\.date_time < \$5`).
+		WithArgs(sqlmock.AnyArg(), "%кот%", sqlmock.AnyArg(), from.UTC(), to.UTC()).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?offset=10&search=%D0%BA%D0%BE%D1%82&types=weight,activity,weight&from=2026-10-01&to=2026-10-10&tz=Europe/Moscow", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp PetEventsResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, 3, resp.Total)
+	// offset>0: блок available_filters не считается и не отдаётся.
+	assert.Nil(t, resp.AvailableFilters)
+	assert.NotContains(t, w.Body.String(), "available_filters")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// available_filters при offset=0 не зависит от фильтров запроса (отдельные
+// запросы без условий фильтра), distinct_days считается в поясе tz.
+func TestGetPetEventsHandler_AvailableFiltersIgnoreFilters(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	expectNoWeightEvent(mock)
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT COUNT\(\*\), COUNT\(DISTINCT`).
+		WithArgs(sqlmock.AnyArg(), "Europe/Moscow").
+		WillReturnRows(sqlmock.NewRows([]string{"count", "days"}).AddRow(12, 4))
+	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)`).
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"type", "count"}).AddRow("weight", 9).AddRow("activity", 3))
+
+	w := httptest.NewRecorder()
+	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?types=feeding&tz=Europe/Moscow", nil, true)
+	PetByIDHandler(w, r)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var resp PetEventsResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	require.NotNil(t, resp.AvailableFilters)
+	assert.Equal(t, 12, resp.AvailableFilters.Total)
+	assert.Equal(t, 4, resp.AvailableFilters.DistinctDays)
+	assert.Equal(t, []PetEventTypeCountItem{{Type: "weight", Count: 9}, {Type: "activity", Count: 3}}, resp.AvailableFilters.Types)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Без tz distinct_days считается в UTC.
+func TestGetPetEventsHandler_AvailableFiltersDefaultUTC(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	expectNoWeightEvent(mock)
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id`).
+		WillReturnRows(sqlmock.NewRows(eventColumnNames))
+	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e`).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	mock.ExpectQuery(`SELECT COUNT\(\*\), COUNT\(DISTINCT`).
+		WithArgs(sqlmock.AnyArg(), "UTC").
+		WillReturnRows(sqlmock.NewRows([]string{"count", "days"}).AddRow(0, 0))
+	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)`).
+		WillReturnRows(sqlmock.NewRows([]string{"type", "count"}))
+
+	w := httptest.NewRecorder()
+	PetByIDHandler(w, petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), `"types":[]`)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetPetEventsHandler_InvalidFiltersRejected(t *testing.T) {
+	cases := map[string]string{
+		"unknown type":          "types=weight,bogus",
+		"bad from format":       "from=2026-13-01&tz=UTC",
+		"bad to format":         "to=01.10.2026&tz=UTC",
+		"from after to":         "from=2026-10-10&to=2026-10-01&tz=UTC",
+		"from without tz":       "from=2026-10-01",
+		"to without tz":         "to=2026-10-01",
+		"invalid tz":            "tz=Mars/Base",
+		"invalid tz with range": "from=2026-10-01&tz=Mars/Base",
+	}
+	for name, query := range cases {
+		t.Run(name, func(t *testing.T) {
+			mock := setupMockDB(t)
+			expectTokensValid(mock, testUserID)
+
+			w := httptest.NewRecorder()
+			PetByIDHandler(w, petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events?"+query, nil, true))
+
+			assert.Equal(t, http.StatusBadRequest, w.Code)
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+// Пустой types и одиночный from/to без парной границы допустимы.
+func TestParsePetEventsFilter_Variants(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/pet/x/events?types=&from=2026-10-01&tz=Europe/Moscow", nil)
+	filter, tzName, ok := parsePetEventsFilter(httptest.NewRecorder(), r)
+	require.True(t, ok)
+	assert.Empty(t, filter.Types)
+	require.NotNil(t, filter.From)
+	assert.Nil(t, filter.To)
+	assert.Equal(t, "Europe/Moscow", tzName)
+	assert.Equal(t, time.Date(2026, 9, 30, 21, 0, 0, 0, time.UTC), filter.From.UTC())
+
+	r = httptest.NewRequest(http.MethodGet, "/pet/x/events?to=2026-10-01&tz=UTC", nil)
+	filter, _, ok = parsePetEventsFilter(httptest.NewRecorder(), r)
+	require.True(t, ok)
+	assert.Nil(t, filter.From)
+	assert.Equal(t, time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), filter.To.UTC())
 }

@@ -130,7 +130,7 @@ func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.Activi
 			Notes:             effectiveReminderNotes(row.ReminderNotes, row.PlanNotes),
 			Value:             row.Value,
 			FilesCount:        planFileCounts[row.PlanID] + ownFileCounts[row.ID],
-			Pets:              database.EventPetRefs(row.Pets),
+			Pets:              database.ActivitiesDayPetRefs(row.Pets),
 		})
 	}
 	return items, nil
@@ -208,7 +208,7 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 			Notes:      notes,
 			Value:      e.Event.Value,
 			FilesCount: filesCounts[e.Event.ID],
-			Pets:       database.EventPetRefs(e.Pets),
+			Pets:       database.ActivitiesDayPetRefs(e.Pets),
 		})
 	}
 
