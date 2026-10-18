@@ -115,11 +115,11 @@ func TestMultiPet_CreateReadAndPerPetQueries(t *testing.T) {
 	require.Equalf(t, http.StatusOK, cal.status, "%s", cal.body)
 	var calBody struct {
 		Items []struct {
-			Count int `json:"count"`
+			FactCount int `json:"fact_count"`
 		} `json:"items"`
 	}
 	cal.decode(t, &calBody)
-	require.Equal(t, 1, calBody.Items[0].Count)
+	require.Equal(t, 1, calBody.Items[0].FactCount)
 }
 
 func TestMultiPet_CreateValidation(t *testing.T) {

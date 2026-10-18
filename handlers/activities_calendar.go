@@ -33,9 +33,9 @@ func parseSingleDateParam(w http.ResponseWriter, r *http.Request) (date time.Tim
 }
 
 // GetActivitiesCalendarHandler обрабатывает GET /activities/calendar —
-// количество элементов (фактов и незавершённых напоминаний) по каждому дню
-// диапазона по всем не мягко удалённым питомцам пользователя и признак
-// has_reminders (в этот день есть незавершённое напоминание), без
+// количество фактов (fact_count) и незавершённых напоминаний
+// (reminder_count) по каждому дню диапазона по всем не мягко удалённым
+// питомцам пользователя, без
 // содержимого самих элементов (см. "Просмотр календаря — Backend", раздел
 // A). Параметр pet_id не принимается и не возвращает 404 — пользователь без
 // питомцев/событий получает 200 с count: 0 по всем дням. День элемента — его
@@ -78,9 +78,9 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	for !currentDate.After(toDate) {
 		dateStr := currentDate.Format("2006-01-02")
 		items = append(items, models.ActivitiesCalendarItem{
-			Date:         dateStr,
-			Count:        eventCounts[dateStr] + reminderCounts[dateStr],
-			HasReminders: reminderCounts[dateStr] > 0,
+			Date:          dateStr,
+			FactCount:     eventCounts[dateStr],
+			ReminderCount: reminderCounts[dateStr],
 		})
 		currentDate = currentDate.AddDate(0, 0, 1)
 	}

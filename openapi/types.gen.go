@@ -294,12 +294,13 @@ const (
 
 // ActivitiesCalendarItem defines model for ActivitiesCalendarItem.
 type ActivitiesCalendarItem struct {
-	// Count Количество элементов дня: фактов плюс незавершённых напоминаний.
-	Count int                `json:"count"`
-	Date  openapi_types.Date `json:"date"`
+	Date openapi_types.Date `json:"date"`
 
-	// HasReminders Признак того, что в этот день (по всем питомцам пользователя) есть хотя бы одно незавершённое напоминание. Производное агрегатное значение дня, а не поле конкретного элемента.
-	HasReminders bool `json:"has_reminders"`
+	// FactCount Количество фактов (событий) дня по всем питомцам пользователя.
+	FactCount int `json:"fact_count"`
+
+	// ReminderCount Количество незавершённых напоминаний дня по всем питомцам пользователя.
+	ReminderCount int `json:"reminder_count"`
 }
 
 // ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pets — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.

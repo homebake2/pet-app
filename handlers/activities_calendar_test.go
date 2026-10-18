@@ -41,9 +41,9 @@ var reminderCalendarColumns = []string{"id", "plan_id", "remind_at", "notes", "n
 
 type calendarResponse struct {
 	Items []struct {
-		Date         string `json:"date"`
-		Count        int    `json:"count"`
-		HasReminders bool   `json:"has_reminders"`
+		Date          string `json:"date"`
+		FactCount     int    `json:"fact_count"`
+		ReminderCount int    `json:"reminder_count"`
 	} `json:"items"`
 }
 
@@ -114,21 +114,21 @@ func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
 	var resp calendarResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 3)
-	// День без элементов: count=0, has_reminders=false.
+	// День без элементов: оба счётчика нулевые.
 	assert.Equal(t, "2024-01-01", resp.Items[0].Date)
-	assert.Equal(t, 0, resp.Items[0].Count)
-	assert.False(t, resp.Items[0].HasReminders)
-	// Два факта и одно напоминание: count включает оба вида элементов.
+	assert.Equal(t, 0, resp.Items[0].FactCount)
+	assert.Equal(t, 0, resp.Items[0].ReminderCount)
+	// Два факта и одно напоминание: счётчики раздельные.
 	assert.Equal(t, "2024-01-02", resp.Items[1].Date)
-	assert.Equal(t, 3, resp.Items[1].Count)
-	assert.True(t, resp.Items[1].HasReminders)
+	assert.Equal(t, 2, resp.Items[1].FactCount)
+	assert.Equal(t, 1, resp.Items[1].ReminderCount)
 	assert.Equal(t, "2024-01-03", resp.Items[2].Date)
-	assert.Equal(t, 2, resp.Items[2].Count)
-	assert.True(t, resp.Items[2].HasReminders)
+	assert.Equal(t, 1, resp.Items[2].FactCount)
+	assert.Equal(t, 1, resp.Items[2].ReminderCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-// День только с фактами: has_reminders=false.
+// День только с фактами: reminder_count=0.
 func TestGetActivitiesCalendarHandler_FactsOnlyHasNoReminders(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
@@ -145,8 +145,8 @@ func TestGetActivitiesCalendarHandler_FactsOnlyHasNoReminders(t *testing.T) {
 	var resp calendarResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 1)
-	assert.Equal(t, 1, resp.Items[0].Count)
-	assert.False(t, resp.Items[0].HasReminders)
+	assert.Equal(t, 1, resp.Items[0].FactCount)
+	assert.Equal(t, 0, resp.Items[0].ReminderCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -188,10 +188,10 @@ func TestGetActivitiesCalendarHandler_GroupsByClientTimeZone(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 31)
 	assert.Equal(t, "2026-10-01", resp.Items[0].Date)
-	assert.Equal(t, 2, resp.Items[0].Count)
-	assert.True(t, resp.Items[0].HasReminders)
+	assert.Equal(t, 1, resp.Items[0].FactCount)
+	assert.Equal(t, 1, resp.Items[0].ReminderCount)
 	assert.Equal(t, "2026-10-31", resp.Items[30].Date)
-	assert.Equal(t, 1, resp.Items[30].Count)
+	assert.Equal(t, 1, resp.Items[30].FactCount)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

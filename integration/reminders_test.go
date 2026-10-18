@@ -1004,27 +1004,27 @@ func TestCalendar_MixesFactsAndReminders(t *testing.T) {
 	require.Equalf(t, http.StatusOK, cal.status, "%s", cal.body)
 	var calBody struct {
 		Items []struct {
-			Date         string `json:"date"`
-			Count        int    `json:"count"`
-			HasReminders bool   `json:"has_reminders"`
+			Date          string `json:"date"`
+			FactCount     int    `json:"fact_count"`
+			ReminderCount int    `json:"reminder_count"`
 		} `json:"items"`
 	}
 	cal.decode(t, &calBody)
 	require.Len(t, calBody.Items, 1)
-	require.Equal(t, 1, calBody.Items[0].Count)
-	require.True(t, calBody.Items[0].HasReminders)
+	require.Equal(t, 0, calBody.Items[0].FactCount)
+	require.Equal(t, 1, calBody.Items[0].ReminderCount)
 
 	past := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-01&tz=UTC", nil, tokens.AccessToken)
 	past.decode(t, &calBody)
-	require.Equal(t, 1, calBody.Items[0].Count)
-	require.False(t, calBody.Items[0].HasReminders)
+	require.Equal(t, 1, calBody.Items[0].FactCount)
+	require.Equal(t, 0, calBody.Items[0].ReminderCount)
 
 	// Закрытое напоминание в календаре не показывается.
 	require.Equal(t, http.StatusNoContent, doRequest(t, http.MethodDelete, "/reminders/"+plan.Reminders[0].ID, nil, tokens.AccessToken).status)
 	cal = doRequest(t, http.MethodGet, "/activities/calendar?from="+day+"&to="+day+"&tz=UTC", nil, tokens.AccessToken)
 	cal.decode(t, &calBody)
-	require.Equal(t, 0, calBody.Items[0].Count)
-	require.False(t, calBody.Items[0].HasReminders)
+	require.Equal(t, 0, calBody.Items[0].FactCount)
+	require.Equal(t, 0, calBody.Items[0].ReminderCount)
 }
 
 // Наступившее незавершённое напоминание остаётся в календаре, пока

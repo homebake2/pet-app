@@ -29,15 +29,12 @@ type ActivitiesResponse struct {
 }
 
 // ActivitiesCalendarItem — один элемент items ответа GET /activities/calendar:
-// количество элементов (фактов и незавершённых напоминаний по всем питомцам
+// количество фактов и незавершённых напоминаний (по всем питомцам
 // пользователя) за один календарный день диапазона, без их содержимого.
 type ActivitiesCalendarItem struct {
-	Date  string `json:"date"`
-	Count int    `json:"count"`
-	// HasReminders — признак того, что в этот день есть хотя бы одно
-	// незавершённое напоминание. Производное агрегатное значение дня, а не
-	// поле конкретного элемента.
-	HasReminders bool `json:"has_reminders"`
+	Date          string `json:"date"`
+	FactCount     int    `json:"fact_count"`
+	ReminderCount int    `json:"reminder_count"`
 }
 
 // ActivitiesCalendarResponse — тело ответа GET /activities/calendar.

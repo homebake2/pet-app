@@ -30,18 +30,18 @@ func TestGetActivitiesCalendar_CountsAcrossAllPetsNoGaps(t *testing.T) {
 
 	var result struct {
 		Items []struct {
-			Date  string `json:"date"`
-			Count int    `json:"count"`
+			Date      string `json:"date"`
+			FactCount int    `json:"fact_count"`
 		} `json:"items"`
 	}
 	resp.decode(t, &result)
 	require.Len(t, result.Items, 3)
 	require.Equal(t, "2024-01-01", result.Items[0].Date)
-	require.Equal(t, 2, result.Items[0].Count)
+	require.Equal(t, 2, result.Items[0].FactCount)
 	require.Equal(t, "2024-01-02", result.Items[1].Date)
-	require.Equal(t, 0, result.Items[1].Count) // день без событий — не "дыра", а count: 0
+	require.Equal(t, 0, result.Items[1].FactCount) // день без событий — не "дыра", а count: 0
 	require.Equal(t, "2024-01-03", result.Items[2].Date)
-	require.Equal(t, 1, result.Items[2].Count)
+	require.Equal(t, 1, result.Items[2].FactCount)
 }
 
 func TestGetActivitiesCalendar_NoPetsReturnsAllZeros(t *testing.T) {
@@ -53,13 +53,13 @@ func TestGetActivitiesCalendar_NoPetsReturnsAllZeros(t *testing.T) {
 
 	var result struct {
 		Items []struct {
-			Count int `json:"count"`
+			FactCount int `json:"fact_count"`
 		} `json:"items"`
 	}
 	resp.decode(t, &result)
 	require.Len(t, result.Items, 2)
-	require.Equal(t, 0, result.Items[0].Count)
-	require.Equal(t, 0, result.Items[1].Count)
+	require.Equal(t, 0, result.Items[0].FactCount)
+	require.Equal(t, 0, result.Items[1].FactCount)
 }
 
 func TestGetActivitiesCalendar_RangeTooLong400(t *testing.T) {
@@ -180,16 +180,16 @@ func TestGetActivities_GroupByClientTimeZone(t *testing.T) {
 
 	var calendar struct {
 		Items []struct {
-			Date  string `json:"date"`
-			Count int    `json:"count"`
+			Date      string `json:"date"`
+			FactCount int    `json:"fact_count"`
 		} `json:"items"`
 	}
 	resp := doRequest(t, http.MethodGet, "/activities/calendar?from=2024-01-01&to=2024-01-02&tz=Europe/Moscow", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 	resp.decode(t, &calendar)
 	require.Len(t, calendar.Items, 2)
-	require.Equal(t, 0, calendar.Items[0].Count)
-	require.Equal(t, 2, calendar.Items[1].Count)
+	require.Equal(t, 0, calendar.Items[0].FactCount)
+	require.Equal(t, 2, calendar.Items[1].FactCount)
 
 	var day struct {
 		Items []struct {
