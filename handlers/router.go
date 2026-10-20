@@ -15,6 +15,11 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/profile", ProfileHandler)
 	mux.HandleFunc("/pet/", PetByIDHandler)
 	mux.HandleFunc("/pet", PetHandler)
+	// Передача питомца по коду (см. handlers/pet_transfer.go); создание,
+	// просмотр и отмена передачи живут в PetByIDHandler (/pet/{id}/transfer).
+	mux.HandleFunc("/pet-transfers/preview", PetTransferPreviewHandler)
+	mux.HandleFunc("/pet-transfers/accept", PetTransferAcceptHandler)
+	mux.HandleFunc("/pet-transfers/decline", PetTransferDeclineHandler)
 	mux.HandleFunc("/events", CreateEventHandler)
 	// Точный путь /events/stats выигрывает у поддерева /events/ в ServeMux,
 	// поэтому агрегация не попадает в обработчик /events/{id}.

@@ -769,7 +769,11 @@ func TestDeletePetHandler_Success(t *testing.T) {
 	// Мягкое удаление питомца, жёсткое удаление его связей с настройками
 	// напоминаний и настроек, оставшихся без питомцев (с напоминаниями и
 	// файлами), — в одной транзакции.
+	// Активная передача питомца отменяется в той же транзакции.
 	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).
+		WithArgs(testPetID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE pet\s+SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`DELETE FROM reminder_plan_pet WHERE pet_id = \$1 RETURNING plan_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id"}).AddRow("66666666-6666-4666-8666-666666666666"))

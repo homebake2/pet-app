@@ -3979,6 +3979,414 @@
           }
         }
       }
+    },
+    "/pet/{id}/transfer": {
+      "post": {
+        "summary": "/pet/{id}/transfer",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-transfer",
+        "description": "Создание передачи питомца другому пользователю: возвращает одноразовый код. У питомца не более одной активной передачи.",
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetTransferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: TRANSFER_ALREADY_PENDING",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "summary": "/pet/{id}/transfer",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "get-pet-transfer",
+        "description": "Активная передача питомца (код и срок действия); 404, если активной передачи нет.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetTransferResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/pet/{id}/transfer",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "delete-pet-transfer",
+        "description": "Отмена активной передачи питомца.",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet-transfers/preview": {
+      "post": {
+        "summary": "/pet-transfers/preview",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-transfer-preview",
+        "description": "Предпросмотр питомца по коду передачи; ничего не изменяет.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetTransferCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetTransferPreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: код недействителен, истёк или передача уже не активна",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: TRANSFER_OWN_PET",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
+    "/pet-transfers/accept": {
+      "post": {
+        "summary": "/pet-transfers/accept",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-transfer-accept",
+        "description": "Принятие передачи по коду: питомец и его данные переходят текущему пользователю.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetTransferCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetTransferAcceptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: код недействителен, истёк или передача уже не активна",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: TRANSFER_OWN_PET",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
+    "/pet-transfers/decline": {
+      "post": {
+        "summary": "/pet-transfers/decline",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-transfer-decline",
+        "description": "Отклонение передачи по коду.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetTransferCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: код недействителен, истёк или передача уже не активна",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: TRANSFER_OWN_PET",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
     }
   },
   "components": {
@@ -4625,7 +5033,9 @@
           "NOT_FOUND",
           "CONFLICT",
           "RATE_LIMITED",
-          "INTERNAL_ERROR"
+          "INTERNAL_ERROR",
+          "TRANSFER_ALREADY_PENDING",
+          "TRANSFER_OWN_PET"
         ]
       },
       "GetProfileRequest": {
@@ -8466,6 +8876,114 @@
           "distinct_days": {
             "type": "integer",
             "description": "Число различных календарных дней событий в часовом поясе tz (UTC, если tz не передан)."
+          }
+        }
+      },
+      "PetTransferResponse": {
+        "title": "PetTransferResponse",
+        "type": "object",
+        "description": "Активная передача питомца: одноразовый код и срок его действия.",
+        "required": [
+          "id",
+          "code",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "description": "Код передачи, 10 символов без визуально неоднозначных знаков (отображается как XXXXX-XXXXX)."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetTransferCodeRequest": {
+        "title": "PetTransferCodeRequest",
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Код передачи; регистр, пробелы и дефисы игнорируются."
+          }
+        }
+      },
+      "PetTransferPreviewPet": {
+        "title": "PetTransferPreviewPet",
+        "type": "object",
+        "required": [
+          "name",
+          "species",
+          "breed"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "species": {
+            "type": "string"
+          },
+          "breed": {
+            "type": "string"
+          },
+          "gender": {
+            "$ref": "#/components/schemas/GetGenderEnum",
+            "nullable": true
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "photo_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "Presigned GET URL на фотографию питомца; null если фотографии нет."
+          }
+        }
+      },
+      "PetTransferPreviewResponse": {
+        "title": "PetTransferPreviewResponse",
+        "type": "object",
+        "required": [
+          "pet",
+          "sender_name",
+          "expires_at"
+        ],
+        "properties": {
+          "pet": {
+            "$ref": "#/components/schemas/PetTransferPreviewPet"
+          },
+          "sender_name": {
+            "type": "string",
+            "description": "Имя отправителя из профиля (first_name), при отсутствии профиля — логин."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetTransferAcceptResponse": {
+        "title": "PetTransferAcceptResponse",
+        "type": "object",
+        "required": [
+          "pet_id"
+        ],
+        "properties": {
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       }

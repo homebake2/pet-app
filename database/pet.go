@@ -512,6 +512,18 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 
 	args = append(args, petID, userID)
 
+	// Мягкое удаление через is_deleted отменяет активную передачу питомца в
+	// той же транзакции, как и DeletePet.
+	if req.IsDeleted != nil && *req.IsDeleted {
+		return RunInTx(func(tx *sql.Tx) error {
+			if err := cancelPendingTransfersForPetWith(tx, petID); err != nil {
+				return err
+			}
+			_, err := tx.Exec(query, args...)
+			return err
+		})
+	}
+
 	_, err := DB.Exec(query, args...)
 	return err
 }
@@ -525,6 +537,11 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 // их из хранилища после фиксации транзакции.
 func DeletePet(petID uuid.UUID, userID string) (orphanObjectKeys []string, err error) {
 	err = RunInTx(func(tx *sql.Tx) error {
+		// Передача отменяется до блокировки питомца: порядок блокировок тот
+		// же, что у принятия передачи (сначала передача, затем питомец).
+		if err := cancelPendingTransfersForPetWith(tx, petID); err != nil {
+			return err
+		}
 		result, err := tx.Exec(`
 			UPDATE pet
 			SET deleted_at = $1

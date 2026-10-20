@@ -157,6 +157,16 @@ func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(segments) == 2 && segments[1] == "transfer" {
+		petID, err := uuid.Parse(segments[0])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный id питомца")
+			return
+		}
+		PetTransferHandler(w, r, petID)
+		return
+	}
+
 	if len(segments) == 3 && segments[1] == "reminders" && segments[2] == "upcoming" {
 		petID, err := uuid.Parse(segments[0])
 		if err != nil {

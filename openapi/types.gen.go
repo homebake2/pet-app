@@ -71,14 +71,16 @@ const (
 
 // Defines values for ErrorCodeEnum.
 const (
-	BADREQUEST      ErrorCodeEnum = "BAD_REQUEST"
-	CONFLICT        ErrorCodeEnum = "CONFLICT"
-	FORBIDDEN       ErrorCodeEnum = "FORBIDDEN"
-	INTERNALERROR   ErrorCodeEnum = "INTERNAL_ERROR"
-	NOTFOUND        ErrorCodeEnum = "NOT_FOUND"
-	RATELIMITED     ErrorCodeEnum = "RATE_LIMITED"
-	UNAUTHORIZED    ErrorCodeEnum = "UNAUTHORIZED"
-	VALIDATIONERROR ErrorCodeEnum = "VALIDATION_ERROR"
+	BADREQUEST             ErrorCodeEnum = "BAD_REQUEST"
+	CONFLICT               ErrorCodeEnum = "CONFLICT"
+	FORBIDDEN              ErrorCodeEnum = "FORBIDDEN"
+	INTERNALERROR          ErrorCodeEnum = "INTERNAL_ERROR"
+	NOTFOUND               ErrorCodeEnum = "NOT_FOUND"
+	RATELIMITED            ErrorCodeEnum = "RATE_LIMITED"
+	TRANSFERALREADYPENDING ErrorCodeEnum = "TRANSFER_ALREADY_PENDING"
+	TRANSFEROWNPET         ErrorCodeEnum = "TRANSFER_OWN_PET"
+	UNAUTHORIZED           ErrorCodeEnum = "UNAUTHORIZED"
+	VALIDATIONERROR        ErrorCodeEnum = "VALIDATION_ERROR"
 )
 
 // Defines values for EventActivityKindEnum.
@@ -1574,6 +1576,46 @@ type PetEventsAvailableFilters struct {
 	} `json:"types"`
 }
 
+// PetTransferAcceptResponse defines model for PetTransferAcceptResponse.
+type PetTransferAcceptResponse struct {
+	PetId openapi_types.UUID `json:"pet_id"`
+}
+
+// PetTransferCodeRequest defines model for PetTransferCodeRequest.
+type PetTransferCodeRequest struct {
+	// Code Код передачи; регистр, пробелы и дефисы игнорируются.
+	Code string `json:"code"`
+}
+
+// PetTransferPreviewPet defines model for PetTransferPreviewPet.
+type PetTransferPreviewPet struct {
+	BirthDate *openapi_types.Date `json:"birth_date"`
+	Breed     string              `json:"breed"`
+	Gender    *GetGenderEnum      `json:"gender,omitempty"`
+	Name      string              `json:"name"`
+
+	// PhotoUrl Presigned GET URL на фотографию питомца; null если фотографии нет.
+	PhotoUrl *string `json:"photo_url"`
+	Species  string  `json:"species"`
+}
+
+// PetTransferPreviewResponse defines model for PetTransferPreviewResponse.
+type PetTransferPreviewResponse struct {
+	ExpiresAt time.Time             `json:"expires_at"`
+	Pet       PetTransferPreviewPet `json:"pet"`
+
+	// SenderName Имя отправителя из профиля (first_name), при отсутствии профиля — логин.
+	SenderName string `json:"sender_name"`
+}
+
+// PetTransferResponse Активная передача питомца: одноразовый код и срок его действия.
+type PetTransferResponse struct {
+	// Code Код передачи, 10 символов без визуально неоднозначных знаков (отображается как XXXXX-XXXXX).
+	Code      string             `json:"code"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+}
+
 // PetUpcomingReminderItem defines model for PetUpcomingReminderItem.
 type PetUpcomingReminderItem struct {
 	Id       openapi_types.UUID `json:"id"`
@@ -2388,6 +2430,15 @@ type PatchMedicationJSONRequestBody = UpdateMedicationRequest
 
 // PostPetJSONRequestBody defines body for PostPet for application/json ContentType.
 type PostPetJSONRequestBody = GetPetProfileRequest
+
+// PostPetTransferAcceptJSONRequestBody defines body for PostPetTransferAccept for application/json ContentType.
+type PostPetTransferAcceptJSONRequestBody = PetTransferCodeRequest
+
+// PostPetTransferDeclineJSONRequestBody defines body for PostPetTransferDecline for application/json ContentType.
+type PostPetTransferDeclineJSONRequestBody = PetTransferCodeRequest
+
+// PostPetTransferPreviewJSONRequestBody defines body for PostPetTransferPreview for application/json ContentType.
+type PostPetTransferPreviewJSONRequestBody = PetTransferCodeRequest
 
 // PutPetJSONRequestBody defines body for PutPet for application/json ContentType.
 type PutPetJSONRequestBody = UpdatePetProfileRequest

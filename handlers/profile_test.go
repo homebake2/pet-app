@@ -42,9 +42,16 @@ func TestDeleteAccountHandler_Unauthorized(t *testing.T) {
 func TestDeleteAccountHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	// Активные передачи питомцев отменяются в той же транзакции, что и
+	// удаление пользователя.
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).
+		WithArgs(testUserID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
 
 	w := httptest.NewRecorder()
 	ProfileHandler(w, profileRequest(t, http.MethodDelete, nil, true))
@@ -56,14 +63,20 @@ func TestDeleteAccountHandler_Success(t *testing.T) {
 func TestDeleteAccountHandler_DBError(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	mock.ExpectBegin()
+	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).
+		WithArgs(testUserID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
 		WillReturnError(assertError)
+	mock.ExpectRollback()
 
 	w := httptest.NewRecorder()
 	ProfileHandler(w, profileRequest(t, http.MethodDelete, nil, true))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestCreateProfileHandler_Unauthorized(t *testing.T) {

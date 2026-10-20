@@ -8,7 +8,26 @@ import (
 	"myauthservice/utils"
 	"net/http"
 	"os"
+	"time"
 )
+
+// runPetTransferCleanup периодически переводит истёкшие активные передачи
+// питомцев в expired: сразу при старте и затем раз в interval. Истёкшие
+// передачи и без этого трактуются как expired при обращении к ним — очистка
+// лишь приводит статусы в БД в соответствие со сроком.
+func runPetTransferCleanup(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		expired, err := database.ExpireStalePetTransfers()
+		if err != nil {
+			log.Printf("Ошибка очистки истёкших передач питомцев: %v", err)
+		} else if expired > 0 {
+			log.Printf("Истёкших передач питомцев переведено в expired: %d", expired)
+		}
+		<-ticker.C
+	}
+}
 
 func main() {
 	// Инициализация базы данных
@@ -31,6 +50,8 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Сервер работает!"))
 	})
+
+	go runPetTransferCleanup(time.Hour)
 
 	port := os.Getenv("PORT")
 	if port == "" {
