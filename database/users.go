@@ -145,8 +145,9 @@ func GetTokensInvalidatedAt(userID string) (sql.NullTime, error) {
 	return invalidatedAt, err
 }
 
-// DeleteUser удаляет пользователя по id; profile/pet/event удаляются каскадно
-// через ON DELETE CASCADE (см. database/migrations/000001_init_schema.up.sql).
+// DeleteUser удаляет пользователя по id; profile/pet/event/reminder_plan и
+// их зависимые строки удаляются каскадно через ON DELETE CASCADE (см.
+// database/migrations/000033_user_delete_cascade.up.sql).
 // Активные передачи питомцев пользователя переводятся в cancelled в той же
 // транзакции; записи pet_transfer остаются как история (ссылки на
 // пользователя обнуляются).
