@@ -474,6 +474,108 @@ func TestPetTransfer_AcceptDropsHiddenLinksOfMovedEvent(t *testing.T) {
 	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM event`))
 }
 
+// Принятие обрабатывает события группами (по одному запросу на группу):
+// несколько общих событий копируются разом, у каждой копии сохраняется
+// порядок файлов, вакцинация переключается на копию своего события введения,
+// удалённое общее событие лишь отвязывается от питомца, файлы записей
+// Ветпаспорта переходят получателю.
+func TestPetTransfer_AcceptHandlesEventGroupsInBatches(t *testing.T) {
+	resetDB(t)
+	sender := newTransferUser(t, "")
+	receiver := newTransferUser(t, "")
+	cat := createSpeciesPet(t, sender.token, "Барсик", "CAT")
+	dog := createSpeciesPet(t, sender.token, "Рекс", "DOG")
+
+	createShared := func() string {
+		resp := postEventPets(t, sender.token, []string{cat, dog}, "feeding", feedingValue)
+		require.Equalf(t, http.StatusCreated, resp.status, "%s", resp.body)
+		var body eventPetsBody
+		resp.decode(t, &body)
+		return body.ID
+	}
+	sharedWithFiles := createShared()
+	sharedPlain := createShared()
+	sharedDeleted := createShared()
+	_, err := database.DB.Exec(`UPDATE event SET deleted_at = now() WHERE id = $1`, sharedDeleted)
+	require.NoError(t, err)
+	moved := createEventReturningID(t, sender.token, cat, "2024-01-01T10:00:00Z", "feeding", feedingValue)
+
+	for position, key := range []string{"events/first.png", "events/second.png"} {
+		_, err := database.DB.Exec(`
+			INSERT INTO file (id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at)
+			VALUES ($1, 'event_file', $2, $3, $4, 'image/png', NULL, $5, now())
+		`, uuid.NewString(), sharedWithFiles, sender.id, key, position)
+		require.NoError(t, err)
+	}
+	// Неподтверждённый файл в копию не попадает.
+	_, err = database.DB.Exec(`
+		INSERT INTO file (id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at)
+		VALUES ($1, 'event_file', $2, $3, 'events/pending.png', 'image/png', NULL, 2, NULL)
+	`, uuid.NewString(), sharedWithFiles, sender.id)
+	require.NoError(t, err)
+
+	var vaccinationID string
+	require.NoError(t, database.DB.QueryRow(`
+		INSERT INTO vaccination (pet_id, name, administered_date, administered_event_id)
+		VALUES ($1, 'Бешенство', '2024-01-01', $2) RETURNING id::text
+	`, cat, sharedWithFiles).Scan(&vaccinationID))
+	vaccinationFile := insertConfirmedFile(t, "vaccination_file", vaccinationID, sender.id, "vaccinations/cert.png")
+
+	created := createTransfer(t, sender.token, cat)
+	require.Equal(t, http.StatusOK, postTransferCode(t, "accept", receiver.token, created.Code).status)
+
+	// Получатель владеет перенесённым событием и двумя копиями общих.
+	require.Equal(t, receiver.id, eventOwner(t, moved))
+	require.Equal(t, 3, countRows(t, `
+		SELECT COUNT(*) FROM event e JOIN event_pet ep ON ep.event_id = e.id
+		WHERE ep.pet_id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL
+	`, cat, receiver.id))
+	var copyWithFiles string
+	require.NoError(t, database.DB.QueryRow(`
+		SELECT e.id::text FROM event e JOIN event_pet ep ON ep.event_id = e.id
+		JOIN file f ON f.owner_type = 'event_file' AND f.owner_id = e.id
+		WHERE ep.pet_id = $1 AND e.user_id = $2 GROUP BY e.id
+	`, cat, receiver.id).Scan(&copyWithFiles))
+	require.NotEqual(t, sharedWithFiles, copyWithFiles)
+
+	// Копия хранит подтверждённые файлы в прежнем порядке, позиции с нуля.
+	rows, err := database.DB.Query(`
+		SELECT object_key, position, user_id::text FROM file
+		WHERE owner_type = 'event_file' AND owner_id = $1 ORDER BY position
+	`, copyWithFiles)
+	require.NoError(t, err)
+	defer rows.Close()
+	var keys []string
+	for position := 0; rows.Next(); position++ {
+		var key, userID string
+		var gotPosition int
+		require.NoError(t, rows.Scan(&key, &gotPosition, &userID))
+		require.Equal(t, position, gotPosition)
+		require.Equal(t, receiver.id, userID)
+		keys = append(keys, key)
+	}
+	require.Equal(t, []string{"events/first.png", "events/second.png"}, keys)
+	// Файлы исходного события остались у отправителя.
+	require.Equal(t, 3, countRows(t, `SELECT COUNT(*) FROM file WHERE owner_type = 'event_file' AND owner_id = $1 AND user_id = $2`, sharedWithFiles, sender.id))
+
+	// Исходные общие события остались у отправителя только с другим питомцем.
+	for _, id := range []string{sharedWithFiles, sharedPlain, sharedDeleted} {
+		require.Equal(t, sender.id, eventOwner(t, id))
+		require.Equal(t, 0, countRows(t, `SELECT COUNT(*) FROM event_pet WHERE event_id = $1 AND pet_id = $2`, id, cat))
+		require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM event_pet WHERE event_id = $1 AND pet_id = $2`, id, dog))
+	}
+	// Четыре исходных события плюс две копии; удалённое общее не копируется.
+	require.Equal(t, 6, countRows(t, `SELECT COUNT(*) FROM event`))
+
+	// Вакцинация ссылается на копию события введения.
+	var administered string
+	require.NoError(t, database.DB.QueryRow(`SELECT administered_event_id::text FROM vaccination WHERE id = $1`, vaccinationID).Scan(&administered))
+	require.Equal(t, copyWithFiles, administered)
+
+	// Файл записи Ветпаспорта переходит получателю.
+	require.Equal(t, receiver.id, fileUserID(t, vaccinationFile))
+}
+
 func TestPetTransfer_PetSoftDeleteCancelsPendingTransfer(t *testing.T) {
 	resetDB(t)
 	sender := newTransferUser(t, "")
@@ -504,13 +606,6 @@ func TestPetTransfer_AccountDeletionCancelsPendingTransferAndKeepsHistory(t *tes
 	receiver := newTransferUser(t, "")
 	petID := createSpeciesPet(t, sender.token, "Барсик", "CAT")
 	created := createTransfer(t, sender.token, petID)
-
-	// DELETE /profile не может удалить пользователя, пока у него есть строки
-	// pet (внешний ключ pet.user_id без каскада), поэтому строка питомца
-	// удаляется напрямую: запись истории передачи от этого не зависит (у
-	// pet_transfer.pet_id нет внешнего ключа).
-	_, err := database.DB.Exec(`DELETE FROM pet WHERE id = $1`, petID)
-	require.NoError(t, err)
 
 	del := doRequest(t, http.MethodDelete, "/profile", nil, sender.token)
 	require.Equal(t, http.StatusNoContent, del.status)

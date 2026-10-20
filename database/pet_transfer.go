@@ -398,75 +398,107 @@ func transferPetEventsWith(exec dbExecutor, petID uuid.UUID, toUserID string) er
 	}
 	rows.Close()
 
-	var movedIDs []uuid.UUID
+	// События делятся на три группы, и каждая обрабатывается одним запросом
+	// на всю группу: число обращений к базе не зависит от числа событий.
+	var movedIDs, detachedIDs, copiedIDs []uuid.UUID
 	for _, ev := range events {
 		switch {
 		case ev.visibleOther == 0:
-			// Ключ идемпотентности уникален в пределах пользователя: чтобы не
-			// столкнуться с ключами получателя, перенесённое событие его теряет.
-			if _, err := exec.Exec(`UPDATE event SET user_id = $1, idempotency_key = NULL WHERE id = $2`, toUserID, ev.id); err != nil {
-				return err
-			}
-			if _, err := exec.Exec(`DELETE FROM event_pet WHERE event_id = $1 AND pet_id <> $2`, ev.id, petID); err != nil {
-				return err
-			}
 			movedIDs = append(movedIDs, ev.id)
 		case ev.deleted:
-			// Удалённое событие, общее с другими питомцами отправителя, не
-			// копируется: достаточно отвязать передаваемого питомца.
-			if _, err := exec.Exec(`DELETE FROM event_pet WHERE event_id = $1 AND pet_id = $2`, ev.id, petID); err != nil {
-				return err
-			}
+			detachedIDs = append(detachedIDs, ev.id)
 		default:
-			if err := copyEventForPetWith(exec, ev.id, petID, toUserID); err != nil {
-				return err
-			}
+			copiedIDs = append(copiedIDs, ev.id)
 		}
 	}
 
-	_, err = exec.Exec(`UPDATE file SET user_id = $1 WHERE owner_type = $2 AND owner_id = ANY($3)`,
-		toUserID, eventFileOwnerType, pq.Array(movedIDs))
+	if len(movedIDs) > 0 {
+		if err := moveEventsWith(exec, movedIDs, petID, toUserID); err != nil {
+			return err
+		}
+	}
+	if len(detachedIDs) > 0 {
+		// Удалённое событие, общее с другими питомцами отправителя, не
+		// копируется: достаточно отвязать передаваемого питомца.
+		if _, err := exec.Exec(`DELETE FROM event_pet WHERE event_id = ANY($1) AND pet_id = $2`, pq.Array(detachedIDs), petID); err != nil {
+			return err
+		}
+	}
+	if len(copiedIDs) > 0 {
+		return copyEventsForPetWith(exec, copiedIDs, petID, toUserID)
+	}
+	return nil
+}
+
+// moveEventsWith передаёт получателю события eventIDs целиком: меняет
+// владельца записи и её файлов и удаляет связи с остальными (скрытыми)
+// питомцами. Ключ идемпотентности уникален в пределах пользователя, поэтому
+// перенесённое событие его теряет — иначе возможен конфликт с ключами
+// получателя. Все три изменения выполняются одним запросом.
+func moveEventsWith(exec dbExecutor, eventIDs []uuid.UUID, petID uuid.UUID, toUserID string) error {
+	_, err := exec.Exec(`
+		WITH moved_events AS (
+			UPDATE event SET user_id = $1, idempotency_key = NULL WHERE id = ANY($2)
+		), dropped_links AS (
+			DELETE FROM event_pet WHERE event_id = ANY($2) AND pet_id <> $3
+		)
+		UPDATE file SET user_id = $1 WHERE owner_type = $4 AND owner_id = ANY($2)
+	`, toUserID, pq.Array(eventIDs), petID, eventFileOwnerType)
 	return err
 }
 
-// copyEventForPetWith создаёт для получателя копию события eventID с одной
-// связью — с питомцем petID, отвязывает питомца от исходного события и
-// переключает на копию ссылку на событие введения у вакцинаций питомца.
-func copyEventForPetWith(exec dbExecutor, eventID, petID uuid.UUID, toUserID string) error {
-	var copyID uuid.UUID
-	if err := exec.QueryRow(`
-		INSERT INTO event (user_id, date_time, type, notes, value)
-		SELECT $1, date_time, type, notes, value FROM event WHERE id = $2
-		RETURNING id
-	`, toUserID, eventID).Scan(&copyID); err != nil {
-		return err
+// copyEventsForPetWith создаёт для получателя копии событий eventIDs, у
+// каждой одна связь — с питомцем petID — и ссылочные строки file; отвязывает
+// питомца от исходных событий и переключает на копии ссылку на событие
+// введения у вакцинаций питомца. Идентификаторы копий выдаются заранее, чтобы
+// всё выполнялось одним запросом: проверки внешних ключей срабатывают после
+// него, поэтому порядок частей внутри запроса не важен.
+func copyEventsForPetWith(exec dbExecutor, eventIDs []uuid.UUID, petID uuid.UUID, toUserID string) error {
+	copyIDs := make([]uuid.UUID, len(eventIDs))
+	for i := range copyIDs {
+		copyIDs[i] = uuid.New()
 	}
-	if err := eventPetLinks.insert(exec, copyID, []uuid.UUID{petID}); err != nil {
-		return err
-	}
-	if _, err := CopyFilesAsReferencesWith(exec, toUserID, []FileOwnerRef{{OwnerType: eventFileOwnerType, OwnerID: eventID}}, eventFileOwnerType, copyID); err != nil {
-		return err
-	}
-	if _, err := exec.Exec(`DELETE FROM event_pet WHERE event_id = $1 AND pet_id = $2`, eventID, petID); err != nil {
-		return err
-	}
-	_, err := exec.Exec(`UPDATE vaccination SET administered_event_id = $1 WHERE pet_id = $2 AND administered_event_id = $3`, copyID, petID, eventID)
+	_, err := exec.Exec(`
+		WITH copies AS (
+			SELECT m.source_id, m.copy_id
+			FROM unnest($1::uuid[], $2::uuid[]) AS m(source_id, copy_id)
+		), copied_events AS (
+			INSERT INTO event (id, user_id, date_time, type, notes, value)
+			SELECT c.copy_id, $3, e.date_time, e.type, e.notes, e.value
+			FROM copies c JOIN event e ON e.id = c.source_id
+		), copied_links AS (
+			INSERT INTO event_pet (event_id, pet_id, position)
+			SELECT c.copy_id, $4, 1 FROM copies c
+		), copied_files AS (
+			INSERT INTO file (id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at)
+			SELECT gen_random_uuid(), $5, c.copy_id, $3, f.object_key, f.content_type, f.filename,
+			       ROW_NUMBER() OVER (PARTITION BY c.copy_id ORDER BY f.position) - 1, now()
+			FROM copies c
+			JOIN file f ON f.owner_type = $5 AND f.owner_id = c.source_id AND f.confirmed_at IS NOT NULL
+		), detached_links AS (
+			DELETE FROM event_pet WHERE event_id = ANY($1) AND pet_id = $4
+		)
+		UPDATE vaccination v SET administered_event_id = c.copy_id
+		FROM copies c
+		WHERE v.pet_id = $4 AND v.administered_event_id = c.source_id
+	`, pq.Array(eventIDs), pq.Array(copyIDs), toUserID, petID, eventFileOwnerType)
 	return err
 }
 
 // transferPetFilesWith передаёт получателю файлы фотографии питомца и записей
 // Ветпаспорта: меняется только file.user_id, объекты S3 и ключи не меняются.
 func transferPetFilesWith(exec dbExecutor, petID uuid.UUID, toUserID string) error {
-	if _, err := exec.Exec(`UPDATE file SET user_id = $1 WHERE owner_type = 'pet_photo' AND owner_id = $2`, toUserID, petID); err != nil {
-		return err
-	}
+	// Владельцы файлов собираются подзапросом из всех сущностей питомца, а
+	// владелец меняется одним запросом; имена таблиц и owner_type берутся
+	// только из petTransferFileOwnerTables.
+	owners := `SELECT 'pet_photo'::text AS owner_type, $2::uuid AS owner_id`
 	for _, entry := range petTransferFileOwnerTables {
-		if _, err := exec.Exec(`
-			UPDATE file SET user_id = $1
-			WHERE owner_type = $2 AND owner_id IN (SELECT id FROM `+entry.table+` WHERE pet_id = $3)
-		`, toUserID, entry.ownerType, petID); err != nil {
-			return err
-		}
+		owners += ` UNION ALL SELECT '` + entry.ownerType + `', id FROM ` + entry.table + ` WHERE pet_id = $2`
 	}
-	return nil
+	_, err := exec.Exec(`
+		UPDATE file f SET user_id = $1
+		FROM (`+owners+`) o
+		WHERE f.owner_type = o.owner_type AND f.owner_id = o.owner_id
+	`, toUserID, petID)
+	return err
 }

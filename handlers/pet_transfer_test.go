@@ -410,20 +410,14 @@ func TestPetTransferAccept_SuccessWithoutEvents(t *testing.T) {
 	mock.ExpectQuery(`SELECT e\.id, e\.deleted_at IS NOT NULL`).
 		WithArgs(testPetID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "deleted", "other"}))
-	mock.ExpectExec(`UPDATE file SET user_id = \$1 WHERE owner_type = \$2 AND owner_id = ANY\(\$3\)`).
-		WithArgs(testUserID, "event_file", sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`DELETE FROM reminder_plan_pet WHERE pet_id = \$1 RETURNING plan_id`).
 		WithArgs(testPetID).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id"}))
-	mock.ExpectExec(`UPDATE file SET user_id = \$1 WHERE owner_type = 'pet_photo'`).
+	// Без событий их файлы не обновляются; файлы питомца и записей Ветпаспорта
+	// передаются одним запросом.
+	mock.ExpectExec(`UPDATE file f SET user_id = \$1\s+FROM \(SELECT 'pet_photo'::text AS owner_type, \$2::uuid AS owner_id[\s\S]+'vaccination_file'[\s\S]+'medication_file'`).
 		WithArgs(testUserID, testPetID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	for _, ownerType := range []string{"vaccination_file", "disease_file", "vet_visit_file", "allergy_file", "medication_file"} {
-		mock.ExpectExec(`UPDATE file SET user_id = \$1\s+WHERE owner_type = \$2 AND owner_id IN \(SELECT id FROM`).
-			WithArgs(testUserID, ownerType, testPetID).
-			WillReturnResult(sqlmock.NewResult(0, 0))
-	}
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'accepted', to_user_id = \$2`).
 		WithArgs(testTransferID, testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
