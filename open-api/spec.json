@@ -1228,6 +1228,63 @@
         ]
       }
     },
+    "/widget": {
+      "get": {
+        "summary": "/widget",
+        "description": "Данные виджета главного экрана (режим network) за один запрос: питомцы пользователя в каноническом порядке (как GET /pet), у каждого — до 3 ближайших незавершённых напоминаний (remind_at >= now(), по возрастанию remind_at, при равенстве — по id) и до 6 кнопок быстрого действия. Кнопки — типы-кандидаты (применимые к species питомца и имеющие полный набор значений по умолчанию), отсортированные по убыванию числа не удалённых событий питомца этого типа с даты на 365 дней раньше сегодняшней по сегодняшнюю включительно (локальные даты в поясе tz), при равенстве — в порядке справочника типов. Заголовок LanguageCode не используется.",
+        "tags": [
+          "widget-controller"
+        ],
+        "operationId": "get-widget",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/TimeZone"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetWidgetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/import/local-data": {
       "post": {
         "summary": "/import/local-data",
@@ -8059,6 +8116,98 @@
           },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum"
+          }
+        }
+      },
+      "WidgetUpcomingReminder": {
+        "title": "WidgetUpcomingReminder",
+        "type": "object",
+        "required": [
+          "type",
+          "remind_at"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "remind_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WidgetQuickAction": {
+        "title": "WidgetQuickAction",
+        "type": "object",
+        "required": [
+          "type",
+          "value"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "value": {
+            "$ref": "#/components/schemas/EventValue"
+          }
+        }
+      },
+      "WidgetPet": {
+        "title": "WidgetPet",
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "species",
+          "photo_url",
+          "upcoming_reminders",
+          "quick_actions"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "species": {
+            "type": "string"
+          },
+          "photo_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет"
+          },
+          "upcoming_reminders": {
+            "type": "array",
+            "maxItems": 3,
+            "items": {
+              "$ref": "#/components/schemas/WidgetUpcomingReminder"
+            }
+          },
+          "quick_actions": {
+            "type": "array",
+            "maxItems": 6,
+            "items": {
+              "$ref": "#/components/schemas/WidgetQuickAction"
+            }
+          }
+        }
+      },
+      "GetWidgetResponse": {
+        "title": "GetWidgetResponse",
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WidgetPet"
+            }
           }
         }
       },

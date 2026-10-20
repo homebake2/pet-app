@@ -1177,6 +1177,11 @@ type GetVetVisitResponse struct {
 	VisitDate  openapi_types.Date `json:"visit_date"`
 }
 
+// GetWidgetResponse defines model for GetWidgetResponse.
+type GetWidgetResponse struct {
+	Items []WidgetPet `json:"items"`
+}
+
 // ImportAllergy defines model for ImportAllergy.
 type ImportAllergy struct {
 	Allergen     string              `json:"allergen"`
@@ -2044,6 +2049,52 @@ type VaccinationExtraReminderResponse struct {
 	Time string `json:"time"`
 }
 
+// WidgetPet defines model for WidgetPet.
+type WidgetPet struct {
+	Id   openapi_types.UUID `json:"id"`
+	Name string             `json:"name"`
+
+	// PhotoUrl Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет
+	PhotoUrl          *string                  `json:"photo_url"`
+	QuickActions      []WidgetQuickAction      `json:"quick_actions"`
+	Species           string                   `json:"species"`
+	UpcomingReminders []WidgetUpcomingReminder `json:"upcoming_reminders"`
+}
+
+// WidgetQuickAction defines model for WidgetQuickAction.
+type WidgetQuickAction struct {
+	Type GetEventEnum `json:"type"`
+
+	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
+	//
+	// Состав по типам:
+	// * weight — amount (кг, 0.001–400)
+	// * temperature — amount (°C, 0–50), kind (EventTemperatureKindEnum)
+	// * feeding — amount (0.01–5000), unit, food
+	// * water — amount (мл, 0.1–5000)
+	// * activity — duration_min (1–1440), kind (EventActivityKindEnum), distance_m (0–100000, опционально)
+	// * sleep — duration_min (1–1440)
+	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
+	// * hygiene — procedure
+	// * mood — state
+	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * other — label (1–50)
+	// * molting — status (EventMoltingStatusEnum)
+	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
+	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
+	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
+	//
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	Value EventValue `json:"value"`
+}
+
+// WidgetUpcomingReminder defines model for WidgetUpcomingReminder.
+type WidgetUpcomingReminder struct {
+	RemindAt time.Time    `json:"remind_at"`
+	Type     GetEventEnum `json:"type"`
+}
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = openapi_types.UUID
 
@@ -2291,6 +2342,12 @@ type PostReminderDetachParams struct {
 type PatchVaccinationParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+}
+
+// GetWidgetParams defines parameters for GetWidget.
+type GetWidgetParams struct {
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz TimeZone `form:"tz" json:"tz"`
 }
 
 // PatchAllergyJSONRequestBody defines body for PatchAllergy for application/json ContentType.

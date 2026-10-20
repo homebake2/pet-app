@@ -43,6 +43,7 @@ func NewMux() *http.ServeMux {
 	// ServeMux, поэтому не попадает в FilesByIDHandler — та же идиома, что и
 	// у /events/stats против /events/.
 	mux.HandleFunc("/banner", GetBannerHandler)
+	mux.HandleFunc("/widget", GetWidgetHandler)
 	// Admin-методы управления баннерами: доступ по X-Admin-Key (переменная
 	// окружения ADMIN_KEY); без ключа в конфигурации отвечают 404.
 	mux.HandleFunc("/admin/banner", AdminBannerCollectionHandler)

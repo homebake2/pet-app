@@ -371,3 +371,30 @@ func (r *UpdatePetRequest) ApplyExplicitNullClears(rawBody []byte) error {
 
 	return nil
 }
+
+// WidgetUpcomingReminder — ближайшее напоминание питомца в ответе GET /widget.
+type WidgetUpcomingReminder struct {
+	Type     string `json:"type"`
+	RemindAt string `json:"remind_at"`
+}
+
+// WidgetQuickAction — кнопка быстрого действия: тип события и значение value
+// по умолчанию, с которым оно создаётся одним нажатием.
+type WidgetQuickAction struct {
+	Type  string            `json:"type"`
+	Value map[string]string `json:"value"`
+}
+
+// WidgetPet — питомец в ответе GET /widget.
+type WidgetPet struct {
+	ID                string                   `json:"id"`
+	Name              string                   `json:"name"`
+	Species           string                   `json:"species"`
+	PhotoURL          *string                  `json:"photo_url"`
+	UpcomingReminders []WidgetUpcomingReminder `json:"upcoming_reminders"`
+	QuickActions      []WidgetQuickAction      `json:"quick_actions"`
+}
+
+type WidgetResponse struct {
+	Items []WidgetPet `json:"items"`
+}
