@@ -111,15 +111,19 @@ func TestPetAccess_InviteAcceptAndRoles(t *testing.T) {
 	require.Equal(t, []string{petID}, invite.PetIDs)
 
 	// Предпросмотр ничего не меняет и показывает владельца.
-	resp := doRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": invite.Code}, member.token)
+	resp := doRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": invite.Code}, member.token)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
 	var preview struct {
-		OwnerName string `json:"owner_name"`
-		Role      string `json:"role"`
+		Type   string `json:"type"`
+		Access struct {
+			OwnerName string `json:"owner_name"`
+			Role      string `json:"role"`
+		} `json:"access"`
 	}
 	resp.decode(t, &preview)
-	require.Equal(t, "Owner", preview.OwnerName)
-	require.Equal(t, "view", preview.Role)
+	require.Equal(t, "access", preview.Type)
+	require.Equal(t, "Owner", preview.Access.OwnerName)
+	require.Equal(t, "view", preview.Access.Role)
 
 	// Владелец не может принять собственный код.
 	resp = doRequest(t, http.MethodPost, "/pet-access-invites/accept", map[string]string{"code": invite.Code}, owner.token)
@@ -212,11 +216,11 @@ func TestPetAccess_DeclineAndCancelInvite(t *testing.T) {
 	require.Len(t, listed.Invites, 1)
 	resp = doRequest(t, http.MethodDelete, "/pet/"+petID+"/access-invites/"+invite.ID, nil, owner.token)
 	require.Equal(t, http.StatusNoContent, resp.status)
-	resp = doRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": invite.Code}, other.token)
+	resp = doRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": invite.Code}, other.token)
 	require.Equal(t, http.StatusNotFound, resp.status)
 
 	// Некорректный формат кода — 400.
-	resp = doUnvalidatedRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": "bad"}, other.token)
+	resp = doUnvalidatedRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": "bad"}, other.token)
 	require.Equal(t, http.StatusBadRequest, resp.status)
 }
 
@@ -235,16 +239,18 @@ func TestPetAccess_MultiPetInviteAndAlreadyGranted(t *testing.T) {
 
 	grantAccess(t, owner, member, petA, "view")
 	invite := createAccessInvite(t, owner.token, petA, "full", []string{petA, petB})
-	resp = doRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": invite.Code}, member.token)
+	resp = doRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": invite.Code}, member.token)
 	require.Equal(t, http.StatusOK, resp.status)
 	var preview struct {
-		Pets []struct {
-			Name string `json:"name"`
-		} `json:"pets"`
+		Access struct {
+			Pets []struct {
+				Name string `json:"name"`
+			} `json:"pets"`
+		} `json:"access"`
 	}
 	resp.decode(t, &preview)
-	require.Len(t, preview.Pets, 1)
-	require.Equal(t, "B", preview.Pets[0].Name)
+	require.Len(t, preview.Access.Pets, 1)
+	require.Equal(t, "B", preview.Access.Pets[0].Name)
 
 	resp = doRequest(t, http.MethodPost, "/pet-access-invites/accept", map[string]string{"code": invite.Code}, member.token)
 	require.Equal(t, http.StatusOK, resp.status)
@@ -261,7 +267,7 @@ func TestPetAccess_MultiPetInviteAndAlreadyGranted(t *testing.T) {
 
 	// Доступ ко всем питомцам приглашения уже есть.
 	invite = createAccessInvite(t, owner.token, petA, "full", []string{petA, petB})
-	resp = doRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": invite.Code}, member.token)
+	resp = doRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": invite.Code}, member.token)
 	require.Equal(t, http.StatusConflict, resp.status)
 	require.Equal(t, "ACCESS_ALREADY_GRANTED", errorCodeOf(t, resp))
 }
@@ -456,7 +462,7 @@ func TestPetAccess_EndedByPetDeleteTransferAndAccountDelete(t *testing.T) {
 	require.Empty(t, list.Items)
 	require.Len(t, list.AccessLost, 1)
 	require.Equal(t, "pet_deleted", list.AccessLost[0].Reason)
-	resp = doRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": pendingInvite.Code}, newOwner.token)
+	resp = doRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": pendingInvite.Code}, newOwner.token)
 	require.Equal(t, http.StatusNotFound, resp.status)
 
 	// Передача питомца прекращает доступы.
@@ -535,10 +541,10 @@ func TestPetAccess_CleanupExpiresStaleInvites(t *testing.T) {
 func TestPetAccess_CodeRateLimitSharedWithTransfers(t *testing.T) {
 	user := newAccessUser(t, "User")
 	for i := 0; i < database.PetTransferCodeFailureLimit; i++ {
-		resp := postTransferCode(t, "preview", user.token, "ABCDEFGHJK")
+		resp := postTransferCode(t, "preview", user.token, "TBCDEFGHJK")
 		require.Equal(t, http.StatusNotFound, resp.status)
 	}
-	resp := doRequest(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": "ABCDEFGHJK"}, user.token)
+	resp := doRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": "TBCDEFGHJK"}, user.token)
 	require.Equal(t, http.StatusTooManyRequests, resp.status)
 }
 

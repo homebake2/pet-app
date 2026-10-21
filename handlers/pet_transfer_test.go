@@ -17,7 +17,8 @@ import (
 
 const (
 	testTransferID   = "77777777-7777-4777-8777-777777777777"
-	testTransferCode = "ABCDE23456"
+	testTransferCode = "TBCDE23456"
+	testAccessCode   = "ABCDE23456"
 	otherTestUserID  = "44444444-4444-4444-8444-444444444444"
 )
 
@@ -47,42 +48,51 @@ func expectExpireByCode(mock sqlmock.Sqlmock) {
 
 var pendingTransferColumns = []string{"id", "pet_id", "from_user_id", "expires_at"}
 
-func TestNormalizePetTransferCode(t *testing.T) {
+func TestNormalizePetCode(t *testing.T) {
 	cases := []struct {
 		input string
 		want  string
 		ok    bool
 	}{
+		{"TBCDE23456", "TBCDE23456", true},
 		{"ABCDE23456", "ABCDE23456", true},
-		{"abcde-23456", "ABCDE23456", true},
+		{"tbcde-23456", "TBCDE23456", true},
 		{"  abcde 23456 ", "ABCDE23456", true},
-		{"ABCDE2345", "", false},
-		{"ABCDE234567", "", false},
-		{"ABCDE2345O", "", false},
-		{"ABCDE2345I", "", false},
-		{"ABCDE2345L", "", false},
-		{"ABCDE2345" + "0", "", false},
-		{"ABCDE2345" + "1", "", false},
+		{"TBCDE2345", "", false},
+		{"TBCDE234567", "", false},
+		{"TBCDE2345O", "", false},
+		{"TBCDE2345I", "", false},
+		{"TBCDE2345L", "", false},
+		{"TBCDE2345" + "0", "", false},
+		{"TBCDE2345" + "1", "", false},
+		// Первый символ — тип кода: только T (передача) и A (доступ).
+		{"BBCDE23456", "", false},
+		{"XBCDE23456", "", false},
 		{"", "", false},
 		{"----", "", false},
 	}
 	for _, tc := range cases {
-		got, ok := normalizePetTransferCode(tc.input)
+		got, ok := normalizePetCode(tc.input)
 		assert.Equal(t, tc.ok, ok, tc.input)
 		assert.Equal(t, tc.want, got, tc.input)
 	}
 }
 
-func TestGeneratePetTransferCode(t *testing.T) {
+func TestGeneratePetCode(t *testing.T) {
 	seen := map[string]bool{}
 	for i := 0; i < 200; i++ {
-		code, err := generatePetTransferCode()
+		prefix := byte(petCodePrefixTransfer)
+		if i%2 == 1 {
+			prefix = petCodePrefixAccess
+		}
+		code, err := generatePetCode(prefix)
 		require.NoError(t, err)
 		require.Len(t, code, petTransferCodeLength)
+		require.Equal(t, prefix, code[0], "первый символ — тип кода")
 		for _, r := range code {
 			require.Truef(t, strings.ContainsRune(petTransferCodeAlphabet, r), "символ %q вне алфавита", r)
 		}
-		normalized, ok := normalizePetTransferCode(code)
+		normalized, ok := normalizePetCode(code)
 		require.True(t, ok)
 		require.Equal(t, code, normalized)
 		seen[code] = true
@@ -100,7 +110,7 @@ func TestPetTransfer_Unauthorized(t *testing.T) {
 		{http.MethodPost, "/pet/" + testPetID + "/transfer"},
 		{http.MethodGet, "/pet/" + testPetID + "/transfer"},
 		{http.MethodDelete, "/pet/" + testPetID + "/transfer"},
-		{http.MethodPost, "/pet-transfers/preview"},
+		{http.MethodPost, "/pet-codes/preview"},
 		{http.MethodPost, "/pet-transfers/accept"},
 		{http.MethodPost, "/pet-transfers/decline"},
 	} {
@@ -255,8 +265,8 @@ func TestCancelPetTransfer(t *testing.T) {
 }
 
 func TestPetTransferCode_ValidationError(t *testing.T) {
-	for _, path := range []string{"/pet-transfers/preview", "/pet-transfers/accept", "/pet-transfers/decline"} {
-		for _, code := range []string{"", "short", "ABCDE2345O"} {
+	for _, path := range []string{"/pet-codes/preview", "/pet-transfers/accept", "/pet-transfers/decline"} {
+		for _, code := range []string{"", "short", "TBCDE2345O"} {
 			mock := setupMockDB(t)
 			expectTokensValid(mock, testUserID)
 
@@ -269,7 +279,7 @@ func TestPetTransferCode_ValidationError(t *testing.T) {
 }
 
 func TestPetTransferCode_RateLimited(t *testing.T) {
-	for _, path := range []string{"/pet-transfers/preview", "/pet-transfers/accept", "/pet-transfers/decline"} {
+	for _, path := range []string{"/pet-codes/preview", "/pet-transfers/accept", "/pet-transfers/decline"} {
 		mock := setupMockDB(t)
 		expectTokensValid(mock, testUserID)
 		expectNoCodeFailures(mock, 10)
@@ -295,9 +305,21 @@ func TestPetTransferPreview_InvalidCodeRecordsFailure(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
 	// Код вводится в «человеческом» виде: нормализуется сервером.
-	w := serveTransfer(t, http.MethodPost, "/pet-transfers/preview", map[string]string{"code": "abcde-23456"})
+	w := serveTransfer(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": "tbcde-23456"})
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Код с неизвестным типом (первым символом) не доходит до базы: 400 без учёта
+// попытки подбора.
+func TestPetCodePreview_UnknownPrefix(t *testing.T) {
+	mock := setupMockDB(t)
+	expectTokensValid(mock, testUserID)
+
+	w := serveTransfer(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": "XBCDE23456"})
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -310,7 +332,7 @@ func TestPetTransferPreview_OwnCode(t *testing.T) {
 		WithArgs(testTransferCode).
 		WillReturnRows(sqlmock.NewRows(pendingTransferColumns).AddRow(testTransferID, testPetID, testUserID, time.Now().Add(time.Hour)))
 
-	w := serveTransfer(t, http.MethodPost, "/pet-transfers/preview", map[string]string{"code": testTransferCode})
+	w := serveTransfer(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": testTransferCode})
 
 	require.Equal(t, http.StatusConflict, w.Code)
 	var body openapi.GetErrorResponse
@@ -333,16 +355,19 @@ func TestPetTransferPreview_Success(t *testing.T) {
 		WithArgs(testPetID, otherTestUserID).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", time.Date(2020, 5, 17, 0, 0, 0, 0, time.UTC), nil, false, nil, nil, nil, "Corgi", nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT COALESCE\(NULLIF\(trim\(pr\.first_name\), ''\), u\.login\)`).
+	mock.ExpectQuery(`SELECT COALESCE\(NULLIF\(trim\(concat_ws\(' ', NULLIF\(trim\(opr\.first_name\)`).
 		WithArgs(otherTestUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Анна"))
 	expectNoPetPhoto(mock)
 
-	w := serveTransfer(t, http.MethodPost, "/pet-transfers/preview", map[string]string{"code": testTransferCode})
+	w := serveTransfer(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": testTransferCode})
 
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	var body map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+	assert.Equal(t, "transfer", envelope["type"])
+	assert.Nil(t, envelope["access"])
+	body := envelope["transfer"].(map[string]any)
 	assert.Equal(t, "Анна", body["sender_name"])
 	pet := body["pet"].(map[string]any)
 	assert.Equal(t, "Rex", pet["name"])

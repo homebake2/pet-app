@@ -17,13 +17,12 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/pet", PetHandler)
 	// Передача питомца по коду (см. handlers/pet_transfer.go); создание,
 	// просмотр и отмена передачи живут в PetByIDHandler (/pet/{id}/transfer).
-	mux.HandleFunc("/pet-transfers/preview", PetTransferPreviewHandler)
+	mux.HandleFunc("/pet-codes/preview", PetCodePreviewHandler)
 	mux.HandleFunc("/pet-transfers/accept", PetTransferAcceptHandler)
 	mux.HandleFunc("/pet-transfers/decline", PetTransferDeclineHandler)
 	// Доступ к питомцу по коду приглашения и уведомления о потере доступа (см.
 	// handlers/pet_access.go); выдача, участники и отказ от доступа живут в
 	// PetByIDHandler (/pet/{id}/access...).
-	mux.HandleFunc("/pet-access-invites/preview", PetAccessInvitePreviewHandler)
 	mux.HandleFunc("/pet-access-invites/accept", PetAccessInviteAcceptHandler)
 	mux.HandleFunc("/pet-access-invites/decline", PetAccessInviteDeclineHandler)
 	mux.HandleFunc("/pet-access-notices/", PetAccessNoticeHandler)

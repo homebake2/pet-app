@@ -54,7 +54,11 @@ func createTransfer(t *testing.T, token, petID string) transferBody {
 
 func postTransferCode(t *testing.T, action, token, code string) apiResponse {
 	t.Helper()
-	return doRequest(t, http.MethodPost, "/pet-transfers/"+action, map[string]string{"code": code}, token)
+	path := "/pet-transfers/" + action
+	if action == "preview" {
+		path = "/pet-codes/preview"
+	}
+	return doRequest(t, http.MethodPost, path, map[string]string{"code": code}, token)
 }
 
 func errorCodeOf(t *testing.T, resp apiResponse) string {
@@ -171,16 +175,21 @@ func TestPetTransfer_PreviewAndDecline(t *testing.T) {
 	formatted := strings.ToLower(created.Code[:5]) + " - " + created.Code[5:]
 	preview := postTransferCode(t, "preview", receiver.token, formatted)
 	require.Equalf(t, http.StatusOK, preview.status, "%s", preview.body)
-	var body struct {
-		Pet struct {
-			Name    string  `json:"name"`
-			Species string  `json:"species"`
-			Photo   *string `json:"photo_url"`
-		} `json:"pet"`
-		SenderName string `json:"sender_name"`
-		ExpiresAt  string `json:"expires_at"`
+	var envelope struct {
+		Type     string `json:"type"`
+		Transfer struct {
+			Pet struct {
+				Name    string  `json:"name"`
+				Species string  `json:"species"`
+				Photo   *string `json:"photo_url"`
+			} `json:"pet"`
+			SenderName string `json:"sender_name"`
+			ExpiresAt  string `json:"expires_at"`
+		} `json:"transfer"`
 	}
-	preview.decode(t, &body)
+	preview.decode(t, &envelope)
+	require.Equal(t, "transfer", envelope.Type)
+	body := envelope.Transfer
 	require.Equal(t, "Барсик", body.Pet.Name)
 	require.Equal(t, "CAT", body.Pet.Species)
 	require.Nil(t, body.Pet.Photo)
@@ -212,10 +221,12 @@ func TestPetTransfer_PreviewSenderNameFallsBackToLogin(t *testing.T) {
 	preview := postTransferCode(t, "preview", receiver.token, created.Code)
 	require.Equal(t, http.StatusOK, preview.status)
 	var body struct {
-		SenderName string `json:"sender_name"`
+		Transfer struct {
+			SenderName string `json:"sender_name"`
+		} `json:"transfer"`
 	}
 	preview.decode(t, &body)
-	require.Equal(t, sender.login, body.SenderName)
+	require.Equal(t, sender.login, body.Transfer.SenderName)
 }
 
 func TestPetTransfer_OwnCodeConflict(t *testing.T) {
@@ -243,9 +254,9 @@ func TestPetTransfer_InvalidExpiredAndUsedCodes(t *testing.T) {
 
 	// Невалидный по формату код — 400, неизвестный — 404.
 	require.Equal(t, http.StatusBadRequest, postTransferCode(t, "preview", receiver.token, "short").status)
-	empty := doUnvalidatedRequest(t, http.MethodPost, "/pet-transfers/preview", map[string]string{"code": ""}, receiver.token)
+	empty := doUnvalidatedRequest(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": ""}, receiver.token)
 	require.Equal(t, http.StatusBadRequest, empty.status)
-	require.Equal(t, http.StatusNotFound, postTransferCode(t, "preview", receiver.token, "ABCDE23456").status)
+	require.Equal(t, http.StatusNotFound, postTransferCode(t, "preview", receiver.token, "TBCDE23456").status)
 
 	// Истёкший код.
 	expired := createTransfer(t, sender.token, petID)
@@ -290,7 +301,7 @@ func TestPetTransfer_RateLimit(t *testing.T) {
 	created := createTransfer(t, sender.token, petID)
 
 	for i := 0; i < 10; i++ {
-		require.Equalf(t, http.StatusNotFound, postTransferCode(t, "preview", guesser.token, "ABCDE23456").status, "попытка %d", i+1)
+		require.Equalf(t, http.StatusNotFound, postTransferCode(t, "preview", guesser.token, "TBCDE23456").status, "попытка %d", i+1)
 	}
 	// Лимит исчерпан: даже верный код отклоняется, на всех трёх эндпоинтах.
 	for _, action := range []string{"preview", "accept", "decline"} {

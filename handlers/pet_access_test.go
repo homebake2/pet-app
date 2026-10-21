@@ -37,13 +37,13 @@ func TestPetAccess_Unauthorized(t *testing.T) {
 		{http.MethodDelete, "/pet/" + testPetID + "/access/" + otherTestUserID},
 		{http.MethodDelete, "/pet/" + testPetID + "/access/me"},
 		{http.MethodDelete, "/pet/" + testPetID + "/access-invites/" + testTransferID},
-		{http.MethodPost, "/pet-access-invites/preview"},
+		{http.MethodPost, "/pet-codes/preview"},
 		{http.MethodPost, "/pet-access-invites/accept"},
 		{http.MethodPost, "/pet-access-invites/decline"},
 		{http.MethodDelete, "/pet-access-notices/" + testPetID},
 	} {
 		w := httptest.NewRecorder()
-		NewMux().ServeHTTP(w, doRequest(tc.method, tc.path, map[string]string{"code": testTransferCode}))
+		NewMux().ServeHTTP(w, doRequest(tc.method, tc.path, map[string]string{"code": testAccessCode}))
 		assert.Equal(t, http.StatusUnauthorized, w.Code, tc.method+" "+tc.path)
 	}
 }
@@ -218,12 +218,12 @@ func TestPetAccessNotice_DeleteIsIdempotent(t *testing.T) {
 
 // Подбор кода приглашения ограничен общим со передачами счётчиком.
 func TestPetAccessInvite_CodeRateLimited(t *testing.T) {
-	for _, path := range []string{"/pet-access-invites/preview", "/pet-access-invites/accept", "/pet-access-invites/decline"} {
+	for _, path := range []string{"/pet-codes/preview", "/pet-access-invites/accept", "/pet-access-invites/decline"} {
 		mock := setupMockDB(t)
 		expectTokensValid(mock, testUserID)
 		expectNoCodeFailures(mock, 10)
 
-		w := serveAccess(t, http.MethodPost, path, map[string]string{"code": testTransferCode})
+		w := serveAccess(t, http.MethodPost, path, map[string]string{"code": testAccessCode})
 
 		assert.Equal(t, http.StatusTooManyRequests, w.Code, path)
 		assert.Equal(t, openapi.RATELIMITED, errorCodeFrom(t, w))
@@ -235,7 +235,7 @@ func TestPetAccessInvite_InvalidCodeFormat(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 
-	w := serveAccess(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": "bad"})
+	w := serveAccess(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": "bad"})
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, openapi.VALIDATIONERROR, errorCodeFrom(t, w))
@@ -248,11 +248,11 @@ func TestPetAccessInvite_UnknownCodeRecordsFailure(t *testing.T) {
 	expectNoCodeFailures(mock, 0)
 	mock.ExpectExec(`UPDATE pet_access_invite SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT id, from_user_id::text, role, expires_at FROM pet_access_invite`).
-		WithArgs(testTransferCode).
+		WithArgs(testAccessCode).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectExec(`WITH purge AS`).WillReturnResult(sqlmock.NewResult(0, 1))
 
-	w := serveAccess(t, http.MethodPost, "/pet-access-invites/preview", map[string]string{"code": testTransferCode})
+	w := serveAccess(t, http.MethodPost, "/pet-codes/preview", map[string]string{"code": testAccessCode})
 
 	assert.Equal(t, http.StatusNotFound, w.Code)
 	require.NoError(t, mock.ExpectationsWereMet())

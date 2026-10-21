@@ -26,17 +26,22 @@ const (
 	// petTransferCodeAlphabet — алфавит кода без визуально неоднозначных
 	// знаков: нет 0/O и 1/I/L.
 	petTransferCodeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+	// Первый символ кода — его тип; по нему общий предпросмотр
+	// (POST /pet-codes/preview) понимает, где искать код.
+	petCodePrefixTransfer = 'T'
+	petCodePrefixAccess   = 'A'
 	// petTransferCodeAttempts — сколько раз повторяется создание передачи при
 	// совпадении сгенерированного кода с кодом другой активной передачи.
 	petTransferCodeAttempts = 5
 )
 
-// generatePetTransferCode возвращает случайный код передачи из
-// криптостойкого генератора.
-func generatePetTransferCode() (string, error) {
+// generatePetCode возвращает случайный код с первым символом prefix (тип
+// кода) из криптостойкого генератора.
+func generatePetCode(prefix byte) (string, error) {
 	alphabetSize := big.NewInt(int64(len(petTransferCodeAlphabet)))
 	code := make([]byte, petTransferCodeLength)
-	for i := range code {
+	code[0] = prefix
+	for i := 1; i < len(code); i++ {
 		index, err := rand.Int(rand.Reader, alphabetSize)
 		if err != nil {
 			return "", err
@@ -46,10 +51,10 @@ func generatePetTransferCode() (string, error) {
 	return string(code), nil
 }
 
-// normalizePetTransferCode приводит введённый код к каноническому виду:
-// регистр, пробелы и дефисы игнорируются. ok=false — после нормализации
-// значение не соответствует формату кода.
-func normalizePetTransferCode(input string) (code string, ok bool) {
+// normalizePetCode приводит введённый код к каноническому виду: регистр,
+// пробелы и дефисы игнорируются. ok=false — после нормализации значение не
+// соответствует формату кода (длина, алфавит, первый символ-тип).
+func normalizePetCode(input string) (code string, ok bool) {
 	var builder strings.Builder
 	for _, r := range strings.ToUpper(input) {
 		if r == ' ' || r == '-' || r == '\t' || r == '\n' || r == '\r' {
@@ -65,6 +70,9 @@ func normalizePetTransferCode(input string) (code string, ok bool) {
 		if !strings.ContainsRune(petTransferCodeAlphabet, rune(code[i])) {
 			return "", false
 		}
+	}
+	if code[0] != petCodePrefixTransfer && code[0] != petCodePrefixAccess {
+		return "", false
 	}
 	return code, true
 }
@@ -105,7 +113,7 @@ func createPetTransferHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	}
 
 	for attempt := 0; attempt < petTransferCodeAttempts; attempt++ {
-		code, err := generatePetTransferCode()
+		code, err := generatePetCode(petCodePrefixTransfer)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать код передачи")
 			return
@@ -195,7 +203,7 @@ func readCodeRequest(w http.ResponseWriter, r *http.Request) (userID string, cod
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректное тело запроса")
 		return "", "", false
 	}
-	code, valid := normalizePetTransferCode(req.Code)
+	code, valid := normalizePetCode(req.Code)
 	if !valid {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный код")
 		return "", "", false
@@ -235,13 +243,9 @@ func handlePetTransferCodeError(w http.ResponseWriter, userID string, err error,
 	writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, internalMessage)
 }
 
-// PetTransferPreviewHandler обрабатывает POST /pet-transfers/preview.
-func PetTransferPreviewHandler(w http.ResponseWriter, r *http.Request) {
-	userID, code, ok := readCodeRequest(w, r)
-	if !ok {
-		return
-	}
-
+// previewPetTransfer пишет предпросмотр кода передачи (ветка типа transfer в
+// POST /pet-codes/preview).
+func previewPetTransfer(w http.ResponseWriter, r *http.Request, userID, code string) {
 	transfer, err := database.FindPendingPetTransferByCode(code)
 	if err != nil {
 		handlePetTransferCodeError(w, userID, err, "Ошибка поиска передачи")
@@ -258,7 +262,7 @@ func PetTransferPreviewHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	senderName, err := database.GetPetTransferSenderName(transfer.FromUserID)
+	senderName, err := database.GetUserDisplayName(transfer.FromUserID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения отправителя")
 		return
@@ -291,7 +295,10 @@ func PetTransferPreviewHandler(w http.ResponseWriter, r *http.Request) {
 			preview.Pet.BirthDate = &openapi_types.Date{Time: birthDate}
 		}
 	}
-	writeJSON(w, http.StatusOK, preview)
+	writeJSON(w, http.StatusOK, openapi.PetCodePreviewResponse{
+		Type:     openapi.PetCodeTypeEnum("transfer"),
+		Transfer: &preview,
+	})
 }
 
 // petTransferPhotoURL возвращает presigned GET URL фотографии питомца либо

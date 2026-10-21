@@ -4486,19 +4486,19 @@
         }
       ]
     },
-    "/pet-transfers/preview": {
+    "/pet-codes/preview": {
       "post": {
-        "summary": "/pet-transfers/preview",
+        "summary": "/pet-codes/preview",
         "tags": [
           "pets-controller"
         ],
-        "operationId": "post-pet-transfer-preview",
-        "description": "Предпросмотр питомца по коду передачи; ничего не изменяет.",
+        "operationId": "post-pet-code-preview",
+        "description": "Предпросмотр по коду передачи или приглашения к доступу; тип кода определяется по самому коду (первый символ). Ничего не изменяет.",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PetTransferCodeRequest"
+                "$ref": "#/components/schemas/PetCodeRequest"
               }
             }
           },
@@ -4510,7 +4510,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PetTransferPreviewResponse"
+                  "$ref": "#/components/schemas/PetCodePreviewResponse"
                 }
               }
             }
@@ -4536,7 +4536,7 @@
             }
           },
           "404": {
-            "description": "Not Found: код недействителен, истёк или передача уже не активна",
+            "description": "Not Found: код недействителен, истёк или передача/приглашение уже не активны",
             "content": {
               "application/json": {
                 "schema": {
@@ -4546,7 +4546,7 @@
             }
           },
           "409": {
-            "description": "Conflict: TRANSFER_OWN_PET",
+            "description": "Conflict: TRANSFER_OWN_PET, ACCESS_OWN_PET, ACCESS_ALREADY_GRANTED",
             "content": {
               "application/json": {
                 "schema": {
@@ -5172,89 +5172,6 @@
           "required": true
         }
       ]
-    },
-    "/pet-access-invites/preview": {
-      "post": {
-        "summary": "/pet-access-invites/preview",
-        "tags": [
-          "pets-controller"
-        ],
-        "operationId": "post-pet-access-invite-preview",
-        "description": "Предпросмотр питомцев, роли и владельца по коду приглашения; ничего не изменяет.",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PetAccessInviteCodeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PetAccessInvitePreviewResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Bad Request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found: код недействителен, истёк или приглашение уже не активно",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Conflict: ACCESS_OWN_PET, ACCESS_ALREADY_GRANTED",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          },
-          "429": {
-            "description": "Too Many Requests: RATE_LIMITED",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GetErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "parameters": []
     },
     "/pet-access-invites/accept": {
       "post": {
@@ -10171,7 +10088,7 @@
           },
           "sender_name": {
             "type": "string",
-            "description": "Имя отправителя из профиля (first_name), при отсутствии профиля — логин."
+            "description": "Имя отправителя: first_name и last_name профиля (непустые, через пробел), при отсутствии профиля или пустых именах — логин."
           },
           "expires_at": {
             "type": "string",
@@ -10433,7 +10350,7 @@
           },
           "owner_name": {
             "type": "string",
-            "description": "Имя владельца из профиля (first_name), при отсутствии профиля — логин."
+            "description": "Имя владельца: first_name и last_name профиля (непустые, через пробел), при отсутствии профиля или пустых именах — логин."
           },
           "expires_at": {
             "type": "string",
@@ -10505,6 +10422,50 @@
           "name": {
             "type": "string",
             "description": "Имя из профиля владельца (first_name и last_name, если заполнены, через пробел), при отсутствии профиля — логин."
+          }
+        }
+      },
+      "PetCodeRequest": {
+        "title": "PetCodeRequest",
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Код передачи или приглашения к доступу; регистр, пробелы и дефисы игнорируются."
+          }
+        }
+      },
+      "PetCodeTypeEnum": {
+        "title": "PetCodeTypeEnum",
+        "type": "string",
+        "enum": [
+          "transfer",
+          "access"
+        ],
+        "description": "Тип кода: transfer — передача питомца, access — приглашение к доступу."
+      },
+      "PetCodePreviewResponse": {
+        "title": "PetCodePreviewResponse",
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "description": "Предпросмотр по коду. Заполнено ровно одно из полей transfer / access — в соответствии с type.",
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/PetCodeTypeEnum"
+          },
+          "transfer": {
+            "$ref": "#/components/schemas/PetTransferPreviewResponse",
+            "nullable": true
+          },
+          "access": {
+            "$ref": "#/components/schemas/PetAccessInvitePreviewResponse",
+            "nullable": true
           }
         }
       }

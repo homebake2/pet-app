@@ -394,15 +394,15 @@ func GetVetPassportAuthorIDs(table VetPassportTable, ids []uuid.UUID) (map[uuid.
 	return result, rows.Err()
 }
 
-// GetUserDisplayName возвращает имя пользователя для других пользователей:
-// first_name профиля, а при отсутствии профиля — логин.
+// GetUserDisplayName возвращает имя пользователя для других пользователей —
+// то же, что owner.name в ответах про питомцев (см. ownerNameSQL).
 func GetUserDisplayName(userID string) (string, error) {
 	var name string
 	err := DB.QueryRow(`
-		SELECT COALESCE(NULLIF(trim(pr.first_name), ''), u.login)
-		FROM users u
-		LEFT JOIN profile pr ON pr.user_id = u.id
-		WHERE u.id = $1
+		SELECT `+ownerNameSQL+`
+		FROM users ou
+		LEFT JOIN profile opr ON opr.user_id = ou.id
+		WHERE ou.id = $1
 	`, userID).Scan(&name)
 	return name, err
 }

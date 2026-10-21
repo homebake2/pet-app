@@ -279,19 +279,6 @@ func DeclinePetTransfer(code string, userID string) error {
 	})
 }
 
-// GetPetTransferSenderName возвращает имя отправителя для получателя: first_name
-// профиля, а при отсутствии профиля — логин.
-func GetPetTransferSenderName(userID string) (string, error) {
-	var name string
-	err := DB.QueryRow(`
-		SELECT COALESCE(NULLIF(trim(pr.first_name), ''), u.login)
-		FROM users u
-		LEFT JOIN profile pr ON pr.user_id = u.id
-		WHERE u.id = $1
-	`, userID).Scan(&name)
-	return name, err
-}
-
 // CountPetTransferCodeFailures возвращает число неудачных обращений
 // пользователя с кодом передачи за последний час.
 func CountPetTransferCodeFailures(userID string) (int, error) {

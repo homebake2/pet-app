@@ -158,7 +158,7 @@ func createPetAccessInviteHandler(w http.ResponseWriter, r *http.Request, petID 
 	}
 
 	for attempt := 0; attempt < petAccessInviteCodeAttempts; attempt++ {
-		code, err := generatePetTransferCode()
+		code, err := generatePetCode(petCodePrefixAccess)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось создать код приглашения")
 			return
@@ -342,13 +342,9 @@ func handlePetAccessCodeError(w http.ResponseWriter, userID string, err error, i
 	}
 }
 
-// PetAccessInvitePreviewHandler обрабатывает POST /pet-access-invites/preview.
-func PetAccessInvitePreviewHandler(w http.ResponseWriter, r *http.Request) {
-	userID, code, ok := readCodeRequest(w, r)
-	if !ok {
-		return
-	}
-
+// previewPetAccessInvite пишет предпросмотр кода приглашения (ветка типа
+// access в POST /pet-codes/preview).
+func previewPetAccessInvite(w http.ResponseWriter, r *http.Request, userID, code string) {
 	preview, err := database.PreviewPetAccessInvite(code, userID)
 	if err != nil {
 		handlePetAccessCodeError(w, userID, err, "Ошибка поиска приглашения")
@@ -403,7 +399,10 @@ func PetAccessInvitePreviewHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		response.Pets = append(response.Pets, item)
 	}
-	writeJSON(w, http.StatusOK, response)
+	writeJSON(w, http.StatusOK, openapi.PetCodePreviewResponse{
+		Type:   openapi.PetCodeTypeEnum("access"),
+		Access: &response,
+	})
 }
 
 // PetAccessInviteDeclineHandler обрабатывает POST /pet-access-invites/decline.

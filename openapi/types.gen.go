@@ -283,6 +283,12 @@ const (
 	Underweight PetBodyConditionEnum = "underweight"
 )
 
+// Defines values for PetCodeTypeEnum.
+const (
+	Access   PetCodeTypeEnum = "access"
+	Transfer PetCodeTypeEnum = "transfer"
+)
+
 // Defines values for PetWaterTypeEnum.
 const (
 	Freshwater PetWaterTypeEnum = "freshwater"
@@ -1667,7 +1673,7 @@ type PetAccessInvitePreviewPet struct {
 type PetAccessInvitePreviewResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 
-	// OwnerName Имя владельца из профиля (first_name), при отсутствии профиля — логин.
+	// OwnerName Имя владельца: first_name и last_name профиля (непустые, через пробел), при отсутствии профиля или пустых именах — логин.
 	OwnerName string `json:"owner_name"`
 
 	// Pets Питомцы, доступ к которым будет выдан (без тех, к которым у получателя уже есть доступ).
@@ -1732,6 +1738,24 @@ type PetAccessUpdateRoleRequest struct {
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
 
+// PetCodePreviewResponse Предпросмотр по коду. Заполнено ровно одно из полей transfer / access — в соответствии с type.
+type PetCodePreviewResponse struct {
+	Access   *PetAccessInvitePreviewResponse `json:"access,omitempty"`
+	Transfer *PetTransferPreviewResponse     `json:"transfer,omitempty"`
+
+	// Type Тип кода: transfer — передача питомца, access — приглашение к доступу.
+	Type PetCodeTypeEnum `json:"type"`
+}
+
+// PetCodeRequest defines model for PetCodeRequest.
+type PetCodeRequest struct {
+	// Code Код передачи или приглашения к доступу; регистр, пробелы и дефисы игнорируются.
+	Code string `json:"code"`
+}
+
+// PetCodeTypeEnum Тип кода: transfer — передача питомца, access — приглашение к доступу.
+type PetCodeTypeEnum string
+
 // PetEventsAvailableFilters Агрегаты по всем не удалённым событиям питомца без учёта search, types, from/to. Присутствует только в ответе на запрос первой страницы (offset=0). По ним клиент определяет доступность фильтров независимо от текущего выбора.
 type PetEventsAvailableFilters struct {
 	// DistinctDays Число различных календарных дней событий в часовом поясе tz (UTC, если tz не передан).
@@ -1783,7 +1807,7 @@ type PetTransferPreviewResponse struct {
 	ExpiresAt time.Time             `json:"expires_at"`
 	Pet       PetTransferPreviewPet `json:"pet"`
 
-	// SenderName Имя отправителя из профиля (first_name), при отсутствии профиля — логин.
+	// SenderName Имя отправителя: first_name и last_name профиля (непустые, через пробел), при отсутствии профиля или пустых именах — логин.
 	SenderName string `json:"sender_name"`
 }
 
@@ -2622,17 +2646,14 @@ type PostPetAccessInviteAcceptJSONRequestBody = PetAccessInviteCodeRequest
 // PostPetAccessInviteDeclineJSONRequestBody defines body for PostPetAccessInviteDecline for application/json ContentType.
 type PostPetAccessInviteDeclineJSONRequestBody = PetAccessInviteCodeRequest
 
-// PostPetAccessInvitePreviewJSONRequestBody defines body for PostPetAccessInvitePreview for application/json ContentType.
-type PostPetAccessInvitePreviewJSONRequestBody = PetAccessInviteCodeRequest
+// PostPetCodePreviewJSONRequestBody defines body for PostPetCodePreview for application/json ContentType.
+type PostPetCodePreviewJSONRequestBody = PetCodeRequest
 
 // PostPetTransferAcceptJSONRequestBody defines body for PostPetTransferAccept for application/json ContentType.
 type PostPetTransferAcceptJSONRequestBody = PetTransferCodeRequest
 
 // PostPetTransferDeclineJSONRequestBody defines body for PostPetTransferDecline for application/json ContentType.
 type PostPetTransferDeclineJSONRequestBody = PetTransferCodeRequest
-
-// PostPetTransferPreviewJSONRequestBody defines body for PostPetTransferPreview for application/json ContentType.
-type PostPetTransferPreviewJSONRequestBody = PetTransferCodeRequest
 
 // PutPetJSONRequestBody defines body for PutPet for application/json ContentType.
 type PutPetJSONRequestBody = UpdatePetProfileRequest
