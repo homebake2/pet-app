@@ -355,7 +355,7 @@ func TestPetTransferPreview_Success(t *testing.T) {
 		WithArgs(testPetID, otherTestUserID).
 		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", time.Date(2020, 5, 17, 0, 0, 0, 0, time.UTC), nil, false, nil, nil, nil, "Corgi", nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT COALESCE\(NULLIF\(trim\(concat_ws\(' ', NULLIF\(trim\(opr\.first_name\)`).
+	mock.ExpectQuery(`SELECT COALESCE\(NULLIF\(trim\(concat_ws\(' ', NULLIF\(trim\(opr\.last_name\)`).
 		WithArgs(otherTestUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Анна"))
 	expectNoPetPhoto(mock)

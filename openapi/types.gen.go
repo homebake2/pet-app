@@ -1673,7 +1673,7 @@ type PetAccessInvitePreviewPet struct {
 type PetAccessInvitePreviewResponse struct {
 	ExpiresAt time.Time `json:"expires_at"`
 
-	// OwnerName Имя владельца: first_name и last_name профиля (непустые, через пробел), при отсутствии профиля или пустых именах — логин.
+	// OwnerName Имя владельца: last_name и first_name профиля (фамилия и имя, непустые, через пробел), при отсутствии профиля или пустых именах — логин.
 	OwnerName string `json:"owner_name"`
 
 	// Pets Питомцы, доступ к которым будет выдан (без тех, к которым у получателя уже есть доступ).
@@ -1775,7 +1775,7 @@ type PetEventsAvailableFilters struct {
 type PetOwnerRef struct {
 	Id openapi_types.UUID `json:"id"`
 
-	// Name Имя из профиля владельца (first_name и last_name, если заполнены, через пробел), при отсутствии профиля — логин.
+	// Name Имя из профиля владельца (last_name и first_name — фамилия и имя, если заполнены, через пробел), при отсутствии профиля — логин.
 	Name string `json:"name"`
 }
 
@@ -1807,7 +1807,7 @@ type PetTransferPreviewResponse struct {
 	ExpiresAt time.Time             `json:"expires_at"`
 	Pet       PetTransferPreviewPet `json:"pet"`
 
-	// SenderName Имя отправителя: first_name и last_name профиля (непустые, через пробел), при отсутствии профиля или пустых именах — логин.
+	// SenderName Имя отправителя: last_name и first_name профиля (фамилия и имя, непустые, через пробел), при отсутствии профиля или пустых именах — логин.
 	SenderName string `json:"sender_name"`
 }
 

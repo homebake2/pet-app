@@ -582,7 +582,7 @@ func TestPetOwnerRef_InListAndCard(t *testing.T) {
 		switch item.ID {
 		case ownPet:
 			require.Equal(t, owner.id, item.Owner.ID)
-			require.Equal(t, "Anna Ivanova", item.Owner.Name)
+			require.Equal(t, "Ivanova Anna", item.Owner.Name)
 		case plainPet:
 			require.Equal(t, noProfile.id, item.Owner.ID)
 			require.Equal(t, noProfile.login, item.Owner.Name)
@@ -598,7 +598,7 @@ func TestPetOwnerRef_InListAndCard(t *testing.T) {
 	}
 	resp.decode(t, &card)
 	require.Equal(t, owner.id, card.Owner.ID)
-	require.Equal(t, "Anna Ivanova", card.Owner.Name)
+	require.Equal(t, "Ivanova Anna", card.Owner.Name)
 
 	// Собственный питомец: владелец — сам пользователь.
 	resp = doRequest(t, http.MethodGet, "/pet/"+ownPet, nil, owner.token)

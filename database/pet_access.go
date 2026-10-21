@@ -1206,7 +1206,7 @@ func endUserPetAccessWith(exec dbExecutor, userID string) error {
 // first_name и last_name профиля (непустые, через пробел), а если профиля нет
 // или имена пусты — логин. Профиль доступен под алиасом opr, пользователь —
 // под ou.
-const ownerNameSQL = `COALESCE(NULLIF(trim(concat_ws(' ', NULLIF(trim(opr.first_name), ''), NULLIF(trim(opr.last_name), ''))), ''), ou.login)`
+const ownerNameSQL = `COALESCE(NULLIF(trim(concat_ws(' ', NULLIF(trim(opr.last_name), ''), NULLIF(trim(opr.first_name), ''))), ''), ou.login)`
 
 // GetOwnerNames возвращает имена владельцев питомцев (id пользователя → имя)
 // одним запросом.
