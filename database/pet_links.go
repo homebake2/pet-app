@@ -133,35 +133,3 @@ func (l petLinks) visiblePets(exec dbExecutor, ownerIDs []uuid.UUID) (map[uuid.U
 	}
 	return result, rows.Err()
 }
-
-// OwnedPet — питомец пользователя вместе с признаком мягкого удаления: по
-// нему различаются «не найден или чужой» (404) и «мягко удалён» (400).
-type OwnedPet struct {
-	LinkedPet
-	Deleted bool
-}
-
-// GetOwnedPetsWith возвращает питомцев petIDs, принадлежащих userID (в том
-// числе мягко удалённых). Чужие и несуществующие питомцы в результате
-// отсутствуют.
-func GetOwnedPetsWith(exec dbExecutor, userID string, petIDs []uuid.UUID) (map[uuid.UUID]OwnedPet, error) {
-	rows, err := exec.Query(`
-		SELECT id, name, species, deleted_at IS NOT NULL
-		FROM pet
-		WHERE id = ANY($1) AND user_id = $2
-	`, pq.Array(petIDs), userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make(map[uuid.UUID]OwnedPet, len(petIDs))
-	for rows.Next() {
-		var pet OwnedPet
-		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Species, &pet.Deleted); err != nil {
-			return nil, err
-		}
-		result[pet.ID] = pet
-	}
-	return result, rows.Err()
-}

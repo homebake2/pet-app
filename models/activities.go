@@ -14,6 +14,8 @@ type ActivityEvent struct {
 	FilesCount int `json:"files_count"`
 	// Pets — видимые питомцы события (запись общая у нескольких питомцев).
 	Pets []EventPetRef `json:"pets"`
+	// Author — автор события; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 // ActivityDay represents events for a single day
@@ -68,6 +70,9 @@ type ActivitiesDayItem struct {
 	Value             json.RawMessage       `json:"value"`
 	FilesCount        int                   `json:"files_count"`
 	Pets              []ActivitiesDayPetRef `json:"pets"`
+	// Author — автор записи (факта либо настроек напоминания); null, если
+	// питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 // ActivitiesDayPetRef — питомец элемента списка дня: ссылка на питомца плюс

@@ -16,7 +16,7 @@ import (
 
 // calendarEventsQuery — выборка моментов событий для GET /activities/calendar
 // (группировка по дню клиента выполняется в Go).
-const calendarEventsQuery = `SELECT e\.date_time\s+FROM event e\s+WHERE e\.user_id = \$1\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND EXISTS \(`
+const calendarEventsQuery = `SELECT e\.date_time\s+FROM event e\s+WHERE e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND EXISTS \(`
 
 // timeArgMatcher сравнивает аргумент запроса с ожидаемым моментом времени
 // через time.Equal — представление location у значения не важно.
@@ -31,13 +31,13 @@ func timeArg(want time.Time) sqlmock.Argument { return timeArgMatcher{want: want
 
 // calendarRemindersQuery — выборка моментов незавершённых напоминаний для
 // GET /activities/calendar.
-const calendarRemindersQuery = `SELECT r\.remind_at\s+FROM reminder r\s+JOIN reminder_plan p ON p\.id = r\.plan_id\s+WHERE p\.user_id = \$1 AND r\.closed_at IS NULL AND EXISTS \(`
+const calendarRemindersQuery = `SELECT r\.remind_at\s+FROM reminder r\s+JOIN reminder_plan p ON p\.id = r\.plan_id\s+WHERE r\.closed_at IS NULL AND EXISTS \(`
 
 // reminderCalendarQuery — выборка незавершённых напоминаний с данными
 // настроек (GET /activities/day).
-const reminderCalendarQuery = `SELECT r\.id, r\.plan_id, r\.remind_at, r\.notes, p\.notes, p\.type, p\.value,\s+p\.source, COALESCE\(med\.name, vac\.name\),\s+\(SELECT COUNT\(\*\) FROM reminder o WHERE o\.plan_id = p\.id AND o\.closed_at IS NULL\)\s+FROM reminder r`
+const reminderCalendarQuery = `SELECT r\.id, r\.plan_id, r\.remind_at, r\.notes, p\.notes, p\.type, p\.value,\s+p\.source, COALESCE\(med\.name, vac\.name\),\s+\(SELECT COUNT\(\*\) FROM reminder o WHERE o\.plan_id = p\.id AND o\.closed_at IS NULL\),\s+p\.user_id::text\s+FROM reminder r`
 
-var reminderCalendarColumns = []string{"id", "plan_id", "remind_at", "notes", "notes", "type", "value", "source", "source_title", "unclosed"}
+var reminderCalendarColumns = []string{"id", "plan_id", "remind_at", "notes", "notes", "type", "value", "source", "source_title", "unclosed", "author_id"}
 
 type calendarResponse struct {
 	Items []struct {
@@ -233,12 +233,13 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	eventDate := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.user_id = \$1\s+AND e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND EXISTS`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND EXISTS`).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(eventRow(eventID, "weight", `{"amount":5}`, eventDate))
 	expectEventPets(mock, eventID, petRex)
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 2))
+	expectNoSharedPets(mock)
 	// Незавершённое напоминание, момент которого уже наступил, остаётся в
 	// календаре наравне с будущими; собственная заметка напоминания
 	// показывается вместо заметки настроек.
@@ -247,10 +248,11 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 	mock.ExpectQuery(reminderCalendarQuery).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns).
-			AddRow(reminderID, planID, time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC), "2 пипетки", "1 таблетка", "medication", []byte(`{"name":"Нурофен"}`), "medication", "Нурофен", 4))
+			AddRow(reminderID, planID, time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC), "2 пипетки", "1 таблетка", "medication", []byte(`{"name":"Нурофен"}`), "medication", "Нурофен", 4, testUserID))
 	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).
 			AddRow(planID, testPetID, "Rex", "DOG").AddRow(planID, testPetID2, "Tom", "CAT"))
+	expectNoSharedPets(mock)
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WithArgs("reminder_plan_file", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(planID, 1))
@@ -328,7 +330,7 @@ func TestGetActivitiesDayHandler_UsesClientTimeZoneBounds(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.user_id = \$1`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL`).
 		WithArgs(testUserID,
 			timeArg(time.Date(2026, 9, 27, 4, 0, 0, 0, time.UTC)),
 			timeArg(time.Date(2026, 9, 28, 4, 0, 0, 0, time.UTC))).
@@ -336,6 +338,7 @@ func TestGetActivitiesDayHandler_UsesClientTimeZoneBounds(t *testing.T) {
 	expectEventPets(mock, eventID, petRex)
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
+	expectNoSharedPets(mock)
 	mock.ExpectQuery(reminderCalendarQuery).
 		WithArgs(testUserID,
 			timeArg(time.Date(2026, 9, 27, 4, 0, 0, 0, time.UTC)),
@@ -370,7 +373,7 @@ func TestGetActivitiesDayHandler_InvalidTimeZone(t *testing.T) {
 func TestGetActivitiesDayHandler_EmptyResultNo404(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.user_id = \$1`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL`).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(reminderCalendarQuery).
 		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns))

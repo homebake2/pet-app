@@ -29,8 +29,8 @@ func statsPath(query string) string {
 // expectOwnedPet мокает проверку владения питомцем (существует, не удалён,
 // принадлежит пользователю) — общий шаг всех успешных сценариев агрегации.
 func expectOwnedPet(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 }
 
@@ -77,7 +77,7 @@ func TestGetEventStatsHandler_BadRequest(t *testing.T) {
 func TestGetEventStatsHandler_PetNotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -300,7 +300,7 @@ func TestStatsBucketStarts(t *testing.T) {
 // границы периода и моменты начала интервалов (RFC3339, UTC).
 func expectStatsQuery(mock sqlmock.Sqlmock, eventType, from, to string, bucketStarts []string) *sqlmock.ExpectedQuery {
 	return mock.ExpectQuery(`SELECT width_bucket\(e\.date_time, \$5::timestamptz\[\]\)`).
-		WithArgs(uuid.MustParse(testPetID), eventType, mustRFC3339(from), mustRFC3339(to), pq.Array(bucketStarts))
+		WithArgs(uuid.MustParse(testPetID), eventType, mustRFC3339(from), mustRFC3339(to), pq.Array(bucketStarts), testUserID)
 }
 
 func statsBucketStartsOf(t *testing.T, w *httptest.ResponseRecorder) []string {

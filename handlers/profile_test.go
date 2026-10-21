@@ -48,6 +48,7 @@ func TestDeleteAccountHandler_Success(t *testing.T) {
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectEndUserPetAccess(mock)
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -67,6 +68,7 @@ func TestDeleteAccountHandler_DBError(t *testing.T) {
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	expectEndUserPetAccess(mock)
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
 		WillReturnError(assertError)

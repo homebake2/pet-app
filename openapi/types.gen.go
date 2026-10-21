@@ -71,6 +71,9 @@ const (
 
 // Defines values for ErrorCodeEnum.
 const (
+	ACCESSALREADYGRANTED   ErrorCodeEnum = "ACCESS_ALREADY_GRANTED"
+	ACCESSLIMITREACHED     ErrorCodeEnum = "ACCESS_LIMIT_REACHED"
+	ACCESSOWNPET           ErrorCodeEnum = "ACCESS_OWN_PET"
 	BADREQUEST             ErrorCodeEnum = "BAD_REQUEST"
 	CONFLICT               ErrorCodeEnum = "CONFLICT"
 	FORBIDDEN              ErrorCodeEnum = "FORBIDDEN"
@@ -251,6 +254,26 @@ const (
 	SpecificDays MedicationFrequencyTypeEnum = "specific_days"
 )
 
+// Defines values for PetAccessEnum.
+const (
+	PetAccessEnumFull  PetAccessEnum = "full"
+	PetAccessEnumOwner PetAccessEnum = "owner"
+	PetAccessEnumView  PetAccessEnum = "view"
+)
+
+// Defines values for PetAccessGrantRoleEnum.
+const (
+	PetAccessGrantRoleEnumFull PetAccessGrantRoleEnum = "full"
+	PetAccessGrantRoleEnumView PetAccessGrantRoleEnum = "view"
+)
+
+// Defines values for PetAccessLostReasonEnum.
+const (
+	PetDeleted     PetAccessLostReasonEnum = "pet_deleted"
+	PetTransferred PetAccessLostReasonEnum = "pet_transferred"
+	Revoked        PetAccessLostReasonEnum = "revoked"
+)
+
 // Defines values for PetBodyConditionEnum.
 const (
 	Normal      PetBodyConditionEnum = "normal"
@@ -307,6 +330,8 @@ type ActivitiesCalendarItem struct {
 
 // ActivitiesDayItem Элемент календаря: факт (item_type=event) или незавершённое напоминание (item_type=reminder). У напоминания id — идентификатор напоминания, date — его remind_at, type/value/pets — из его настроек, notes — собственная заметка напоминания либо, если её нет, заметка настроек, files_count — файлы настроек плюс собственные файлы напоминания, plan_id/plan_source/plan_source_title/plan_unclosed_count — данные настроек. У факта этих полей нет.
 type ActivitiesDayItem struct {
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author     *EventAuthor       `json:"author"`
 	Date       time.Time          `json:"date"`
 	FilesCount int                `json:"files_count"`
 	Id         openapi_types.UUID `json:"id"`
@@ -465,6 +490,15 @@ type ErrorCodeEnum string
 
 // EventActivityKindEnum Вид активности (value.kind при type=activity). free_range — время вне клетки, вольера или террариума. Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 type EventActivityKindEnum string
+
+// EventAuthor Автор записи. Заполняется, только если у записи есть видимый питомец, к которому доступ имеют минимум два пользователя; иначе поле author равно null.
+type EventAuthor struct {
+	// IsMe Запись создал сам текущий пользователь.
+	IsMe bool `json:"is_me"`
+
+	// Name Имя автора из профиля (first_name), при отсутствии профиля — логин.
+	Name string `json:"name"`
+}
 
 // EventEggLayingStatusEnum Статус кладки (value.status при type=egg_laying). abnormal — осложнённая кладка (в т.ч. застрявшее яйцо).
 type EventEggLayingStatusEnum string
@@ -673,7 +707,10 @@ type GetAllergyRequest struct {
 
 // GetAllergyResponse defines model for GetAllergyResponse.
 type GetAllergyResponse struct {
-	Allergen     string              `json:"allergen"`
+	Allergen string `json:"allergen"`
+
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author       *EventAuthor        `json:"author"`
 	DetectedDate *openapi_types.Date `json:"detected_date"`
 
 	// FilesCount Количество прикреплённых файлов аллергии (0, если файлов нет).
@@ -705,6 +742,8 @@ type GetDiseaseRequest struct {
 
 // GetDiseaseResponse defines model for GetDiseaseResponse.
 type GetDiseaseResponse struct {
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author        *EventAuthor       `json:"author"`
 	DiagnosedDate openapi_types.Date `json:"diagnosed_date"`
 
 	// FilesCount Количество прикреплённых файлов заболевания (0, если файлов нет).
@@ -733,7 +772,9 @@ type GetEventEnum string
 
 // GetEventIdResponseRequest defines model for GetEventIdResponseRequest.
 type GetEventIdResponseRequest struct {
-	Date time.Time `json:"date"`
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+	Date   time.Time    `json:"date"`
 
 	// Files Прикреплённые файлы события (фото и документы), в порядке position.
 	Files []EventFile        `json:"files"`
@@ -804,7 +845,9 @@ type GetEventRequest struct {
 
 // GetEventResponse defines model for GetEventResponse.
 type GetEventResponse struct {
-	Date time.Time `json:"date"`
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+	Date   time.Time    `json:"date"`
 
 	// FilesCount Количество прикреплённых файлов события (0, если файлов нет).
 	FilesCount int                `json:"files_count"`
@@ -908,6 +951,9 @@ type GetMedicationRequest struct {
 
 // GetMedicationResponse defines model for GetMedicationResponse.
 type GetMedicationResponse struct {
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+
 	// Dosage Базовая дозировка в свободной форме, например «1 таблетка» или «5 мл»; используется по умолчанию для времён приёма без собственного dose_note.
 	Dosage string `json:"dosage"`
 
@@ -988,6 +1034,8 @@ type GetPetProfileRequest struct {
 
 // GetPetProfileResponse defines model for GetPetProfileResponse.
 type GetPetProfileResponse struct {
+	// Access Роль текущего пользователя по отношению к питомцу: owner — владелец, full — полный доступ, view — только просмотр.
+	Access    PetAccessEnum       `json:"access"`
 	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
 
 	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
@@ -1013,6 +1061,9 @@ type GetPetProfileResponse struct {
 	Name         string  `json:"name"`
 	Notes        *string `json:"notes"`
 
+	// Owner Владелец питомца. Для собственных питомцев — сам пользователь.
+	Owner PetOwnerRef `json:"owner"`
+
 	// PhotoFileId id файла фотографии для DELETE /files/{file_id}; null если фотографии нет
 	PhotoFileId *openapi_types.UUID `json:"photo_file_id"`
 
@@ -1023,7 +1074,10 @@ type GetPetProfileResponse struct {
 	RingNumber *string `json:"ring_number"`
 
 	// Ringed Профильное поле группы видов «Птицы» (см. «Профильные поля питомца по видам»).
-	Ringed     *bool  `json:"ringed"`
+	Ringed *bool `json:"ringed"`
+
+	// Shared Питомцем пользуются несколько человек: у питомца есть хотя бы один участник. Для участника всегда true.
+	Shared     bool   `json:"shared"`
 	Species    string `json:"species"`
 	Sterilized *bool  `json:"sterilized,omitempty"`
 
@@ -1073,14 +1127,21 @@ type GetRefreshResponse struct {
 
 // GetShortInfoAllPetResponse defines model for GetShortInfoAllPetResponse.
 type GetShortInfoAllPetResponse struct {
-	Items []GetShortInfoPetResponse `json:"items"`
+	// AccessLost Уведомления о потере доступа текущего пользователя, по occurred_at по убыванию; пустой массив, если уведомлений нет.
+	AccessLost []PetAccessLostItem       `json:"access_lost"`
+	Items      []GetShortInfoPetResponse `json:"items"`
 }
 
 // GetShortInfoPetResponse defines model for GetShortInfoPetResponse.
 type GetShortInfoPetResponse struct {
-	Breed string             `json:"breed"`
-	Id    openapi_types.UUID `json:"id"`
-	Name  string             `json:"name"`
+	// Access Роль текущего пользователя по отношению к питомцу: owner — владелец, full — полный доступ, view — только просмотр.
+	Access PetAccessEnum      `json:"access"`
+	Breed  string             `json:"breed"`
+	Id     openapi_types.UUID `json:"id"`
+	Name   string             `json:"name"`
+
+	// Owner Владелец питомца. Для собственных питомцев — сам пользователь.
+	Owner PetOwnerRef `json:"owner"`
 
 	// PhotoUrl Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет
 	PhotoUrl *string `json:"photo_url"`
@@ -1133,6 +1194,9 @@ type GetVaccinationResponse struct {
 	// AdministeredTime Время суток введения (HH:MM), местное время часового пояса запроса создания/редактирования. Хранится в вакцинации; по умолчанию 00:00.
 	AdministeredTime string `json:"administered_time"`
 
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+
 	// CompletedAt Момент завершения вакцинации — отметка «выполнено» напоминания на следующую вакцинацию. У завершённой вакцинации next_date отсутствует, дополнительные напоминания удалены. null, если вакцинация не завершена.
 	CompletedAt *time.Time `json:"completed_at"`
 
@@ -1168,7 +1232,9 @@ type GetVetVisitRequest struct {
 
 // GetVetVisitResponse defines model for GetVetVisitResponse.
 type GetVetVisitResponse struct {
-	Clinic *string `json:"clinic"`
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+	Clinic *string      `json:"clinic"`
 
 	// FilesCount Количество прикреплённых файлов визита (0, если файлов нет).
 	FilesCount int                `json:"files_count"`
@@ -1558,6 +1624,111 @@ type MedicationTimeSlot struct {
 	Time string `json:"time"`
 }
 
+// PetAccessEnum Роль текущего пользователя по отношению к питомцу: owner — владелец, full — полный доступ, view — только просмотр.
+type PetAccessEnum string
+
+// PetAccessGrantRoleEnum Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся.
+type PetAccessGrantRoleEnum string
+
+// PetAccessInviteAcceptResponse defines model for PetAccessInviteAcceptResponse.
+type PetAccessInviteAcceptResponse struct {
+	// PetIds Питомцы, доступ к которым у получателя появился.
+	PetIds []openapi_types.UUID `json:"pet_ids"`
+}
+
+// PetAccessInviteCodeRequest defines model for PetAccessInviteCodeRequest.
+type PetAccessInviteCodeRequest struct {
+	// Code Код приглашения (регистр и дефис не важны).
+	Code string `json:"code"`
+}
+
+// PetAccessInviteCreateRequest defines model for PetAccessInviteCreateRequest.
+type PetAccessInviteCreateRequest struct {
+	// PetIds Набор питомцев приглашения (питомцы владельца, не мягко удалённые). Обязан содержать id питомца из пути. Если не передан, набор состоит только из питомца из пути.
+	PetIds *[]openapi_types.UUID `json:"pet_ids,omitempty"`
+
+	// Role Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся.
+	Role PetAccessGrantRoleEnum `json:"role"`
+}
+
+// PetAccessInvitePreviewPet defines model for PetAccessInvitePreviewPet.
+type PetAccessInvitePreviewPet struct {
+	BirthDate *openapi_types.Date `json:"birth_date"`
+	Breed     string              `json:"breed"`
+	Gender    *GetGenderEnum      `json:"gender,omitempty"`
+	Name      string              `json:"name"`
+
+	// PhotoUrl Presigned GET URL на фотографию питомца; null если фотографии нет.
+	PhotoUrl *string `json:"photo_url"`
+	Species  string  `json:"species"`
+}
+
+// PetAccessInvitePreviewResponse defines model for PetAccessInvitePreviewResponse.
+type PetAccessInvitePreviewResponse struct {
+	ExpiresAt time.Time `json:"expires_at"`
+
+	// OwnerName Имя владельца из профиля (first_name), при отсутствии профиля — логин.
+	OwnerName string `json:"owner_name"`
+
+	// Pets Питомцы, доступ к которым будет выдан (без тех, к которым у получателя уже есть доступ).
+	Pets []PetAccessInvitePreviewPet `json:"pets"`
+
+	// Role Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся.
+	Role PetAccessGrantRoleEnum `json:"role"`
+}
+
+// PetAccessInviteResponse Активное приглашение к доступу: одноразовый код и срок его действия.
+type PetAccessInviteResponse struct {
+	// Code Код приглашения, 10 символов без визуально неоднозначных знаков (отображается как XXXXX-XXXXX).
+	Code      string             `json:"code"`
+	ExpiresAt time.Time          `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// PetIds Полный набор действующих питомцев приглашения.
+	PetIds []openapi_types.UUID `json:"pet_ids"`
+
+	// Role Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся.
+	Role PetAccessGrantRoleEnum `json:"role"`
+}
+
+// PetAccessLostItem Уведомление о потере доступа: только снимок имени и вида питомца, без доступа к его данным.
+type PetAccessLostItem struct {
+	Name       string             `json:"name"`
+	OccurredAt time.Time          `json:"occurred_at"`
+	PetId      openapi_types.UUID `json:"pet_id"`
+
+	// Reason Причина потери доступа: revoked — владелец отозвал доступ, pet_deleted — владелец удалил питомца или аккаунт, pet_transferred — питомец передан другому владельцу.
+	Reason  PetAccessLostReasonEnum `json:"reason"`
+	Species string                  `json:"species"`
+}
+
+// PetAccessLostReasonEnum Причина потери доступа: revoked — владелец отозвал доступ, pet_deleted — владелец удалил питомца или аккаунт, pet_transferred — питомец передан другому владельцу.
+type PetAccessLostReasonEnum string
+
+// PetAccessMember defines model for PetAccessMember.
+type PetAccessMember struct {
+	GrantedAt time.Time `json:"granted_at"`
+
+	// Name Имя участника из профиля (first_name), при отсутствии профиля — логин.
+	Name string `json:"name"`
+
+	// Role Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся.
+	Role   PetAccessGrantRoleEnum `json:"role"`
+	UserId openapi_types.UUID     `json:"user_id"`
+}
+
+// PetAccessResponse Участники питомца и активные приглашения, в состав которых он входит. Оба массива отсортированы по created_at.
+type PetAccessResponse struct {
+	Invites []PetAccessInviteResponse `json:"invites"`
+	Members []PetAccessMember         `json:"members"`
+}
+
+// PetAccessUpdateRoleRequest defines model for PetAccessUpdateRoleRequest.
+type PetAccessUpdateRoleRequest struct {
+	// Role Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся.
+	Role PetAccessGrantRoleEnum `json:"role"`
+}
+
 // PetBodyConditionEnum Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 type PetBodyConditionEnum string
 
@@ -1574,6 +1745,14 @@ type PetEventsAvailableFilters struct {
 		Count int          `json:"count"`
 		Type  GetEventEnum `json:"type"`
 	} `json:"types"`
+}
+
+// PetOwnerRef Владелец питомца. Для собственных питомцев — сам пользователь.
+type PetOwnerRef struct {
+	Id openapi_types.UUID `json:"id"`
+
+	// Name Имя из профиля владельца (first_name и last_name, если заполнены, через пробел), при отсутствии профиля — логин.
+	Name string `json:"name"`
 }
 
 // PetTransferAcceptResponse defines model for PetTransferAcceptResponse.
@@ -1709,6 +1888,9 @@ type ReminderPlanRequest struct {
 
 // ReminderPlanResponse defines model for ReminderPlanResponse.
 type ReminderPlanResponse struct {
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+
 	// EndDate Дата окончания; null или отсутствие — без даты окончания. Не раньше start_date; при frequency_type=once не передаётся.
 	EndDate *openapi_types.Date `json:"end_date"`
 
@@ -1785,6 +1967,9 @@ type ReminderRef struct {
 
 // ReminderResponse defines model for ReminderResponse.
 type ReminderResponse struct {
+	// Author Автор записи; null, если питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
+
 	// Files Собственные файлы напоминания (owner_type=reminder_file).
 	Files []EventFile        `json:"files"`
 	Id    openapi_types.UUID `json:"id"`
@@ -2431,6 +2616,15 @@ type PatchMedicationJSONRequestBody = UpdateMedicationRequest
 // PostPetJSONRequestBody defines body for PostPet for application/json ContentType.
 type PostPetJSONRequestBody = GetPetProfileRequest
 
+// PostPetAccessInviteAcceptJSONRequestBody defines body for PostPetAccessInviteAccept for application/json ContentType.
+type PostPetAccessInviteAcceptJSONRequestBody = PetAccessInviteCodeRequest
+
+// PostPetAccessInviteDeclineJSONRequestBody defines body for PostPetAccessInviteDecline for application/json ContentType.
+type PostPetAccessInviteDeclineJSONRequestBody = PetAccessInviteCodeRequest
+
+// PostPetAccessInvitePreviewJSONRequestBody defines body for PostPetAccessInvitePreview for application/json ContentType.
+type PostPetAccessInvitePreviewJSONRequestBody = PetAccessInviteCodeRequest
+
 // PostPetTransferAcceptJSONRequestBody defines body for PostPetTransferAccept for application/json ContentType.
 type PostPetTransferAcceptJSONRequestBody = PetTransferCodeRequest
 
@@ -2442,6 +2636,12 @@ type PostPetTransferPreviewJSONRequestBody = PetTransferCodeRequest
 
 // PutPetJSONRequestBody defines body for PutPet for application/json ContentType.
 type PutPetJSONRequestBody = UpdatePetProfileRequest
+
+// PostPetAccessInviteJSONRequestBody defines body for PostPetAccessInvite for application/json ContentType.
+type PostPetAccessInviteJSONRequestBody = PetAccessInviteCreateRequest
+
+// PutPetAccessMemberJSONRequestBody defines body for PutPetAccessMember for application/json ContentType.
+type PutPetAccessMemberJSONRequestBody = PetAccessUpdateRoleRequest
 
 // PostAllergyJSONRequestBody defines body for PostAllergy for application/json ContentType.
 type PostAllergyJSONRequestBody = GetAllergyRequest

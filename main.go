@@ -29,6 +29,25 @@ func runPetTransferCleanup(interval time.Duration) {
 	}
 }
 
+// runPetAccessInviteCleanup периодически переводит истёкшие приглашения к
+// доступу в expired, а приглашения без действующих питомцев — в cancelled:
+// сразу при старте и затем раз в interval. Такие приглашения и без этого
+// трактуются как неактивные при обращении к ним — очистка лишь приводит
+// статусы в БД в соответствие.
+func runPetAccessInviteCleanup(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		changed, err := database.ExpireStalePetAccessInvites()
+		if err != nil {
+			log.Printf("Ошибка очистки приглашений к доступу: %v", err)
+		} else if changed > 0 {
+			log.Printf("Приглашений к доступу переведено в expired/cancelled: %d", changed)
+		}
+		<-ticker.C
+	}
+}
+
 func main() {
 	// Инициализация базы данных
 	database.InitDB()
@@ -52,6 +71,7 @@ func main() {
 	})
 
 	go runPetTransferCleanup(time.Hour)
+	go runPetAccessInviteCleanup(time.Hour)
 
 	port := os.Getenv("PORT")
 	if port == "" {

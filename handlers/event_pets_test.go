@@ -16,9 +16,12 @@ const (
 	testPetID3   = "77777777-7777-7777-7777-777777777777"
 	testOtherPet = "88888888-8888-8888-8888-888888888888"
 
-	ownedPetsQuery      = `SELECT id, name, species, deleted_at IS NOT NULL\s+FROM pet\s+WHERE id = ANY\(\$1\) AND user_id = \$2`
-	eventByIDQuery      = `SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+WHERE e.id = \$1 AND e.deleted_at IS NULL`
-	eventForUserQuery   = `SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+WHERE e.id = \$1 AND e.user_id = \$2 AND e.deleted_at IS NULL`
+	ownedPetsQuery    = `SELECT p\.id, p\.name, p\.species, p\.deleted_at IS NOT NULL, p\.user_id::text,\s+CASE WHEN p\.user_id = \$2 THEN .owner. ELSE pa\.role END\s+FROM pet p`
+	eventByIDQuery    = `SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+WHERE e.id = \$1 AND e.deleted_at IS NULL`
+	eventForUserQuery = `SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+WHERE e.id = \$1 AND e.deleted_at IS NULL AND EXISTS`
+	// eventForDeleteQuery — чтение события для удаления: допускаются и события
+	// без видимых питомцев.
+	eventForDeleteQuery = `SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+WHERE e.id = \$1 AND e.deleted_at IS NULL AND \(`
 	eventIdempotencySQL = `SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+WHERE e.user_id = \$1 AND e.idempotency_key = \$2`
 	eventPetsSQL        = `SELECT link\.event_id, pet\.id, pet\.name, pet\.species\s+FROM event_pet link`
 	filesByOwnerSQL     = `SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL\s+ORDER BY position ASC`
@@ -32,6 +35,10 @@ type testPet struct {
 	Name    string
 	Species string
 	Deleted bool
+	// Role — роль пользователя у питомца (по умолчанию owner), OwnerID —
+	// владелец (по умолчанию тот же пользователь).
+	Role    string
+	OwnerID string
 }
 
 var (
@@ -53,11 +60,32 @@ func petIDsOfTest(pets ...testPet) []string {
 // возвращаются перечисленные питомцы (отсутствующий в списке питомец —
 // не найден или чужой).
 func expectOwnedPets(mock sqlmock.Sqlmock, pets ...testPet) {
-	rows := sqlmock.NewRows([]string{"id", "name", "species", "deleted"})
+	rows := sqlmock.NewRows([]string{"id", "name", "species", "deleted", "owner_id", "role"})
 	for _, p := range pets {
-		rows.AddRow(p.ID, p.Name, p.Species, p.Deleted)
+		role, ownerID := p.Role, p.OwnerID
+		if role == "" {
+			role = "owner"
+		}
+		if ownerID == "" {
+			ownerID = testUserID
+		}
+		rows.AddRow(p.ID, p.Name, p.Species, p.Deleted, ownerID, role)
 	}
 	mock.ExpectQuery(ownedPetsQuery).WillReturnRows(rows)
+}
+
+// expectWritable мокирует проверку роли owner/full у видимых питомцев записи
+// (database.EnsureWritableWith): writable=false — у какого-либо питомца роль view.
+func expectWritable(mock sqlmock.Sqlmock, writable bool) {
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM pet p WHERE p\.id = ANY`).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(!writable))
+}
+
+// expectEventForUserWritable — expectEventForUser для операций записи: после
+// чтения события проверяется роль пользователя у его видимых питомцев.
+func expectEventForUserWritable(mock sqlmock.Sqlmock, eventID, eventType, value string, pets ...testPet) {
+	expectEventForUser(mock, eventID, eventType, value, pets...)
+	expectWritable(mock, true)
 }
 
 // expectEventPets мокирует чтение видимых питомцев события: мягко удалённые
@@ -102,6 +130,7 @@ func expectEventCreated(mock sqlmock.Sqlmock, eventID, eventType, value string, 
 	mock.ExpectQuery(eventByIDQuery).
 		WillReturnRows(eventRow(eventID, eventType, value, time.Now()))
 	expectEventPets(mock, eventID, pets...)
+	expectNoSharedPets(mock)
 	expectEventFilesEmpty(mock)
 }
 

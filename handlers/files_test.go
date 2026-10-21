@@ -62,9 +62,13 @@ func filesRequest(t *testing.T, method, path string, body any, authed bool) *htt
 }
 
 func expectPetOwnership(mock sqlmock.Sqlmock, petID string, userID string, count int) {
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2 AND deleted_at IS NULL`).
-		WithArgs(petID, userID).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
+	query := mock.ExpectQuery(`SELECT CASE WHEN p\.user_id = \$2 THEN 'owner' ELSE pa\.role END\s+FROM pet p\s+LEFT JOIN pet_access pa`).
+		WithArgs(petID, userID)
+	if count == 0 {
+		query.WillReturnError(sql.ErrNoRows)
+		return
+	}
+	query.WillReturnRows(sqlmock.NewRows([]string{"role"}).AddRow("owner"))
 }
 
 // --- POST /files/upload-url ---
@@ -382,9 +386,14 @@ func TestFilesByIDHandler_DeleteWrongMethod(t *testing.T) {
 const testEventID = "88888888-8888-8888-8888-888888888888"
 
 func expectEventFileOwnership(mock sqlmock.Sqlmock, eventID string, userID string, count int) {
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM event\s+WHERE id = \$1 AND deleted_at IS NULL AND user_id = \$2\s+AND EXISTS`).
-		WithArgs(eventID, userID).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
+	query := mock.ExpectQuery(eventForUserQuery).WithArgs(eventID, userID)
+	if count == 0 {
+		query.WillReturnError(sql.ErrNoRows)
+		return
+	}
+	query.WillReturnRows(eventRow(eventID, "weight", `{"amount":5}`, time.Now().Add(-time.Hour)))
+	expectEventPets(mock, eventID, petRex)
+	expectWritable(mock, true)
 }
 
 func TestFilesUploadUrlHandler_EventFile_Success(t *testing.T) {

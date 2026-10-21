@@ -47,11 +47,16 @@ func newReminderHTTPError(status int, code openapi.ErrorCodeEnum, message string
 }
 
 // writeReminderTxError отвечает на ошибку транзакции: reminderHTTPError —
-// своим статусом, sql.ErrNoRows — 404, остальное — 500.
+// своим статусом, database.ErrForbidden — 403, sql.ErrNoRows — 404,
+// остальное — 500.
 func writeReminderTxError(w http.ResponseWriter, err error, internalMessage string) {
 	var httpErr *reminderHTTPError
 	if errors.As(err, &httpErr) {
 		writeError(w, httpErr.status, httpErr.code, httpErr.message)
+		return
+	}
+	if errors.Is(err, database.ErrForbidden) {
+		writeForbidden(w)
 		return
 	}
 	if errors.Is(err, sql.ErrNoRows) {
@@ -224,8 +229,12 @@ func insertPreparedReminderPlan(exec database.Executor, p *preparedReminderPlan)
 // buildReminderPlanResponse строит ReminderPlanResponse по настройкам:
 // незавершённые напоминания, файлы настроек (с presigned-ссылками) и число
 // будущих напоминаний с собственными файлами.
-func buildReminderPlanResponse(r *http.Request, plan *database.ReminderPlanFull, now time.Time) (models.ReminderPlanResponse, error) {
+func buildReminderPlanResponse(r *http.Request, viewerID string, plan *database.ReminderPlanFull, now time.Time) (models.ReminderPlanResponse, error) {
 	open, err := database.ListOpenRemindersWith(database.DB, plan.ID)
+	if err != nil {
+		return models.ReminderPlanResponse{}, err
+	}
+	author, err := planAuthor(viewerID, plan.ReminderPlanDB, plan.Pets)
 	if err != nil {
 		return models.ReminderPlanResponse{}, err
 	}
@@ -253,6 +262,7 @@ func buildReminderPlanResponse(r *http.Request, plan *database.ReminderPlanFull,
 		Source:        plan.Source,
 		Reminders:     make([]models.ReminderRef, 0, len(open)),
 		Files:         fileItems,
+		Author:        author,
 
 		FutureRemindersWithFilesCount: futureWithFiles,
 	}
@@ -295,7 +305,7 @@ func writeReminderPlanByID(w http.ResponseWriter, r *http.Request, status int, p
 		writeReminderTxError(w, err, "Ошибка получения настроек напоминания")
 		return
 	}
-	resp, err := buildReminderPlanResponse(r, plan, time.Now().UTC())
+	resp, err := buildReminderPlanResponse(r, userID, plan, time.Now().UTC())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения настроек напоминания")
 		return
@@ -562,7 +572,7 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 	now := time.Now().UTC()
 	var orphanKeys []string
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		plan, err := database.GetReminderPlanForUserWith(tx, planID, userID, true)
+		plan, err := database.GetReminderPlanForWriteWith(tx, planID, userID, true)
 		if err != nil {
 			return err
 		}
@@ -752,7 +762,7 @@ func DeleteReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 
 	var orphanKeys []string
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		if _, err := database.GetReminderPlanForUserWith(tx, planID, userID, true); err != nil {
+		if _, err := database.GetReminderPlanForWriteWith(tx, planID, userID, true); err != nil {
 			return err
 		}
 		var err error
@@ -816,7 +826,14 @@ func GetReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uuid.
 		return
 	}
 
+	author, err := planAuthor(userID, full.Plan, full.Pets)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения автора напоминания")
+		return
+	}
+
 	resp := models.ReminderResponse{
+		Author:            author,
 		ID:                full.Reminder.ID.String(),
 		PlanID:            full.Plan.ID.String(),
 		RemindAt:          full.Reminder.RemindAt.UTC().Format(time.RFC3339),
@@ -850,7 +867,7 @@ func DeleteReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 
 	var orphanKeys []string
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		full, err := database.GetReminderForUserWith(tx, reminderID, userID, true)
+		full, err := database.GetReminderForWriteWith(tx, reminderID, userID, true)
 		if err != nil {
 			return err
 		}
@@ -896,7 +913,7 @@ func CompleteReminderHandler(w http.ResponseWriter, r *http.Request, reminderID 
 	var factEventID uuid.NullUUID
 	var orphanKeys []string
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		full, err := database.GetReminderForUserWith(tx, reminderID, userID, true)
+		full, err := database.GetReminderForWriteWith(tx, reminderID, userID, true)
 		if err != nil {
 			return err
 		}
@@ -1061,7 +1078,7 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 	var newEventID, newPlanID uuid.UUID
 	var orphanKeys []string
 	err = database.RunInTx(func(tx *sql.Tx) error {
-		full, err := database.GetReminderForUserWith(tx, reminderID, userID, true)
+		full, err := database.GetReminderForWriteWith(tx, reminderID, userID, true)
 		if err != nil {
 			return err
 		}
@@ -1129,7 +1146,7 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 	deleteOrphanedObjects(r.Context(), orphanKeys)
 
 	if preparedEvent != nil {
-		writeDetachEventResponse(w, r, newEventID)
+		writeDetachEventResponse(w, r, userID, newEventID)
 		return
 	}
 	plan, err := database.GetReminderPlanForUserWith(database.DB, newPlanID, userID, false)
@@ -1137,7 +1154,7 @@ func DetachReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uu
 		writeReminderTxError(w, err, "Ошибка получения настроек напоминания")
 		return
 	}
-	resp, err := buildReminderPlanResponse(r, plan, time.Now().UTC())
+	resp, err := buildReminderPlanResponse(r, userID, plan, time.Now().UTC())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения настроек напоминания")
 		return
@@ -1205,7 +1222,7 @@ func replayDetach(w http.ResponseWriter, r *http.Request, req models.DetachRemin
 		if err != nil {
 			return false
 		}
-		response, ok := buildEventResponse(w, r, eventFull)
+		response, ok := buildEventResponse(w, r, userID, eventFull)
 		if !ok {
 			return true
 		}
@@ -1221,7 +1238,7 @@ func replayDetach(w http.ResponseWriter, r *http.Request, req models.DetachRemin
 	if err != nil {
 		return false
 	}
-	resp, err := buildReminderPlanResponse(r, plan, time.Now().UTC())
+	resp, err := buildReminderPlanResponse(r, userID, plan, time.Now().UTC())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения настроек напоминания")
 		return true
@@ -1231,13 +1248,13 @@ func replayDetach(w http.ResponseWriter, r *http.Request, req models.DetachRemin
 }
 
 // writeDetachEventResponse читает созданный факт и отвечает 201 с ним.
-func writeDetachEventResponse(w http.ResponseWriter, r *http.Request, eventID uuid.UUID) {
+func writeDetachEventResponse(w http.ResponseWriter, r *http.Request, userID string, eventID uuid.UUID) {
 	eventFull, err := database.GetEventFullByID(eventID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Событие создано, но не удалось получить его данные")
 		return
 	}
-	response, ok := buildEventResponse(w, r, eventFull)
+	response, ok := buildEventResponse(w, r, userID, eventFull)
 	if !ok {
 		return
 	}
@@ -1308,7 +1325,7 @@ func GetPetUpcomingRemindersHandler(w http.ResponseWriter, r *http.Request, petI
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметр limit должен быть целым числом от 1 до 10")
 		return
 	}
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 

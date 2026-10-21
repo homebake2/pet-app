@@ -50,7 +50,7 @@ func TestUpdateEventHandler_VaccinationTypeAndValueImmutable(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			mock := setupMockDB(t)
 			expectTokensValid(mock, testUserID)
-			expectEventForUser(mock, testEventID, "vaccination", `{"name":"Rabies"}`, petRex)
+			expectEventForUserWritable(mock, testEventID, "vaccination", `{"name":"Rabies"}`, petRex)
 
 			w := patchEvent(t, c.req)
 
@@ -64,9 +64,9 @@ func TestUpdateEventHandler_VaccinationTypeAndValueImmutable(t *testing.T) {
 func TestUpdateEventHandler_VaccinationNotesEditable(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "vaccination", `{"name":"Rabies"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "vaccination", `{"name":"Rabies"}`, petRex)
 	mock.ExpectBegin()
-	expectEventForUser(mock, testEventID, "vaccination", `{"name":"Rabies"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "vaccination", `{"name":"Rabies"}`, petRex)
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -81,7 +81,7 @@ func TestUpdateEventHandler_VaccinationNotesEditable(t *testing.T) {
 func TestUpdateEventHandler_ChangeTypeToVaccinationRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "other", `{"label":"x"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "other", `{"label":"x"}`, petRex)
 
 	newType := "vaccination"
 	w := patchEvent(t, models.UpdateEventRequest{Type: &newType, Value: eventValuePtr(`{"name":"Rabies"}`)})

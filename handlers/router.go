@@ -20,6 +20,13 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/pet-transfers/preview", PetTransferPreviewHandler)
 	mux.HandleFunc("/pet-transfers/accept", PetTransferAcceptHandler)
 	mux.HandleFunc("/pet-transfers/decline", PetTransferDeclineHandler)
+	// Доступ к питомцу по коду приглашения и уведомления о потере доступа (см.
+	// handlers/pet_access.go); выдача, участники и отказ от доступа живут в
+	// PetByIDHandler (/pet/{id}/access...).
+	mux.HandleFunc("/pet-access-invites/preview", PetAccessInvitePreviewHandler)
+	mux.HandleFunc("/pet-access-invites/accept", PetAccessInviteAcceptHandler)
+	mux.HandleFunc("/pet-access-invites/decline", PetAccessInviteDeclineHandler)
+	mux.HandleFunc("/pet-access-notices/", PetAccessNoticeHandler)
 	mux.HandleFunc("/events", CreateEventHandler)
 	// Точный путь /events/stats выигрывает у поддерева /events/ в ServeMux,
 	// поэтому агрегация не попадает в обработчик /events/{id}.

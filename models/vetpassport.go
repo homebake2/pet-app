@@ -189,6 +189,9 @@ type VaccinationResponse struct {
 	NextPlanID          *string                            `json:"next_plan_id,omitempty"`
 	ExtraReminders      []VaccinationExtraReminderResponse `json:"extra_reminders"`
 	FilesCount          int                                `json:"files_count"`
+	// Author — пользователь, создавший запись; null, пока питомцем пользуется
+	// один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 type VaccinationListResponse struct {
@@ -231,6 +234,9 @@ type DiseaseResponse struct {
 	Status        string  `json:"status"`
 	Note          *string `json:"note,omitempty"`
 	FilesCount    int     `json:"files_count"`
+	// Author — пользователь, создавший запись; null, пока питомцем пользуется
+	// один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 type DiseaseListResponse struct {
@@ -273,6 +279,9 @@ type VetVisitResponse struct {
 	Clinic     *string `json:"clinic,omitempty"`
 	Note       *string `json:"note,omitempty"`
 	FilesCount int     `json:"files_count"`
+	// Author — пользователь, создавший запись; null, пока питомцем пользуется
+	// один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 type VetVisitListResponse struct {
@@ -319,6 +328,9 @@ type AllergyResponse struct {
 	Severity     string  `json:"severity"`
 	Note         *string `json:"note,omitempty"`
 	FilesCount   int     `json:"files_count"`
+	// Author — пользователь, создавший запись; null, пока питомцем пользуется
+	// один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 type AllergyListResponse struct {
@@ -456,6 +468,9 @@ type MedicationResponse struct {
 	ReminderPlanID *string `json:"reminder_plan_id"`
 	Note           *string `json:"note,omitempty"`
 	FilesCount     int     `json:"files_count"`
+	// Author — пользователь, создавший запись; null, пока питомцем пользуется
+	// один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 type MedicationListResponse struct {

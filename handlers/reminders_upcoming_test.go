@@ -24,7 +24,7 @@ func TestGetUpcomingRemindersHandler_ReturnsValue(t *testing.T) {
 		WithArgs(testUserID, sqlmock.AnyArg(), 64).
 		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns).
 			AddRow(reminderID, planID, time.Date(2030, 1, 1, 8, 0, 0, 0, time.UTC), nil, nil, "vaccination",
-				[]byte(`{"name":"Rabies","vaccination_at":"2030-02-01T10:00:00Z"}`), "vaccination_extra", "Rabies", 1))
+				[]byte(`{"name":"Rabies","vaccination_at":"2030-02-01T10:00:00Z"}`), "vaccination_extra", "Rabies", 1, testUserID))
 	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).
 			AddRow(planID, testPetID, "Rex", "DOG"))

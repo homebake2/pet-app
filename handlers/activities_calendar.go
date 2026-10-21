@@ -92,12 +92,18 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 // ответа (item_type=reminder): заметка — собственная заметка напоминания, а
 // при её отсутствии — заметка настроек; files_count — число файлов настроек
 // плюс собственных файлов напоминания.
-func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.ActivitiesDayItem, error) {
+func reminderCalendarItems(viewerID string, rows []database.ReminderCalendarRow) ([]models.ActivitiesDayItem, error) {
 	planIDs := make([]uuid.UUID, len(rows))
 	reminderIDs := make([]uuid.UUID, len(rows))
+	authorRefs := make([]database.AuthorRef, len(rows))
 	for i, row := range rows {
 		planIDs[i] = row.PlanID
 		reminderIDs[i] = row.ID
+		authorRefs[i] = database.AuthorRef{AuthorID: row.AuthorID, PetIDs: petIDsOf(row.Pets)}
+	}
+	authors, err := database.ResolveAuthors(viewerID, authorRefs)
+	if err != nil {
+		return nil, err
 	}
 	planFileCounts, err := database.CountFilesForOwners(reminderPlanFileOwnerType, planIDs)
 	if err != nil {
@@ -109,7 +115,7 @@ func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.Activi
 	}
 
 	items := make([]models.ActivitiesDayItem, 0, len(rows))
-	for _, row := range rows {
+	for i, row := range rows {
 		planID := row.PlanID.String()
 		planSource := row.PlanSource
 		unclosed := row.PlanUnclosedCount
@@ -131,6 +137,7 @@ func reminderCalendarItems(rows []database.ReminderCalendarRow) ([]models.Activi
 			Value:             row.Value,
 			FilesCount:        planFileCounts[row.PlanID] + ownFileCounts[row.ID],
 			Pets:              database.ActivitiesDayPetRefs(row.Pets),
+			Author:            authors[i],
 		})
 	}
 	return items, nil
@@ -194,8 +201,14 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	eventAuthorsList, err := eventAuthors(userID, eventsFull)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов событий")
+		return
+	}
+
 	items := make([]models.ActivitiesDayItem, 0, len(eventsFull))
-	for _, e := range eventsFull {
+	for i, e := range eventsFull {
 		var notes *string
 		if e.Event.Notes.Valid {
 			notes = &e.Event.Notes.String
@@ -209,6 +222,7 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 			Value:      e.Event.Value,
 			FilesCount: filesCounts[e.Event.ID],
 			Pets:       database.ActivitiesDayPetRefs(e.Pets),
+			Author:     eventAuthorsList[i],
 		})
 	}
 
@@ -217,7 +231,7 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения напоминаний")
 		return
 	}
-	reminderItems, err := reminderCalendarItems(reminderRows)
+	reminderItems, err := reminderCalendarItems(userID, reminderRows)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов напоминаний")
 		return

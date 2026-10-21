@@ -194,16 +194,20 @@ func FinalizePetIdempotencyKey(userID string, idempotencyKey string, petID uuid.
 	return err
 }
 
-// GetPetsByUserID - функция получения питомцев по user_id
-func GetPetsByUserID(userID string) ([]models.PetDB, error) {
+// GetAccessiblePetsByUserID возвращает не мягко удалённых питомцев,
+// доступных пользователю: собственных и тех, к которым владелец выдал ему
+// доступ, в порядке created_at питомца. Роль пользователя у каждого питомца —
+// в поле Access.
+func GetAccessiblePetsByUserID(userID string) ([]models.PetDB, error) {
 	var pets []models.PetDB
 
 	rows, err := DB.Query(`
-	SELECT id, name, breed, species
-	FROM pet
-	WHERE user_id = $1
-	  AND deleted_at IS NULL
-	ORDER BY created_at
+	SELECT p.id, p.name, p.breed, p.species, CASE WHEN p.user_id = $1 THEN 'owner' ELSE pa.role END, p.user_id::text
+	FROM pet p
+	LEFT JOIN pet_access pa ON pa.pet_id = p.id AND pa.user_id = $1
+	WHERE p.deleted_at IS NULL
+	  AND (p.user_id = $1 OR pa.user_id IS NOT NULL)
+	ORDER BY p.created_at, p.id
 `, userID)
 	if err != nil {
 		return nil, err
@@ -212,7 +216,7 @@ func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 
 	for rows.Next() {
 		var pet models.PetDB
-		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Breed, &pet.Species); err != nil {
+		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Breed, &pet.Species, &pet.Access, &pet.OwnerID); err != nil {
 			return nil, err
 		}
 		pets = append(pets, pet)
@@ -225,19 +229,31 @@ func GetPetsByUserID(userID string) ([]models.PetDB, error) {
 	return pets, nil
 }
 
-// GetPetByIDAndUserID - получить питомца по id и user_id
-// Мягко удалённые питомцы (deleted_at заполнен) скрыты — обрабатываются как несуществующие.
-func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse, error) {
+// GetPetForUser возвращает питомца вместе с ролью пользователя у него
+// (поле Access) и признаком shared — у питомца есть хотя бы один участник.
+// Питомец доступен владельцу и участнику с любой ролью; мягко удалённые
+// питомцы (deleted_at заполнен) скрыты — обрабатываются как несуществующие.
+// sql.ErrNoRows — питомца нет, он удалён либо у пользователя нет доступа.
+func GetPetForUser(petID uuid.UUID, userID string) (*models.PetIdResponse, error) {
 	query := `
-	SELECT id, name, gender, species, birth_date, color, sterilized,
-	       habitation, notes, deleted_at, breed, body_condition,
-	       microchipped, microchip_number, ringed, ring_number,
-	       uv_lamp_required, water_type, enclosure_volume_l, group_size
-	FROM pet
-	WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+	SELECT p.id, p.name, p.gender, p.species, p.birth_date, p.color, p.sterilized,
+	       p.habitation, p.notes, p.deleted_at, p.breed, p.body_condition,
+	       p.microchipped, p.microchip_number, p.ringed, p.ring_number,
+	       p.uv_lamp_required, p.water_type, p.enclosure_volume_l, p.group_size,
+	       CASE WHEN p.user_id = $2 THEN 'owner' ELSE pa.role END,
+	       EXISTS (SELECT 1 FROM pet_access shared_pa WHERE shared_pa.pet_id = p.id),
+	       p.user_id::text, ` + ownerNameSQL + `
+	FROM pet p
+	JOIN users ou ON ou.id = p.user_id
+	LEFT JOIN profile opr ON opr.user_id = p.user_id
+	LEFT JOIN pet_access pa ON pa.pet_id = p.id AND pa.user_id = $2
+	WHERE p.id = $1 AND p.deleted_at IS NULL AND (p.user_id = $2 OR pa.user_id IS NOT NULL)
 	`
 
 	var petDB models.PetIdDB
+	var access string
+	var shared bool
+	var owner models.PetOwnerRef
 
 	err := DB.QueryRow(query, petID, userID).Scan(
 		&petDB.ID,
@@ -260,6 +276,10 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 		&petDB.WaterType,
 		&petDB.EnclosureVolumeL,
 		&petDB.GroupSize,
+		&access,
+		&shared,
+		&owner.ID,
+		&owner.Name,
 	)
 
 	if err != nil {
@@ -272,6 +292,9 @@ func GetPetByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdResponse,
 		Species:    petDB.Species,
 		Sterilized: petDB.Sterilized.Bool,
 		IsDeleted:  petDB.DeletedAt.Valid,
+		Access:     access,
+		Shared:     shared,
+		Owner:      owner,
 	}
 
 	if petDB.Gender.Valid {
@@ -376,8 +399,10 @@ func GetLatestPetWeight(petID uuid.UUID) (*float64, error) {
 	return &amount.Float64, nil
 }
 
-// UpdatePet обновляет только те поля питомца, что переданы в запросе.
-func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) error {
+// UpdatePet обновляет только те поля питомца, что переданы в запросе. Право
+// пользователя на изменение питомца (владелец или полный доступ) и право
+// владельца на is_deleted проверяет вызывающий код.
+func UpdatePet(petID uuid.UUID, req models.UpdatePetRequest) error {
 	setParts := []string{}
 	args := []any{}
 	argID := 1
@@ -507,20 +532,33 @@ func UpdatePet(petID uuid.UUID, userID string, req models.UpdatePetRequest) erro
 	query := fmt.Sprintf(`
 		UPDATE pet
 		SET %s
-		WHERE id = $%d AND user_id = $%d
-	`, strings.Join(setParts, ", "), argID, argID+1)
+		WHERE id = $%d
+	`, strings.Join(setParts, ", "), argID)
 
-	args = append(args, petID, userID)
+	args = append(args, petID)
 
-	// Мягкое удаление через is_deleted отменяет активную передачу питомца в
-	// той же транзакции, как и DeletePet.
+	// Мягкое удаление через is_deleted отменяет активную передачу питомца и
+	// завершает доступы к нему в той же транзакции, как и DeletePet.
 	if req.IsDeleted != nil && *req.IsDeleted {
 		return RunInTx(func(tx *sql.Tx) error {
 			if err := cancelPendingTransfersForPetWith(tx, petID); err != nil {
 				return err
 			}
-			_, err := tx.Exec(query, args...)
-			return err
+			if _, err := tx.Exec(query, args...); err != nil {
+				return err
+			}
+			return endPetAccessOnDeleteWith(tx, petID)
+		})
+	}
+
+	// Восстановление питомца возвращает доступ участникам: уведомления об
+	// удалении питомца теряют смысл.
+	if req.IsDeleted != nil && !*req.IsDeleted {
+		return RunInTx(func(tx *sql.Tx) error {
+			if _, err := tx.Exec(query, args...); err != nil {
+				return err
+			}
+			return clearPetAccessNoticesWith(tx, petID)
 		})
 	}
 
@@ -557,6 +595,9 @@ func DeletePet(petID uuid.UUID, userID string) (orphanObjectKeys []string, err e
 		if rows == 0 {
 			return sql.ErrNoRows
 		}
+		if err := endPetAccessOnDeleteWith(tx, petID); err != nil {
+			return err
+		}
 		orphanObjectKeys, err = UnlinkPetFromReminderPlansWith(tx, petID)
 		return err
 	})
@@ -569,73 +610,21 @@ func DeletePet(petID uuid.UUID, userID string) (orphanObjectKeys []string, err e
 	return orphanObjectKeys, nil
 }
 
-// GetPetIdDBByIDAndUserID - получить питомца по id и user_id (проверка принадлежности к пользователю)
-func GetPetIdDBByIDAndUserID(petID uuid.UUID, userID string) (*models.PetIdDB, error) {
-	query := `
-	SELECT id, name, gender, species, birth_date, color, sterilized,
-	       habitation, notes, deleted_at, breed, body_condition,
-	       microchipped, microchip_number, ringed, ring_number,
-	       uv_lamp_required, water_type, enclosure_volume_l, group_size
-	FROM pet
-	WHERE id = $1 AND user_id = $2
-	`
-
-	var petDB models.PetIdDB
-
-	err := DB.QueryRow(query, petID, userID).Scan(
-		&petDB.ID,
-		&petDB.Name,
-		&petDB.Gender,
-		&petDB.Species,
-		&petDB.BirthDate,
-		&petDB.Color,
-		&petDB.Sterilized,
-		&petDB.Habitation,
-		&petDB.Notes,
-		&petDB.DeletedAt,
-		&petDB.Breed,
-		&petDB.BodyCondition,
-		&petDB.Microchipped,
-		&petDB.MicrochipNumber,
-		&petDB.Ringed,
-		&petDB.RingNumber,
-		&petDB.UVLampRequired,
-		&petDB.WaterType,
-		&petDB.EnclosureVolumeL,
-		&petDB.GroupSize,
-	)
-
-	if err != nil {
-		return nil, err
+// CheckPetFileAccess проверяет право на операции с файлами по правилу,
+// зарегистрированному для owner_type = "pet_photo" в реестре типов владельцев
+// generic-механизма файлов сущностей (см. handlers/files.go): питомец не
+// мягко удалён и доступен пользователю; загрузка, подтверждение и удаление
+// фотографии — операции записи (роль owner или full), как и изменение
+// профиля питомца (PUT /pet/{id}).
+func CheckPetFileAccess(petID uuid.UUID, userID string) (AccessCheck, error) {
+	role, err := GetPetRole(petID, userID)
+	if err == sql.ErrNoRows {
+		return AccessNone, nil
 	}
-
-	return &petDB, nil
-}
-
-// CheckPetBelongsToUser - проверка принадлежности питомца пользователю
-func CheckPetBelongsToUser(petID uuid.UUID, userID string) (bool, error) {
-	query := `SELECT COUNT(1) FROM pet WHERE id = $1 AND user_id = $2`
-	var count int
-	err := DB.QueryRow(query, petID, userID).Scan(&count)
 	if err != nil {
-		return false, err
+		return AccessNone, err
 	}
-	return count == 1, nil
-}
-
-// CheckPetOwnership проверяет владение питомцем по правилу, зарегистрированному
-// для owner_type = "pet_photo" в реестре типов владельцев generic-механизма
-// файлов сущностей (см. handlers/files.go): pet.id = petID AND
-// pet.user_id = userID AND pet.deleted_at IS NULL — дословно то же правило,
-// что и на остальных эндпоинтах питомца (GET/PUT/DELETE /pet/{id}).
-func CheckPetOwnership(petID uuid.UUID, userID string) (bool, error) {
-	query := `SELECT COUNT(1) FROM pet WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`
-	var count int
-	err := DB.QueryRow(query, petID, userID).Scan(&count)
-	if err != nil {
-		return false, err
-	}
-	return count == 1, nil
+	return accessCheckFromRole(role), nil
 }
 
 // GetPetById - получить питомца по ID
@@ -680,13 +669,15 @@ func GetPetById(petID uuid.UUID) (*models.PetIdDB, error) {
 	return &petDB, nil
 }
 
-// CountPetsByUserID возвращает количество не мягко удалённых питомцев
-// пользователя — используется полем `pets_count` в ответах login/register/
+// CountPetsByUserID возвращает количество не мягко удалённых питомцев,
+// доступных пользователю (собственных и выданных в доступ), — то же число, что
+// покажет GET /pet; используется полем `pets_count` в ответах login/register/
 // guest (см. GetLoginResponse).
 func CountPetsByUserID(userID string) (int, error) {
 	var count int
 	err := DB.QueryRow(`
-		SELECT COUNT(*) FROM pet WHERE user_id = $1 AND deleted_at IS NULL
+		SELECT COUNT(*) FROM pet p
+		WHERE p.deleted_at IS NULL AND `+petAccessibleClause("p", "$1")+`
 	`, userID).Scan(&count)
 	if err != nil {
 		return 0, err

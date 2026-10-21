@@ -121,6 +121,18 @@ func CreatePetTransfer(petID uuid.UUID, userID string, code string) (*PetTransfe
 			return ErrTransferAlreadyPending
 		}
 
+		// Код не должен совпадать с кодом активного приглашения к доступу:
+		// коды обоих видов вводятся в одно поле.
+		var inviteCodeTaken bool
+		if err := tx.QueryRow(`
+			SELECT EXISTS (SELECT 1 FROM pet_access_invite WHERE code = $1 AND status = 'pending' AND expires_at > now())
+		`, code).Scan(&inviteCodeTaken); err != nil {
+			return err
+		}
+		if inviteCodeTaken {
+			return ErrTransferCodeCollision
+		}
+
 		err = tx.QueryRow(`
 			INSERT INTO pet_transfer (pet_id, pet_name, pet_species, from_user_id, code, status, expires_at)
 			VALUES ($1, $2, $3, $4, $5, 'pending', now() + make_interval(secs => $6))
@@ -335,6 +347,11 @@ func AcceptPetTransfer(code string, toUserID string) (petID uuid.UUID, orphanObj
 		if _, err := tx.Exec(`UPDATE pet SET user_id = $1 WHERE id = $2`, toUserID, petID); err != nil {
 			return err
 		}
+		// Все доступы к питомцу прекращаются, бывшие участники получают
+		// уведомление, приглашения к доступу теряют питомца.
+		if err := endPetAccessOnTransferWith(tx, petID, toUserID); err != nil {
+			return err
+		}
 		if err := transferPetEventsWith(tx, petID, toUserID); err != nil {
 			return err
 		}
@@ -343,6 +360,9 @@ func AcceptPetTransfer(code string, toUserID string) (petID uuid.UUID, orphanObj
 			return err
 		}
 		if err := transferPetFilesWith(tx, petID, toUserID); err != nil {
+			return err
+		}
+		if err := transferPetVetPassportAuthorsWith(tx, petID, toUserID); err != nil {
 			return err
 		}
 		_, err = tx.Exec(`
@@ -483,6 +503,19 @@ func copyEventsForPetWith(exec dbExecutor, eventIDs []uuid.UUID, petID uuid.UUID
 		WHERE v.pet_id = $4 AND v.administered_event_id = c.source_id
 	`, pq.Array(eventIDs), pq.Array(copyIDs), toUserID, petID, eventFileOwnerType)
 	return err
+}
+
+// transferPetVetPassportAuthorsWith передаёт получателю авторство записей
+// Ветпаспорта питомца: у получателя питомец без участников, и прежние авторы
+// (отправитель и бывшие участники) не должны отображаться его записями.
+func transferPetVetPassportAuthorsWith(exec dbExecutor, petID uuid.UUID, toUserID string) error {
+	for _, entry := range petTransferFileOwnerTables {
+		// Имена таблиц берутся только из petTransferFileOwnerTables.
+		if _, err := exec.Exec(`UPDATE `+entry.table+` SET user_id = $1 WHERE pet_id = $2`, toUserID, petID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // transferPetFilesWith передаёт получателю файлы фотографии питомца и записей

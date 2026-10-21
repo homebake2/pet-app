@@ -129,6 +129,7 @@ func TestPetTransfer_MethodNotAllowed(t *testing.T) {
 func TestCreatePetTransfer_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	expectPetRole(mock, "owner")
 	expiresAt := time.Now().UTC().Add(7 * 24 * time.Hour).Truncate(time.Second)
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).
@@ -139,6 +140,8 @@ func TestCreatePetTransfer_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"name", "species"}).AddRow("Rex", "dog"))
 	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM pet_transfer WHERE pet_id = \$1 AND status = 'pending'\)`).
 		WithArgs(testPetID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectQuery(`SELECT EXISTS \(SELECT 1 FROM pet_access_invite WHERE code`).
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
 	mock.ExpectQuery(`INSERT INTO pet_transfer`).
 		WithArgs(testPetID, "Rex", "dog", testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
@@ -159,6 +162,7 @@ func TestCreatePetTransfer_Success(t *testing.T) {
 func TestCreatePetTransfer_PetNotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	expectPetRole(mock, "owner")
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT name, species FROM pet`).WillReturnError(sql.ErrNoRows)
@@ -173,6 +177,7 @@ func TestCreatePetTransfer_PetNotFound(t *testing.T) {
 func TestCreatePetTransfer_AlreadyPending(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	expectPetRole(mock, "owner")
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT name, species FROM pet`).
@@ -192,6 +197,7 @@ func TestCreatePetTransfer_AlreadyPending(t *testing.T) {
 func TestGetPetTransfer_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	expectPetRole(mock, "owner")
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT t\.id, t\.code, t\.expires_at\s+FROM pet_transfer t`).WillReturnError(sql.ErrNoRows)
 
@@ -204,6 +210,7 @@ func TestGetPetTransfer_NotFound(t *testing.T) {
 func TestGetPetTransfer_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
+	expectPetRole(mock, "owner")
 	expiresAt := time.Now().UTC().Add(time.Hour).Truncate(time.Second)
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectQuery(`SELECT t\.id, t\.code, t\.expires_at\s+FROM pet_transfer t`).
@@ -222,6 +229,7 @@ func TestCancelPetTransfer(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		mock := setupMockDB(t)
 		expectTokensValid(mock, testUserID)
+		expectPetRole(mock, "owner")
 		mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectExec(`UPDATE pet_transfer t SET status = 'cancelled'`).
 			WithArgs(testPetID, testUserID).
@@ -236,6 +244,7 @@ func TestCancelPetTransfer(t *testing.T) {
 	t.Run("no active transfer", func(t *testing.T) {
 		mock := setupMockDB(t)
 		expectTokensValid(mock, testUserID)
+		expectPetRole(mock, "owner")
 		mock.ExpectExec(`UPDATE pet_transfer SET status = 'expired'`).WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectExec(`UPDATE pet_transfer t SET status = 'cancelled'`).WillReturnResult(sqlmock.NewResult(0, 0))
 
@@ -320,9 +329,9 @@ func TestPetTransferPreview_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT t\.id, t\.pet_id, t\.from_user_id, t\.expires_at`).
 		WithArgs(testTransferCode).
 		WillReturnRows(sqlmock.NewRows(pendingTransferColumns).AddRow(testTransferID, testPetID, otherTestUserID, expiresAt))
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
 		WithArgs(testPetID, otherTestUserID).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", time.Date(2020, 5, 17, 0, 0, 0, 0, time.UTC), nil, false, nil, nil, nil, "Corgi", nil, nil, nil, nil, nil, nil, nil, nil, nil))
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", time.Date(2020, 5, 17, 0, 0, 0, 0, time.UTC), nil, false, nil, nil, nil, "Corgi", nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT COALESCE\(NULLIF\(trim\(pr\.first_name\), ''\), u\.login\)`).
 		WithArgs(otherTestUserID).
@@ -407,6 +416,7 @@ func TestPetTransferAccept_SuccessWithoutEvents(t *testing.T) {
 	mock.ExpectExec(`UPDATE pet SET user_id = \$1 WHERE id = \$2`).
 		WithArgs(testUserID, testPetID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectEndPetAccessOnTransfer(mock)
 	mock.ExpectQuery(`SELECT e\.id, e\.deleted_at IS NOT NULL`).
 		WithArgs(testPetID).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "deleted", "other"}))
@@ -418,6 +428,11 @@ func TestPetTransferAccept_SuccessWithoutEvents(t *testing.T) {
 	mock.ExpectExec(`UPDATE file f SET user_id = \$1\s+FROM \(SELECT 'pet_photo'::text AS owner_type, \$2::uuid AS owner_id[\s\S]+'vaccination_file'[\s\S]+'medication_file'`).
 		WithArgs(testUserID, testPetID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
+	for _, table := range []string{"vaccination", "disease", "vet_visit", "allergy", "medication"} {
+		mock.ExpectExec(`UPDATE `+table+` SET user_id = \$1 WHERE pet_id = \$2`).
+			WithArgs(testUserID, testPetID).
+			WillReturnResult(sqlmock.NewResult(0, 0))
+	}
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'accepted', to_user_id = \$2`).
 		WithArgs(testTransferID, testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -435,14 +450,15 @@ func TestPetTransferAccept_SuccessWithoutEvents(t *testing.T) {
 func TestUpdatePetHandler_SoftDeleteCancelsTransfer(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).
 		WithArgs(testPetID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE pet\s+SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectEndPetAccessOnDelete(mock)
 	mock.ExpectCommit()
 
 	w := serveTransfer(t, http.MethodPut, "/pet/"+testPetID, map[string]any{"is_deleted": true})

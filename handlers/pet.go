@@ -157,6 +157,13 @@ func PetByIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Доступ к питомцу: /pet/{id}/access-invites[/{invite_id}] и
+	// /pet/{id}/access[/{user_id}|/me] (см. handlers/pet_access.go).
+	if len(segments) >= 2 && (segments[1] == "access" || segments[1] == "access-invites") {
+		PetAccessHandler(w, r, segments)
+		return
+	}
+
 	if len(segments) == 2 && segments[1] == "transfer" {
 		petID, err := uuid.Parse(segments[0])
 		if err != nil {
@@ -327,7 +334,7 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if hasPetID {
-				pet, err := database.GetPetByIDAndUserID(existingPetID, userID)
+				pet, err := database.GetPetForUser(existingPetID, userID)
 				if err != nil {
 					writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 					return
@@ -358,7 +365,7 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pet, err := database.GetPetByIDAndUserID(newPetID, userID)
+	pet, err := database.GetPetForUser(newPetID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Питомец создан, но не удалось получить его данные")
 		return
@@ -374,14 +381,36 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pets, err := database.GetPetsByUserID(userID)
+	pets, err := database.GetAccessiblePetsByUserID(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить питомцев")
 		return
 	}
 
+	notices, err := database.ListPetAccessNotices(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить уведомления о доступе")
+		return
+	}
+
+	// Владельцы питомцев загружаются одним запросом на весь список.
+	ownerIDs := make([]string, 0, len(pets))
+	seenOwners := make(map[string]bool, len(pets))
+	for _, pet := range pets {
+		if !seenOwners[pet.OwnerID] {
+			seenOwners[pet.OwnerID] = true
+			ownerIDs = append(ownerIDs, pet.OwnerID)
+		}
+	}
+	ownerNames, err := database.GetOwnerNames(ownerIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить владельцев питомцев")
+		return
+	}
+
 	response := models.PetResponse{
-		Items: make([]models.PetItem, 0, len(pets)),
+		Items:      make([]models.PetItem, 0, len(pets)),
+		AccessLost: make([]models.PetAccessLostItem, 0, len(notices)),
 	}
 	petIDs := make([]uuid.UUID, 0, len(pets))
 
@@ -391,8 +420,19 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 			Name:    pet.Name,
 			Breed:   pet.Breed.String,
 			Species: pet.Species,
+			Access:  pet.Access,
+			Owner:   models.PetOwnerRef{ID: pet.OwnerID, Name: ownerNames[pet.OwnerID]},
 		})
 		petIDs = append(petIDs, pet.ID)
+	}
+	for _, notice := range notices {
+		response.AccessLost = append(response.AccessLost, models.PetAccessLostItem{
+			PetID:      notice.PetID.String(),
+			Name:       notice.Name,
+			Species:    notice.Species,
+			Reason:     notice.Reason,
+			OccurredAt: notice.OccurredAt.UTC().Format(time.RFC3339),
+		})
 	}
 
 	if !attachPetPhotos(w, r, petIDs, response.Items) {
@@ -415,7 +455,7 @@ func GetPetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pet, ok := resolveOwnedPet(w, petID, userID)
+	pet, ok := resolveAccessiblePet(w, petID, userID, petNeedRead)
 	if !ok {
 		return
 	}
@@ -439,7 +479,10 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	// Профиль питомца изменяют владелец и участник с полным доступом; участник
+	// с ролью view получает 403.
+	pet, ok := resolveAccessiblePet(w, petID, userID, petNeedWrite)
+	if !ok {
 		return
 	}
 
@@ -457,6 +500,13 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := req.ApplyExplicitNullClears(bodyBytes); err != nil {
 		writeError(w, http.StatusBadRequest, openapi.BADREQUEST, "Некорректный JSON")
+		return
+	}
+
+	// Удаление питомца (is_deleted) — операция владельца, независимо от роли
+	// участника.
+	if req.IsDeleted != nil && pet.Access != database.PetRoleOwner {
+		writeForbidden(w)
 		return
 	}
 
@@ -545,7 +595,7 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := database.UpdatePet(petID, userID, req); err != nil {
+	if err := database.UpdatePet(petID, req); err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка обновления питомца")
 		return
 	}
@@ -570,7 +620,8 @@ func DeletePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	// Удалить питомца может только владелец: участник с любой ролью получает 403.
+	if _, ok := resolvePetRole(w, petID, userID, petNeedOwner); !ok {
 		return
 	}
 

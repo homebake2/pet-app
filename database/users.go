@@ -150,10 +150,17 @@ func GetTokensInvalidatedAt(userID string) (sql.NullTime, error) {
 // database/migrations/000033_user_delete_cascade.up.sql).
 // Активные передачи питомцев пользователя переводятся в cancelled в той же
 // транзакции; записи pet_transfer остаются как история (ссылки на
-// пользователя обнуляются).
+// пользователя обнуляются). Доступы завершаются так же в той же транзакции:
+// участники питомцев пользователя получают уведомление о потере доступа,
+// его активные приглашения отменяются, а записи про чужих питомцев, автором
+// которых он был, переходят к владельцу этих питомцев (см. endUserPetAccessWith);
+// его собственные доступы к чужим питомцам удаляются каскадом.
 func DeleteUser(userID string) error {
 	return RunInTx(func(tx *sql.Tx) error {
 		if err := cancelPendingTransfersFromUserWith(tx, userID); err != nil {
+			return err
+		}
+		if err := endUserPetAccessWith(tx, userID); err != nil {
 			return err
 		}
 		_, err := tx.Exec("DELETE FROM users WHERE id=$1", userID)

@@ -1,7 +1,8 @@
 // Package handlers: «Ведпаспорт» (медкарта питомца) — 5 pet_id-scoped
 // сущностей (Vaccination, Disease, VetVisit, Allergy, Medication). Паттерн
-// повторяет handlers/events.go/pet.go 1-в-1: soft-delete, ownership через
-// resolveOwnedPet/CheckPetBelongsToUser, до 10 файлов через generic-механизм
+// повторяет handlers/events.go/pet.go 1-в-1: soft-delete, доступ по роли
+// пользователя у питомца через resolvePetRole/resolvePetChildAccess (чтение —
+// любая роль, запись — owner или full), до 10 файлов через generic-механизм
 // (handlers/files.go). PATCH/DELETE отвечают 204 без тела (как /events/{id});
 // POST создания отвечает только {id} (GetXIdResponseRequest в spec.json) —
 // полное представление сущности отдаётся только списком (GET /pet/{id}/...).
@@ -407,6 +408,10 @@ func writeVetPassportTxError(w http.ResponseWriter, err error, notFoundMessage, 
 		writeError(w, httpErr.status, httpErr.code, httpErr.message)
 		return
 	}
+	if errors.Is(err, database.ErrForbidden) {
+		writeForbidden(w)
+		return
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, openapi.NOTFOUND, notFoundMessage)
 		return
@@ -415,20 +420,27 @@ func writeVetPassportTxError(w http.ResponseWriter, err error, notFoundMessage, 
 }
 
 // resolvePetForVetPassportCreate проверяет, что питомец petID существует,
-// принадлежит userID и не удалён — то же правило, что и у CreateEventHandler
-// (handlers/events.go): создание дочерней сущности медкарты для удалённого
-// питомца запрещено отдельной ошибкой 400, а не общим 404.
+// доступен userID с ролью owner или full и не удалён — то же правило, что и у
+// CreateEventHandler (handlers/events.go): питомца без доступа нет — 404, роль
+// view — 403, а создание дочерней сущности медкарты для удалённого питомца
+// запрещено отдельной ошибкой 400, а не общим 404 (мягко удалённый чужой
+// питомец участнику не виден — 404).
 func resolvePetForVetPassportCreate(w http.ResponseWriter, petID uuid.UUID, userID string) (ok bool) {
-	petDB, err := database.GetPetIdDBByIDAndUserID(petID, userID)
+	accessible, err := database.GetAccessiblePetsWith(database.DB, userID, []uuid.UUID{petID})
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
-			return false
-		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения питомца")
 		return false
 	}
-	if petDB.DeletedAt.Valid {
+	pet, found := accessible[petID]
+	if !found {
+		writeError(w, http.StatusNotFound, openapi.NOTFOUND, fmt.Sprintf("Питомец %s не найден", petID))
+		return false
+	}
+	if !database.CanWriteRole(pet.Role) {
+		writeForbidden(w)
+		return false
+	}
+	if pet.Deleted {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Невозможно создать запись, так как питомец удален")
 		return false
 	}
@@ -540,7 +552,7 @@ func GetPetVaccinationsHandler(w http.ResponseWriter, r *http.Request, petID uui
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметры limit/offset должны быть неотрицательными целыми числами")
 		return
 	}
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 
@@ -567,9 +579,17 @@ func GetPetVaccinationsHandler(w http.ResponseWriter, r *http.Request, petID uui
 	}
 	extras := groupVaccinationExtraReminders(extraPlans)
 
+	authors, err := vetPassportAuthors(userID, database.VaccinationTable, petID, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов прививок")
+		return
+	}
+
 	resp := models.VaccinationListResponse{Items: make([]models.VaccinationResponse, 0, len(items))}
 	for _, it := range items {
-		resp.Items = append(resp.Items, vaccinationResponseFromDB(it, extras[it.ID], filesCounts[it.ID]))
+		item := vaccinationResponseFromDB(it, extras[it.ID], filesCounts[it.ID])
+		item.Author = authors[it.ID]
+		resp.Items = append(resp.Items, item)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -638,7 +658,7 @@ func CreateVaccinationHandler(w http.ResponseWriter, r *http.Request, petID uuid
 			administeredEventID = uuid.NullUUID{UUID: factID, Valid: true}
 		}
 
-		id, err := database.InsertVaccinationWith(tx, petID, req, administeredEventID, idempotencyKey)
+		id, err := database.InsertVaccinationWith(tx, petID, userID, req, administeredEventID, idempotencyKey)
 		if err != nil {
 			return err
 		}
@@ -725,13 +745,7 @@ func UpdateVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		return
 	}
 
-	belongs, err := database.CheckPetBelongsToUser(vaccination.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Прививка не найдена")
+	if !resolvePetChildAccess(w, vaccination.PetID, userID, petNeedWrite, "Прививка не найдена") {
 		return
 	}
 
@@ -926,13 +940,7 @@ func DeleteVaccinationHandler(w http.ResponseWriter, r *http.Request, id uuid.UU
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения прививки")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(vaccination.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Прививка не найдена")
+	if !resolvePetChildAccess(w, vaccination.PetID, userID, petNeedWrite, "Прививка не найдена") {
 		return
 	}
 
@@ -1017,7 +1025,7 @@ func GetPetDiseasesHandler(w http.ResponseWriter, r *http.Request, petID uuid.UU
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметры limit/offset должны быть неотрицательными целыми числами")
 		return
 	}
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 	items, err := database.GetDiseasesByPetID(petID, limit, offset)
@@ -1034,9 +1042,16 @@ func GetPetDiseasesHandler(w http.ResponseWriter, r *http.Request, petID uuid.UU
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов")
 		return
 	}
+	authors, err := vetPassportAuthors(userID, database.DiseaseTable, petID, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов заболеваний")
+		return
+	}
 	resp := models.DiseaseListResponse{Items: make([]models.DiseaseResponse, 0, len(items))}
 	for _, it := range items {
-		resp.Items = append(resp.Items, diseaseResponseFromDB(it, filesCounts[it.ID]))
+		item := diseaseResponseFromDB(it, filesCounts[it.ID])
+		item.Author = authors[it.ID]
+		resp.Items = append(resp.Items, item)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1066,7 +1081,7 @@ func CreateDiseaseHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUI
 	if replayVetPassportCreate(w, database.DiseaseTable, petID, idempotencyKey) {
 		return
 	}
-	newID, err := database.InsertDisease(petID, req, idempotencyKey)
+	newID, err := database.InsertDisease(petID, userID, req, idempotencyKey)
 	if err != nil {
 		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.DiseaseTable, petID, idempotencyKey) {
 			return
@@ -1107,13 +1122,7 @@ func UpdateDiseaseHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения заболевания")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(disease.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Заболевание не найдено")
+	if !resolvePetChildAccess(w, disease.PetID, userID, petNeedWrite, "Заболевание не найдено") {
 		return
 	}
 	var req models.UpdateDiseaseRequest
@@ -1158,13 +1167,7 @@ func DeleteDiseaseHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения заболевания")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(disease.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Заболевание не найдено")
+	if !resolvePetChildAccess(w, disease.PetID, userID, petNeedWrite, "Заболевание не найдено") {
 		return
 	}
 	if err := database.SoftDeleteDisease(id); err != nil {
@@ -1225,7 +1228,7 @@ func GetPetVetVisitsHandler(w http.ResponseWriter, r *http.Request, petID uuid.U
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметры limit/offset должны быть неотрицательными целыми числами")
 		return
 	}
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 	items, err := database.GetVetVisitsByPetID(petID, limit, offset)
@@ -1242,9 +1245,16 @@ func GetPetVetVisitsHandler(w http.ResponseWriter, r *http.Request, petID uuid.U
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов")
 		return
 	}
+	authors, err := vetPassportAuthors(userID, database.VetVisitTable, petID, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов визитов")
+		return
+	}
 	resp := models.VetVisitListResponse{Items: make([]models.VetVisitResponse, 0, len(items))}
 	for _, it := range items {
-		resp.Items = append(resp.Items, vetVisitResponseFromDB(it, filesCounts[it.ID]))
+		item := vetVisitResponseFromDB(it, filesCounts[it.ID])
+		item.Author = authors[it.ID]
+		resp.Items = append(resp.Items, item)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1274,7 +1284,7 @@ func CreateVetVisitHandler(w http.ResponseWriter, r *http.Request, petID uuid.UU
 	if replayVetPassportCreate(w, database.VetVisitTable, petID, idempotencyKey) {
 		return
 	}
-	newID, err := database.InsertVetVisit(petID, req, idempotencyKey)
+	newID, err := database.InsertVetVisit(petID, userID, req, idempotencyKey)
 	if err != nil {
 		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.VetVisitTable, petID, idempotencyKey) {
 			return
@@ -1315,13 +1325,7 @@ func UpdateVetVisitHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения визита")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(visit.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Визит не найден")
+	if !resolvePetChildAccess(w, visit.PetID, userID, petNeedWrite, "Визит не найден") {
 		return
 	}
 	var req models.UpdateVetVisitRequest
@@ -1366,13 +1370,7 @@ func DeleteVetVisitHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID)
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения визита")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(visit.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Визит не найден")
+	if !resolvePetChildAccess(w, visit.PetID, userID, petNeedWrite, "Визит не найден") {
 		return
 	}
 	if err := database.SoftDeleteVetVisit(id); err != nil {
@@ -1440,7 +1438,7 @@ func GetPetAllergiesHandler(w http.ResponseWriter, r *http.Request, petID uuid.U
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Параметры limit/offset должны быть неотрицательными целыми числами")
 		return
 	}
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 	items, err := database.GetAllergiesByPetID(petID, limit, offset)
@@ -1457,9 +1455,16 @@ func GetPetAllergiesHandler(w http.ResponseWriter, r *http.Request, petID uuid.U
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов")
 		return
 	}
+	authors, err := vetPassportAuthors(userID, database.AllergyTable, petID, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов аллергий")
+		return
+	}
 	resp := models.AllergyListResponse{Items: make([]models.AllergyResponse, 0, len(items))}
 	for _, it := range items {
-		resp.Items = append(resp.Items, allergyResponseFromDB(it, filesCounts[it.ID]))
+		item := allergyResponseFromDB(it, filesCounts[it.ID])
+		item.Author = authors[it.ID]
+		resp.Items = append(resp.Items, item)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }
@@ -1489,7 +1494,7 @@ func CreateAllergyHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUI
 	if replayVetPassportCreate(w, database.AllergyTable, petID, idempotencyKey) {
 		return
 	}
-	newID, err := database.InsertAllergy(petID, req, idempotencyKey)
+	newID, err := database.InsertAllergy(petID, userID, req, idempotencyKey)
 	if err != nil {
 		if idempotencyKey != "" && database.IsUniqueViolation(err) && replayVetPassportCreate(w, database.AllergyTable, petID, idempotencyKey) {
 			return
@@ -1530,13 +1535,7 @@ func UpdateAllergyHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения аллергии")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(allergy.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Аллергия не найдена")
+	if !resolvePetChildAccess(w, allergy.PetID, userID, petNeedWrite, "Аллергия не найдена") {
 		return
 	}
 	var req models.UpdateAllergyRequest
@@ -1585,13 +1584,7 @@ func DeleteAllergyHandler(w http.ResponseWriter, r *http.Request, id uuid.UUID) 
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения аллергии")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(allergy.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Аллергия не найдена")
+	if !resolvePetChildAccess(w, allergy.PetID, userID, petNeedWrite, "Аллергия не найдена") {
 		return
 	}
 	if err := database.SoftDeleteAllergy(id); err != nil {
@@ -1775,7 +1768,7 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	if !ok {
 		return
 	}
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 	items, err := database.GetMedicationsByPetID(petID)
@@ -1795,9 +1788,17 @@ func GetPetMedicationsHandler(w http.ResponseWriter, r *http.Request, petID uuid
 		return
 	}
 
+	authors, err := vetPassportAuthors(userID, database.MedicationTable, petID, ids)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов курсов лекарств")
+		return
+	}
+
 	responses := make([]models.MedicationResponse, 0, len(items))
 	for _, it := range items {
-		responses = append(responses, medicationResponseFromDB(it, filesCounts[it.ID], now, loc))
+		item := medicationResponseFromDB(it, filesCounts[it.ID], now, loc)
+		item.Author = authors[it.ID]
+		responses = append(responses, item)
 	}
 	// Сортировка: по ближайшему будущему next_dose возр. (null — в конце),
 	// затем по created_at убыв. — см. "Лекарства — Backend", раздел «Список».
@@ -1931,7 +1932,7 @@ func CreateMedicationHandler(w http.ResponseWriter, r *http.Request, petID uuid.
 	now := time.Now().UTC()
 	var newID uuid.UUID
 	err := database.RunInTx(func(tx *sql.Tx) error {
-		id, err := database.InsertMedicationWith(tx, petID, req, idempotencyKey)
+		id, err := database.InsertMedicationWith(tx, petID, userID, req, idempotencyKey)
 		if err != nil {
 			return err
 		}
@@ -2095,13 +2096,7 @@ func UpdateMedicationHandler(w http.ResponseWriter, r *http.Request, id uuid.UUI
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения курса лекарств")
 		return
 	}
-	belongs, err := database.CheckPetBelongsToUser(medication.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Курс лекарств не найден")
+	if !resolvePetChildAccess(w, medication.PetID, userID, petNeedWrite, "Курс лекарств не найден") {
 		return
 	}
 	var req models.UpdateMedicationRequest
@@ -2338,13 +2333,7 @@ func resolveOwnedMedicationForReminders(w http.ResponseWriter, id uuid.UUID, use
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения курса лекарств")
 		return nil, false
 	}
-	belongs, err := database.CheckPetBelongsToUser(medication.PetID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки прав доступа")
-		return nil, false
-	}
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Курс лекарств не найден")
+	if !resolvePetChildAccess(w, medication.PetID, userID, petNeedWrite, "Курс лекарств не найден") {
 		return nil, false
 	}
 	return medication, true
@@ -2407,7 +2396,15 @@ func CreateMedicationRemindersHandler(w http.ResponseWriter, r *http.Request, id
 		return
 	}
 
-	writeJSON(w, http.StatusOK, medicationResponseFromDB(*medication, filesCounts[medication.ID], time.Now().UTC(), loc))
+	authors, err := vetPassportAuthors(userID, database.MedicationTable, medication.PetID, []uuid.UUID{medication.ID})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения автора курса лекарств")
+		return
+	}
+
+	response := medicationResponseFromDB(*medication, filesCounts[medication.ID], time.Now().UTC(), loc)
+	response.Author = authors[medication.ID]
+	writeJSON(w, http.StatusOK, response)
 }
 
 // DeleteMedicationRemindersHandler обрабатывает

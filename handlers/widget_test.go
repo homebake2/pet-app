@@ -57,8 +57,8 @@ func TestGetWidgetHandler_MethodNotAllowed(t *testing.T) {
 func TestGetWidgetHandler_NoPets(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, breed, species FROM pet`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species"}))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}))
 
 	w := httptest.NewRecorder()
 	GetWidgetHandler(w, eventRequest(t, http.MethodGet, "/widget?tz=Europe/Moscow", nil, true))
@@ -74,9 +74,9 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, breed, species FROM pet`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species"}).
-			AddRow(testPetID, "Tom", "Siamese", "CAT"))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}).
+			AddRow(testPetID, "Tom", "Siamese", "CAT", "owner", testUserID))
 	fileID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectQuery(`FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
@@ -93,7 +93,7 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 	mock.ExpectQuery(reminderCalendarQuery).
 		WithArgs(testUserID, sqlmock.AnyArg(), 3, testPetID).
 		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns).
-			AddRow(reminderID, planID, time.Date(2030, 1, 1, 8, 0, 0, 0, time.UTC), nil, nil, "feeding", []byte(`{}`), "manual", nil, 1))
+			AddRow(reminderID, planID, time.Date(2030, 1, 1, 8, 0, 0, 0, time.UTC), nil, nil, "feeding", []byte(`{}`), "manual", nil, 1, testUserID))
 	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).AddRow(planID, testPetID, "Tom", "CAT"))
 

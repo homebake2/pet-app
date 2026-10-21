@@ -56,9 +56,10 @@ func GetEventStatsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Питомец должен существовать, принадлежать инициатору и не быть мягко
-	// удалён — иначе 404, как и на остальных эндпоинтах чтения событий.
-	pet, ok := resolveOwnedPet(w, petID, userID)
+	// Питомец должен существовать, быть доступен инициатору (владение или
+	// выданный доступ любой роли) и не быть мягко удалён — иначе 404, как и на
+	// остальных эндпоинтах чтения событий.
+	pet, ok := resolveAccessiblePet(w, petID, userID, petNeedRead)
 	if !ok {
 		return
 	}
@@ -92,6 +93,7 @@ func GetEventStatsHandler(w http.ResponseWriter, r *http.Request) {
 
 		rows, err := database.AggregateEvents(database.StatsQuery{
 			PetID:        petID,
+			UserID:       userID,
 			Type:         spec.Type,
 			SplitField:   spec.SplitField,
 			BucketStarts: bucketInstants,

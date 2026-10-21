@@ -58,7 +58,7 @@ func TestCreateVaccinationHandler_ExtraRemindersCreatePlans(t *testing.T) {
 	mock.ExpectBegin()
 	expectVaccinationFactInsert(mock)
 	mock.ExpectQuery(`INSERT INTO vaccination`).
-		WithArgs(testPetID, "Rabies", sqlmock.AnyArg(), "00:00", sqlmock.AnyArg(), "10:00", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WithArgs(testPetID, "Rabies", sqlmock.AnyArg(), "00:00", sqlmock.AnyArg(), "10:00", sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testVaccinationID))
 	expectNewReminderPlanInsert(mock, "2098-01-01T08:00:00Z")
 	expectNewReminderPlanInsert(mock, "2098-01-01T09:00:00Z")
@@ -191,9 +191,7 @@ func TestCreateVaccinationHandler_ExtraReminderMomentsRejected(t *testing.T) {
 func TestGetPetVaccinationsHandler_ReturnsExtrasAndCompletion(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
+	expectPetRole(mock, "owner")
 	completedID := "66666666-6666-6666-6666-666666666666"
 	mock.ExpectQuery(`FROM vaccination\s+WHERE pet_id = \$1 AND deleted_at IS NULL\s+ORDER BY next_date ASC NULLS LAST`).
 		WillReturnRows(sqlmock.NewRows(vaccinationColumns).
@@ -205,6 +203,7 @@ func TestGetPetVaccinationsHandler_ReturnsExtrasAndCompletion(t *testing.T) {
 		vaccinationExtraPlanRow(testExtraPlanID2, "2098-01-02", "09:00"),
 		vaccinationExtraPlanRow(testExtraPlanID1, "2098-01-01", "08:30"),
 	)
+	expectVetPassportAuthors(mock, testVaccinationID, completedID)
 
 	w := httptest.NewRecorder()
 	GetPetVaccinationsHandler(w, petRequest(t, http.MethodGet, vaccinationsPath, nil, true), uuid.MustParse(testPetID))

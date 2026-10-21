@@ -529,6 +529,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -631,6 +641,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -668,6 +688,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -880,6 +910,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -917,6 +957,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1517,6 +1567,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -1568,6 +1628,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1637,6 +1707,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2067,6 +2147,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2144,6 +2234,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2169,6 +2269,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2340,6 +2450,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2405,6 +2525,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2429,6 +2559,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2600,6 +2740,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2665,6 +2815,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2689,6 +2849,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -2860,6 +3030,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2925,6 +3105,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -2949,6 +3139,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3126,6 +3326,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -3196,6 +3406,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -3220,6 +3440,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3287,6 +3517,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3416,6 +3656,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -3441,6 +3691,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3591,6 +3851,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -3656,6 +3926,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3761,6 +4041,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3924,6 +4214,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -3959,6 +4259,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: доступ к питомцу есть, но роли недостаточно для операции (запись для view, операция владельца для full и view)",
             "content": {
               "application/json": {
                 "schema": {
@@ -4011,6 +4321,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу (full или view), но он не владелец",
             "content": {
               "application/json": {
                 "schema": {
@@ -4079,6 +4399,16 @@
               }
             }
           },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу (full или view), но он не владелец",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Not Found",
             "content": {
@@ -4114,6 +4444,16 @@
           },
           "401": {
             "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу (full или view), но он не владелец",
             "content": {
               "application/json": {
                 "schema": {
@@ -4387,6 +4727,739 @@
         }
       },
       "parameters": []
+    },
+    "/pet/{id}/access-invites": {
+      "post": {
+        "summary": "/pet/{id}/access-invites",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-access-invite",
+        "description": "Создание приглашения к доступу (только владелец): возвращает одноразовый код. Приглашение выдаёт одну роль на весь набор питомцев (pet_ids; по умолчанию только питомец из пути). Несколько активных приглашений допустимы. Лимит — 10 участников на питомца суммарно с активными приглашениями.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetAccessInviteCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetAccessInviteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу, но он не владелец",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: питомец не найден, чужой без доступа или удалён",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: ACCESS_LIMIT_REACHED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet/{id}/access": {
+      "get": {
+        "summary": "/pet/{id}/access",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "get-pet-access",
+        "description": "Участники питомца и активные приглашения, в состав которых он входит (только владелец).",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetAccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу, но он не владелец",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet/{id}/access/{user_id}": {
+      "put": {
+        "summary": "/pet/{id}/access/{user_id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "put-pet-access-member",
+        "description": "Изменение роли участника у этого питомца (только владелец); у остальных питомцев участника роль не меняется. Повторная отправка той же роли идемпотентна.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetAccessUpdateRoleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу, но он не владелец",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: питомец или участник не найден",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "/pet/{id}/access/{user_id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "delete-pet-access-member",
+        "description": "Отзыв доступа участника к питомцу (только владелец). Участник получает уведомление о потере доступа (reason=revoked); созданные им записи остаются у питомца.",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу, но он не владелец",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: питомец или участник не найден",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        },
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "user_id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet/{id}/access/me": {
+      "delete": {
+        "summary": "/pet/{id}/access/me",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "delete-pet-access-me",
+        "description": "Отказ участника (full или view) от собственного доступа к питомцу. Созданные им записи остаются у питомца; уведомление о потере доступа не создаётся. Для владельца — 403.",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: владелец не может отказаться от питомца этим способом",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: питомец не найден или доступа у пользователя нет",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet/{id}/access-invites/{invite_id}": {
+      "delete": {
+        "summary": "/pet/{id}/access-invites/{invite_id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "delete-pet-access-invite",
+        "description": "Отмена активного приглашения целиком, со всем набором питомцев (только владелец).",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden: у пользователя есть доступ к питомцу, но он не владелец",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: питомец или активное приглашение с этим питомцем не найдено",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "id",
+          "in": "path",
+          "required": true
+        },
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "invite_id",
+          "in": "path",
+          "required": true
+        }
+      ]
+    },
+    "/pet-access-invites/preview": {
+      "post": {
+        "summary": "/pet-access-invites/preview",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-access-invite-preview",
+        "description": "Предпросмотр питомцев, роли и владельца по коду приглашения; ничего не изменяет.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetAccessInviteCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetAccessInvitePreviewResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: код недействителен, истёк или приглашение уже не активно",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: ACCESS_OWN_PET, ACCESS_ALREADY_GRANTED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
+    "/pet-access-invites/accept": {
+      "post": {
+        "summary": "/pet-access-invites/accept",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-access-invite-accept",
+        "description": "Принятие приглашения по коду: текущему пользователю выдаётся доступ к действующим питомцам приглашения (владельцем он не становится). Питомцы, у которых закончилось место, не выдаются; если не выдан ни один — 409 ACCESS_LIMIT_REACHED.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetAccessInviteCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PetAccessInviteAcceptResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: код недействителен, истёк или приглашение уже не активно",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: ACCESS_OWN_PET, ACCESS_ALREADY_GRANTED, ACCESS_LIMIT_REACHED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
+    "/pet-access-invites/decline": {
+      "post": {
+        "summary": "/pet-access-invites/decline",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "post-pet-access-invite-decline",
+        "description": "Отклонение приглашения по коду.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PetAccessInviteCodeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found: код недействителен, истёк или приглашение уже не активно",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict: ACCESS_OWN_PET, ACCESS_ALREADY_GRANTED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too Many Requests: RATE_LIMITED",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
+    "/pet-access-notices/{pet_id}": {
+      "delete": {
+        "summary": "/pet-access-notices/{pet_id}",
+        "tags": [
+          "pets-controller"
+        ],
+        "operationId": "delete-pet-access-notice",
+        "description": "Отметка собственного уведомления о потере доступа просмотренным: удаляет его. Идемпотентно — 204, даже если уведомления нет.",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": [
+        {
+          "schema": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": "pet_id",
+          "in": "path",
+          "required": true
+        }
+      ]
     }
   },
   "components": {
@@ -4400,7 +5473,10 @@
         "required": [
           "id",
           "name",
-          "species"
+          "species",
+          "access",
+          "shared",
+          "owner"
         ],
         "properties": {
           "id": {
@@ -4543,6 +5619,16 @@
             "type": "integer",
             "nullable": true,
             "description": "Профильное поле группы видов «Беспозвоночные», 1–10000 (см. «Профильные поля питомца по видам»)."
+          },
+          "access": {
+            "$ref": "#/components/schemas/PetAccessEnum"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Питомцем пользуются несколько человек: у питомца есть хотя бы один участник. Для участника всегда true."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/PetOwnerRef"
           }
         }
       },
@@ -4558,7 +5644,8 @@
           "type",
           "value",
           "files_count",
-          "pets"
+          "pets",
+          "author"
         ],
         "properties": {
           "id": {
@@ -4605,6 +5692,15 @@
             "items": {
               "$ref": "#/components/schemas/EventPetRef"
             }
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -5035,7 +6131,10 @@
           "RATE_LIMITED",
           "INTERNAL_ERROR",
           "TRANSFER_ALREADY_PENDING",
-          "TRANSFER_OWN_PET"
+          "TRANSFER_OWN_PET",
+          "ACCESS_OWN_PET",
+          "ACCESS_ALREADY_GRANTED",
+          "ACCESS_LIMIT_REACHED"
         ]
       },
       "GetProfileRequest": {
@@ -5259,7 +6358,9 @@
           "id",
           "name",
           "breed",
-          "species"
+          "species",
+          "access",
+          "owner"
         ],
         "properties": {
           "id": {
@@ -5295,6 +6396,12 @@
             "format": "uri",
             "nullable": true,
             "description": "Presigned GET URL на текущую фотографию питомца, временная ссылка с TTL; null если фотографии нет"
+          },
+          "access": {
+            "$ref": "#/components/schemas/PetAccessEnum"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/PetOwnerRef"
           }
         }
       },
@@ -5305,7 +6412,8 @@
         },
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "access_lost"
         ],
         "properties": {
           "items": {
@@ -5316,6 +6424,13 @@
             "items": {
               "$ref": "#/components/schemas/GetShortInfoPetResponse"
             }
+          },
+          "access_lost": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetAccessLostItem"
+            },
+            "description": "Уведомления о потере доступа текущего пользователя, по occurred_at по убыванию; пустой массив, если уведомлений нет."
           }
         }
       },
@@ -5557,7 +6672,8 @@
           "type",
           "value",
           "pets",
-          "files"
+          "files",
+          "author"
         ],
         "properties": {
           "id": {
@@ -5608,6 +6724,15 @@
             "x-stoplight": {
               "id": "f11e0008files"
             }
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -6710,7 +7835,8 @@
           "name",
           "administered_date",
           "administered_time",
-          "files_count"
+          "files_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -6774,6 +7900,15 @@
             "items": {
               "$ref": "#/components/schemas/VaccinationExtraReminderResponse"
             }
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -6978,7 +8113,8 @@
           "name",
           "diagnosed_date",
           "status",
-          "files_count"
+          "files_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -7008,6 +8144,15 @@
           "files_count": {
             "type": "integer",
             "description": "Количество прикреплённых файлов заболевания (0, если файлов нет)."
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -7081,7 +8226,8 @@
           "pet_id",
           "visit_date",
           "reason",
-          "files_count"
+          "files_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -7113,6 +8259,15 @@
           "files_count": {
             "type": "integer",
             "description": "Количество прикреплённых файлов визита (0, если файлов нет)."
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -7189,7 +8344,8 @@
           "pet_id",
           "allergen",
           "severity",
-          "files_count"
+          "files_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -7225,6 +8381,15 @@
           "files_count": {
             "type": "integer",
             "description": "Количество прикреплённых файлов аллергии (0, если файлов нет)."
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -7342,7 +8507,8 @@
           "dosage",
           "frequency_type",
           "reminder_plan_id",
-          "files_count"
+          "files_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -7423,6 +8589,15 @@
             "format": "uuid",
             "nullable": true,
             "description": "id настроек напоминания набора приёмов; null, если набора нет или его настроек уже нет (все напоминания закрыты либо набор удалён). Признак «есть набор напоминаний» — reminder_plan_id не null."
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -7934,7 +9109,8 @@
           "type",
           "value",
           "files_count",
-          "pets"
+          "pets",
+          "author"
         ],
         "properties": {
           "item_type": {
@@ -7986,6 +9162,15 @@
             "items": {
               "$ref": "#/components/schemas/ActivitiesDayPetRef"
             }
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -8207,7 +9392,8 @@
           "source",
           "reminders",
           "files",
-          "future_reminders_with_files_count"
+          "future_reminders_with_files_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -8310,6 +9496,15 @@
           "future_reminders_with_files_count": {
             "type": "integer",
             "description": "Число незавершённых напоминаний с remind_at > now(), у которых есть собственные файлы; по нему клиент предупреждает о потере файлов при пересоздании расписания."
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -8326,7 +9521,8 @@
           "plan_source",
           "plan_files",
           "files",
-          "plan_unclosed_count"
+          "plan_unclosed_count",
+          "author"
         ],
         "properties": {
           "id": {
@@ -8388,6 +9584,15 @@
           "plan_unclosed_count": {
             "type": "integer",
             "description": "Сколько незавершённых напоминаний у настроек, включая это; по нему клиент решает, предлагать ли выбор «это / все»."
+          },
+          "author": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EventAuthor"
+              }
+            ],
+            "nullable": true,
+            "description": "Автор записи; null, если питомцем пользуется один человек."
           }
         }
       },
@@ -8984,6 +10189,322 @@
           "pet_id": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "PetAccessEnum": {
+        "title": "PetAccessEnum",
+        "type": "string",
+        "enum": [
+          "owner",
+          "full",
+          "view"
+        ],
+        "description": "Роль текущего пользователя по отношению к питомцу: owner — владелец, full — полный доступ, view — только просмотр."
+      },
+      "PetAccessGrantRoleEnum": {
+        "title": "PetAccessGrantRoleEnum",
+        "type": "string",
+        "enum": [
+          "full",
+          "view"
+        ],
+        "description": "Роль, которую владелец выдаёт участнику: full — полный доступ, view — только просмотр. Роль owner не выдаётся."
+      },
+      "PetAccessLostReasonEnum": {
+        "title": "PetAccessLostReasonEnum",
+        "type": "string",
+        "enum": [
+          "revoked",
+          "pet_deleted",
+          "pet_transferred"
+        ],
+        "description": "Причина потери доступа: revoked — владелец отозвал доступ, pet_deleted — владелец удалил питомца или аккаунт, pet_transferred — питомец передан другому владельцу."
+      },
+      "EventAuthor": {
+        "title": "EventAuthor",
+        "type": "object",
+        "required": [
+          "name",
+          "is_me"
+        ],
+        "description": "Автор записи. Заполняется, только если у записи есть видимый питомец, к которому доступ имеют минимум два пользователя; иначе поле author равно null.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Имя автора из профиля (first_name), при отсутствии профиля — логин."
+          },
+          "is_me": {
+            "type": "boolean",
+            "description": "Запись создал сам текущий пользователь."
+          }
+        }
+      },
+      "PetAccessInviteCreateRequest": {
+        "title": "PetAccessInviteCreateRequest",
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/PetAccessGrantRoleEnum"
+          },
+          "pet_ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 20,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Набор питомцев приглашения (питомцы владельца, не мягко удалённые). Обязан содержать id питомца из пути. Если не передан, набор состоит только из питомца из пути."
+          }
+        }
+      },
+      "PetAccessInviteResponse": {
+        "title": "PetAccessInviteResponse",
+        "type": "object",
+        "description": "Активное приглашение к доступу: одноразовый код и срок его действия.",
+        "required": [
+          "id",
+          "code",
+          "role",
+          "pet_ids",
+          "expires_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "code": {
+            "type": "string",
+            "description": "Код приглашения, 10 символов без визуально неоднозначных знаков (отображается как XXXXX-XXXXX)."
+          },
+          "role": {
+            "$ref": "#/components/schemas/PetAccessGrantRoleEnum"
+          },
+          "pet_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Полный набор действующих питомцев приглашения."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetAccessMember": {
+        "title": "PetAccessMember",
+        "type": "object",
+        "required": [
+          "user_id",
+          "name",
+          "role",
+          "granted_at"
+        ],
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Имя участника из профиля (first_name), при отсутствии профиля — логин."
+          },
+          "role": {
+            "$ref": "#/components/schemas/PetAccessGrantRoleEnum"
+          },
+          "granted_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetAccessResponse": {
+        "title": "PetAccessResponse",
+        "type": "object",
+        "required": [
+          "members",
+          "invites"
+        ],
+        "description": "Участники питомца и активные приглашения, в состав которых он входит. Оба массива отсортированы по created_at.",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetAccessMember"
+            }
+          },
+          "invites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PetAccessInviteResponse"
+            }
+          }
+        }
+      },
+      "PetAccessUpdateRoleRequest": {
+        "title": "PetAccessUpdateRoleRequest",
+        "type": "object",
+        "required": [
+          "role"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/PetAccessGrantRoleEnum"
+          }
+        }
+      },
+      "PetAccessInviteCodeRequest": {
+        "title": "PetAccessInviteCodeRequest",
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Код приглашения (регистр и дефис не важны)."
+          }
+        }
+      },
+      "PetAccessInvitePreviewPet": {
+        "title": "PetAccessInvitePreviewPet",
+        "type": "object",
+        "required": [
+          "name",
+          "species",
+          "breed"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "species": {
+            "type": "string"
+          },
+          "breed": {
+            "type": "string"
+          },
+          "gender": {
+            "$ref": "#/components/schemas/GetGenderEnum",
+            "nullable": true
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true
+          },
+          "photo_url": {
+            "type": "string",
+            "format": "uri",
+            "nullable": true,
+            "description": "Presigned GET URL на фотографию питомца; null если фотографии нет."
+          }
+        }
+      },
+      "PetAccessInvitePreviewResponse": {
+        "title": "PetAccessInvitePreviewResponse",
+        "type": "object",
+        "required": [
+          "pets",
+          "role",
+          "owner_name",
+          "expires_at"
+        ],
+        "properties": {
+          "pets": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/PetAccessInvitePreviewPet"
+            },
+            "description": "Питомцы, доступ к которым будет выдан (без тех, к которым у получателя уже есть доступ)."
+          },
+          "role": {
+            "$ref": "#/components/schemas/PetAccessGrantRoleEnum"
+          },
+          "owner_name": {
+            "type": "string",
+            "description": "Имя владельца из профиля (first_name), при отсутствии профиля — логин."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetAccessInviteAcceptResponse": {
+        "title": "PetAccessInviteAcceptResponse",
+        "type": "object",
+        "required": [
+          "pet_ids"
+        ],
+        "properties": {
+          "pet_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Питомцы, доступ к которым у получателя появился."
+          }
+        }
+      },
+      "PetAccessLostItem": {
+        "title": "PetAccessLostItem",
+        "type": "object",
+        "required": [
+          "pet_id",
+          "name",
+          "species",
+          "reason",
+          "occurred_at"
+        ],
+        "description": "Уведомление о потере доступа: только снимок имени и вида питомца, без доступа к его данным.",
+        "properties": {
+          "pet_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "species": {
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/PetAccessLostReasonEnum"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PetOwnerRef": {
+        "title": "PetOwnerRef",
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "description": "Владелец питомца. Для собственных питомцев — сам пользователь.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "description": "Имя из профиля владельца (first_name и last_name, если заполнены, через пробел), при отсутствии профиля — логин."
           }
         }
       }

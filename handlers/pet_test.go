@@ -31,7 +31,7 @@ var petColumns = []string{
 	"id", "name", "gender", "species", "birth_date", "color",
 	"sterilized", "habitation", "notes", "deleted_at", "breed", "body_condition",
 	"microchipped", "microchip_number", "ringed", "ring_number",
-	"uv_lamp_required", "water_type", "enclosure_volume_l", "group_size",
+	"uv_lamp_required", "water_type", "enclosure_volume_l", "group_size", "access", "shared", "owner_id", "owner_name",
 }
 
 var fileColumns = []string{
@@ -241,8 +241,8 @@ func TestCreatePetHandler_IdempotencyKeyReplaysExistingPet(t *testing.T) {
 	mock.ExpectQuery(`SELECT pet_id FROM pet_idempotency_key`).
 		WithArgs(testUserID, idempotencyKey).
 		WillReturnRows(sqlmock.NewRows([]string{"pet_id"}).AddRow(testPetID))
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	w := httptest.NewRecorder()
@@ -259,8 +259,8 @@ func TestCreatePetHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`INSERT INTO pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	w := httptest.NewRecorder()
@@ -297,8 +297,8 @@ func TestCreatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(eventID))
 	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectWeightEvent(mock, 5.5)
 
 	weight := 5.5
@@ -327,8 +327,8 @@ func TestCreatePetHandler_WeightEventInsertFailureDoesNotFailCreate(t *testing.T
 	mock.ExpectQuery(`INSERT INTO event \(`).
 		WillReturnError(assertError)
 	mock.ExpectRollback()
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	weight := 5.5
@@ -343,9 +343,11 @@ func TestCreatePetHandler_WeightEventInsertFailureDoesNotFailCreate(t *testing.T
 func TestGetAllPetHandler_WithoutLanguageCode(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, breed, species FROM pet`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species"}).
-			AddRow(testPetID, "Rex", "Labrador", "dog"))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}).
+			AddRow(testPetID, "Rex", "Labrador", "dog", "owner", testUserID))
+	mock.ExpectQuery(`FROM pet_access_notice`).WillReturnRows(sqlmock.NewRows(accessNoticeColumns))
+	expectOwnerNames(mock, map[string]string{testUserID: "Owner"})
 	expectNoPetPhotos(mock)
 
 	w := httptest.NewRecorder()
@@ -359,9 +361,11 @@ func TestGetAllPetHandler_WithoutLanguageCode(t *testing.T) {
 func TestGetAllPetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, breed, species FROM pet`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species"}).
-			AddRow(testPetID, "Rex", "Labrador", "dog"))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}).
+			AddRow(testPetID, "Rex", "Labrador", "dog", "owner", testUserID))
+	mock.ExpectQuery(`FROM pet_access_notice`).WillReturnRows(sqlmock.NewRows(accessNoticeColumns))
+	expectOwnerNames(mock, map[string]string{testUserID: "Owner"})
 	expectNoPetPhotos(mock)
 
 	w := httptest.NewRecorder()
@@ -374,6 +378,7 @@ func TestGetAllPetHandler_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	require.Len(t, resp.Items, 1)
 	assert.Equal(t, "Rex", resp.Items[0].Name)
+	assert.Equal(t, models.PetOwnerRef{ID: testUserID, Name: "Owner"}, resp.Items[0].Owner)
 	assert.Nil(t, resp.Items[0].PhotoURL)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -385,9 +390,11 @@ func TestGetAllPetHandler_WithPhoto(t *testing.T) {
 	mock := setupMockDB(t)
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, breed, species FROM pet`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species"}).
-			AddRow(testPetID, "Rex", "Labrador", "dog"))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}).
+			AddRow(testPetID, "Rex", "Labrador", "dog", "owner", testUserID))
+	mock.ExpectQuery(`FROM pet_access_notice`).WillReturnRows(sqlmock.NewRows(accessNoticeColumns))
+	expectOwnerNames(mock, map[string]string{testUserID: "Owner"})
 	fileID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(
@@ -418,7 +425,7 @@ func TestGetPetHandler_InvalidID(t *testing.T) {
 func TestGetPetHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -432,7 +439,7 @@ func TestGetPetHandler_NotFound(t *testing.T) {
 func TestGetPetHandler_SoftDeletedHiddenViaQuery(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
 		WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
@@ -446,8 +453,8 @@ func TestGetPetHandler_SoftDeletedHiddenViaQuery(t *testing.T) {
 func TestGetPetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	expectNoPetPhoto(mock)
 
@@ -470,8 +477,8 @@ func TestGetPetHandler_WithPhoto(t *testing.T) {
 	mock := setupMockDB(t)
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	fileID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectQuery(`SELECT id, owner_type, owner_id, user_id, object_key, content_type, filename, position, confirmed_at, created_at\s+FROM file\s+WHERE owner_type = \$1 AND owner_id = \$2 AND confirmed_at IS NOT NULL`).
@@ -500,8 +507,8 @@ func TestGetPetHandler_WithPhoto(t *testing.T) {
 func TestGetPetHandler_WithWeight(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", nil, nil, true, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectWeightEvent(mock, 12.3)
 	expectNoPetPhoto(mock)
 
@@ -520,8 +527,8 @@ func TestGetPetHandler_WithWeight(t *testing.T) {
 func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	empty := ""
@@ -535,8 +542,8 @@ func TestUpdatePetHandler_EmptyNameRejected(t *testing.T) {
 func TestUpdatePetHandler_NameTooLongRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	longName := strings.Repeat("a", 101)
@@ -550,8 +557,8 @@ func TestUpdatePetHandler_NameTooLongRejected(t *testing.T) {
 func TestUpdatePetHandler_NotesTooLongRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	longNotes := strings.Repeat("a", 1001)
@@ -565,8 +572,8 @@ func TestUpdatePetHandler_NotesTooLongRejected(t *testing.T) {
 func TestUpdatePetHandler_BirthDateTooOldRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	tooOld := "1400-01-01"
@@ -580,8 +587,8 @@ func TestUpdatePetHandler_BirthDateTooOldRejected(t *testing.T) {
 func TestUpdatePetHandler_PartialUpdate(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -597,7 +604,7 @@ func TestUpdatePetHandler_PartialUpdate(t *testing.T) {
 func TestUpdatePetHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
 		WillReturnError(sql.ErrNoRows)
 
 	name := "Rex"
@@ -612,8 +619,8 @@ func TestUpdatePetHandler_NotFound(t *testing.T) {
 func TestUpdatePetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -630,8 +637,8 @@ func TestUpdatePetHandler_Success(t *testing.T) {
 func TestUpdatePetHandler_InvalidWeightRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	badWeight := 0.0
@@ -645,8 +652,8 @@ func TestUpdatePetHandler_InvalidWeightRejected(t *testing.T) {
 func TestUpdatePetHandler_InvalidGroupSizeRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 
 	tooFew := 0
@@ -666,8 +673,8 @@ func TestUpdatePetHandler_InvalidGroupSizeRejected(t *testing.T) {
 func TestUpdatePetHandler_ExplicitNullClearsWaterType(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "freshwater", nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "freshwater", nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET water_type = \$1`).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -685,8 +692,8 @@ func TestUpdatePetHandler_ExplicitNullClearsWaterType(t *testing.T) {
 func TestUpdatePetHandler_AbsentWaterTypeDoesNotChangeIt(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "freshwater", nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "freshwater", nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET notes = \$1\s+WHERE`).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -704,8 +711,8 @@ func TestUpdatePetHandler_AbsentWaterTypeDoesNotChangeIt(t *testing.T) {
 func TestUpdatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	eventID := "44444444-4444-4444-4444-444444444444"
@@ -731,8 +738,8 @@ func TestUpdatePetHandler_WithWeight_CreatesWeightEvent(t *testing.T) {
 func TestUpdatePetHandler_OmittedAndNullWeightAreEquivalent(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
+	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
 	expectNoWeightEvent(mock)
 	mock.ExpectExec(`UPDATE pet SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -750,8 +757,7 @@ func TestUpdatePetHandler_OmittedAndNullWeightAreEquivalent(t *testing.T) {
 func TestDeletePetHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnError(sql.ErrNoRows)
+	expectPetRoleMissing(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodDelete, "/pet/"+testPetID, nil, true)
@@ -763,9 +769,7 @@ func TestDeletePetHandler_NotFound(t *testing.T) {
 func TestDeletePetHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
+	expectPetRole(mock, "owner")
 	// Мягкое удаление питомца, жёсткое удаление его связей с настройками
 	// напоминаний и настроек, оставшихся без питомцев (с напоминаниями и
 	// файлами), — в одной транзакции.
@@ -775,6 +779,7 @@ func TestDeletePetHandler_Success(t *testing.T) {
 		WithArgs(testPetID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE pet\s+SET deleted_at`).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectEndPetAccessOnDelete(mock)
 	mock.ExpectQuery(`DELETE FROM reminder_plan_pet WHERE pet_id = \$1 RETURNING plan_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"plan_id"}).AddRow("66666666-6666-4666-8666-666666666666"))
 	mock.ExpectQuery(`SELECT p\.id FROM reminder_plan p\s+WHERE p\.id = ANY\(\$1\)\s+AND NOT EXISTS`).
@@ -801,10 +806,8 @@ func TestDeletePetHandler_Success(t *testing.T) {
 func TestPetByIDHandler_RoutesToEvents(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
+	expectPetRole(mock, "owner")
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*ORDER BY e\.date_time DESC[\s\S]*LIMIT \$3 OFFSET \$4`).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
@@ -839,8 +842,7 @@ func TestPetByIDHandler_EventsInvalidID(t *testing.T) {
 func TestGetPetEventsHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnError(sql.ErrNoRows)
+	expectPetRoleMissing(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
@@ -855,8 +857,7 @@ func TestGetPetEventsHandler_SoftDeletedPetReturns404(t *testing.T) {
 	// resolveOwnedPet скрывает мягко удалённых питомцев тем же условием
 	// deleted_at IS NULL, что и GET /pet/{id} — запрос к таблице событий не
 	// выполняется вовсе.
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnError(sql.ErrNoRows)
+	expectPetRoleMissing(mock)
 
 	w := httptest.NewRecorder()
 	r := petRequest(t, http.MethodGet, "/pet/"+testPetID+"/events", nil, true)
@@ -869,14 +870,12 @@ func TestGetPetEventsHandler_SoftDeletedPetReturns404(t *testing.T) {
 func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs(sqlmock.AnyArg(), 50, 0).
+	expectPetRole(mock, "owner")
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*ORDER BY e\.date_time DESC[\s\S]*LIMIT \$3 OFFSET \$4`).
+		WithArgs(sqlmock.AnyArg(), testUserID, 50, 0).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
-		WithArgs(sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	expectAvailableFilters(mock, 0, 0)
 
@@ -891,14 +890,12 @@ func TestGetPetEventsHandler_PaginationDefaults(t *testing.T) {
 func TestGetPetEventsHandler_LimitClampedTo200(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs(sqlmock.AnyArg(), 200, 5).
+	expectPetRole(mock, "owner")
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*ORDER BY e\.date_time DESC[\s\S]*LIMIT \$3 OFFSET \$4`).
+		WithArgs(sqlmock.AnyArg(), testUserID, 200, 5).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
-		WithArgs(sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 
 	w := httptest.NewRecorder()
@@ -936,17 +933,16 @@ func TestGetPetEventsHandler_NonIntegerOffsetRejected(t *testing.T) {
 func TestGetPetEventsHandler_SearchFiltersAndReturnsTotal(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`(?s)SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+AND \(\s*e\.notes ILIKE \$4.*e\.value ->> 'label' ILIKE \$4.*e\.value ->> 'name' ILIKE \$4.*\)\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs(sqlmock.AnyArg(), 50, 0, "%вакцина%").
+	expectPetRole(mock, "owner")
+	mock.ExpectQuery(`(?s)SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*AND \(\s*e\.notes ILIKE \$5.*e\.value ->> 'label' ILIKE \$5.*e\.value ->> 'name' ILIKE \$5.*\)[\s\S]*ORDER BY e\.date_time DESC.*LIMIT \$3 OFFSET \$4`).
+		WithArgs(sqlmock.AnyArg(), testUserID, 50, 0, "%вакцина%").
 		WillReturnRows(sqlmock.NewRows(eventColumnNames).
 			AddRow(testEventID, testUserID, time.Now(), "other", sql.NullString{String: "вакцина от бешенства", Valid: true}, []byte(`{"label":"вакцина"}`)))
 	expectEventPets(mock, testEventID, petRex)
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+AND \(\s*e\.notes ILIKE \$2.*e\.value ->> 'label' ILIKE \$2.*e\.value ->> 'name' ILIKE \$2.*\)`).
-		WithArgs(sqlmock.AnyArg(), "%вакцина%").
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*AND \(\s*e\.notes ILIKE \$3.*e\.value ->> 'label' ILIKE \$3.*e\.value ->> 'name' ILIKE \$3.*\)`).
+		WithArgs(sqlmock.AnyArg(), testUserID, "%вакцина%").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(7))
+	expectNoSharedPets(mock)
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
 	expectAvailableFilters(mock, 0, 0)
@@ -969,14 +965,12 @@ func TestGetPetEventsHandler_SearchFiltersAndReturnsTotal(t *testing.T) {
 func TestGetPetEventsHandler_EmptySearchOmitsFilter(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs(sqlmock.AnyArg(), 50, 0).
+	expectPetRole(mock, "owner")
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*ORDER BY e\.date_time DESC[\s\S]*LIMIT \$3 OFFSET \$4`).
+		WithArgs(sqlmock.AnyArg(), testUserID, 50, 0).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL`).
-		WithArgs(sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	expectAvailableFilters(mock, 0, 0)
 
@@ -997,7 +991,7 @@ func expectAvailableFilters(mock sqlmock.Sqlmock, total, days int, typeCounts ..
 	for i := 0; i+1 < len(typeCounts); i += 2 {
 		rows.AddRow(typeCounts[i], typeCounts[i+1])
 	}
-	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL\s+GROUP BY e\.type`).
+	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)\s+FROM event e\s+JOIN event_pet ep ON ep\.event_id = e\.id\s+WHERE ep\.pet_id = \$1\s+AND e\.deleted_at IS NULL[\s\S]*GROUP BY e\.type`).
 		WillReturnRows(rows)
 }
 
@@ -1007,16 +1001,14 @@ func expectAvailableFilters(mock sqlmock.Sqlmock, total, days int, typeCounts ..
 func TestGetPetEventsHandler_TypesAndPeriodFilters(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
+	expectPetRole(mock, "owner")
 	from := time.Date(2026, 10, 1, 0, 0, 0, 0, time.FixedZone("", 3*3600))
 	to := time.Date(2026, 10, 11, 0, 0, 0, 0, time.FixedZone("", 3*3600))
-	mock.ExpectQuery(`(?s)AND e\.deleted_at IS NULL\s+AND \(\s*e\.notes ILIKE \$4.*\)\s+AND e\.type = ANY\(\$5\)\s+AND e\.date_time >= \$6\s+AND e\.date_time < \$7\s+ORDER BY e\.date_time DESC.*LIMIT \$2 OFFSET \$3`).
-		WithArgs(sqlmock.AnyArg(), 50, 10, "%кот%", sqlmock.AnyArg(), from.UTC(), to.UTC()).
+	mock.ExpectQuery(`(?s)AND e\.deleted_at IS NULL[\s\S]*AND \(\s*e\.notes ILIKE \$5.*\)\s+AND e\.type = ANY\(\$6\)\s+AND e\.date_time >= \$7\s+AND e\.date_time < \$8\s+ORDER BY e\.date_time DESC.*LIMIT \$3 OFFSET \$4`).
+		WithArgs(sqlmock.AnyArg(), testUserID, 50, 10, "%кот%", sqlmock.AnyArg(), from.UTC(), to.UTC()).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
-	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event e.*AND \(\s*e\.notes ILIKE \$2.*\)\s+AND e\.type = ANY\(\$3\)\s+AND e\.date_time >= \$4\s+AND e\.date_time < \$5`).
-		WithArgs(sqlmock.AnyArg(), "%кот%", sqlmock.AnyArg(), from.UTC(), to.UTC()).
+	mock.ExpectQuery(`(?s)SELECT COUNT\(\*\)\s+FROM event e.*AND \(\s*e\.notes ILIKE \$3.*\)\s+AND e\.type = ANY\(\$4\)\s+AND e\.date_time >= \$5\s+AND e\.date_time < \$6`).
+		WithArgs(sqlmock.AnyArg(), testUserID, "%кот%", sqlmock.AnyArg(), from.UTC(), to.UTC()).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(3))
 
 	w := httptest.NewRecorder()
@@ -1038,18 +1030,16 @@ func TestGetPetEventsHandler_TypesAndPeriodFilters(t *testing.T) {
 func TestGetPetEventsHandler_AvailableFiltersIgnoreFilters(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
+	expectPetRole(mock, "owner")
 	mock.ExpectQuery(`SELECT e\.id, e\.user_id`).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(`SELECT COUNT\(\*\), COUNT\(DISTINCT`).
-		WithArgs(sqlmock.AnyArg(), "Europe/Moscow").
+		WithArgs(sqlmock.AnyArg(), "Europe/Moscow", testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"count", "days"}).AddRow(12, 4))
 	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)`).
-		WithArgs(sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"type", "count"}).AddRow("weight", 9).AddRow("activity", 3))
 
 	w := httptest.NewRecorder()
@@ -1070,15 +1060,13 @@ func TestGetPetEventsHandler_AvailableFiltersIgnoreFilters(t *testing.T) {
 func TestGetPetEventsHandler_AvailableFiltersDefaultUTC(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT id, name, gender, species, birth_date, color, sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil))
-	expectNoWeightEvent(mock)
+	expectPetRole(mock, "owner")
 	mock.ExpectQuery(`SELECT e\.id, e\.user_id`).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))
 	mock.ExpectQuery(`SELECT COUNT\(\*\)\s+FROM event e`).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 	mock.ExpectQuery(`SELECT COUNT\(\*\), COUNT\(DISTINCT`).
-		WithArgs(sqlmock.AnyArg(), "UTC").
+		WithArgs(sqlmock.AnyArg(), "UTC", testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"count", "days"}).AddRow(0, 0))
 	mock.ExpectQuery(`SELECT e\.type, COUNT\(\*\)`).
 		WillReturnRows(sqlmock.NewRows([]string{"type", "count"}))

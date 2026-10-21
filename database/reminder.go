@@ -76,19 +76,28 @@ const reminderPlanJoins = `
 // мягко удалённый питомец».
 var reminderPlanVisibleClause = reminderPlanPetLinks.visibleExistsClause("p", "id")
 
+// reminderPlanReadableClause — условие «настройки p видны пользователю
+// userParam»: у них есть видимый питомец и пользователю доступен каждый
+// видимый питомец настроек (владение или выданный доступ любой роли).
+func reminderPlanReadableClause(userParam string) string {
+	return reminderPlanPetLinks.readableClause("p", "id", userParam)
+}
+
 func scanReminderPlan(scan func(dest ...any) error, suffix ...any) (models.ReminderPlanDB, error) {
 	return scanReminderPlanWithPrefix(scan, nil, suffix)
 }
 
 // GetReminderPlanForUserWith находит настройки по id и проверяет, что они
-// принадлежат userID (reminder_plan.user_id) и имеют хотя бы одного не мягко
-// удалённого питомца. sql.ErrNoRows — настроек нет, они чужие либо у них нет
-// видимых питомцев. lock=true блокирует строку настроек до конца транзакции.
+// видны userID: у них есть хотя бы один не мягко удалённый питомец и
+// пользователю доступны все видимые питомцы (автор настроек,
+// reminder_plan.user_id, доступ не определяет). sql.ErrNoRows — настроек нет
+// либо они недоступны. lock=true блокирует строку настроек до конца
+// транзакции.
 func GetReminderPlanForUserWith(exec dbExecutor, planID uuid.UUID, userID string, lock bool) (*ReminderPlanFull, error) {
 	query := `
 		SELECT ` + reminderPlanColumns + `, COALESCE(med.name, vac.name)
 		FROM reminder_plan p` + reminderPlanJoins + `
-		WHERE p.id = $1 AND p.user_id = $2 AND ` + reminderPlanVisibleClause
+		WHERE p.id = $1 AND ` + reminderPlanReadableClause("$2")
 	if lock {
 		query += ` FOR UPDATE OF p`
 	}
@@ -106,10 +115,25 @@ func GetReminderPlanForUserWith(exec dbExecutor, planID uuid.UUID, userID string
 	return &full, nil
 }
 
-// GetReminderPlanOwnerUserID возвращает user_id владельца настроек
-// независимо от того, есть ли у них видимые питомцы. sql.ErrNoRows —
-// настроек с таким id нет. Используется для различения повтора создания
-// (свои настройки с клиентским id) и занятого чужими настройками id.
+// GetReminderPlanForWriteWith — GetReminderPlanForUserWith для операций
+// записи: кроме видимости требует роль owner или full у каждого видимого
+// питомца настроек, иначе ErrForbidden.
+func GetReminderPlanForWriteWith(exec dbExecutor, planID uuid.UUID, userID string, lock bool) (*ReminderPlanFull, error) {
+	plan, err := GetReminderPlanForUserWith(exec, planID, userID, lock)
+	if err != nil {
+		return nil, err
+	}
+	if err := EnsureWritableWith(exec, userID, plan.Pets); err != nil {
+		return nil, err
+	}
+	return plan, nil
+}
+
+// GetReminderPlanOwnerUserID возвращает user_id автора настроек (пользователя,
+// создавшего их) независимо от того, есть ли у них видимые питомцы.
+// sql.ErrNoRows — настроек с таким id нет. Используется для различения
+// повтора создания (свои настройки с клиентским id) и занятого чужими
+// настройками id.
 func GetReminderPlanOwnerUserID(planID uuid.UUID) (string, error) {
 	var userID string
 	err := DB.QueryRow(`
@@ -118,7 +142,7 @@ func GetReminderPlanOwnerUserID(planID uuid.UUID) (string, error) {
 	return userID, err
 }
 
-// InsertReminderPlanWith вставляет настройки владельца plan.UserID, связи с
+// InsertReminderPlanWith вставляет настройки автора plan.UserID, связи с
 // питомцами petIDs (в порядке petIDs) и по одному напоминанию на каждый
 // момент. Напоминания получают серверные id.
 func InsertReminderPlanWith(exec dbExecutor, plan models.ReminderPlanDB, petIDs []uuid.UUID, moments []models.ReminderMoment) error {
@@ -460,17 +484,17 @@ func uuidColumnWith(exec dbExecutor, query string, args ...any) ([]uuid.UUID, er
 }
 
 // GetReminderForUserWith находит напоминание (в том числе закрытое) по id и
-// проверяет, что его настройки принадлежат userID и имеют хотя бы одного не
-// мягко удалённого питомца. sql.ErrNoRows — напоминания нет, оно чужое либо у
-// его настроек нет видимых питомцев. lock=true блокирует строку напоминания
-// до конца транзакции.
+// проверяет, что его настройки видны userID: у них есть хотя бы один не
+// мягко удалённый питомец и пользователю доступны все видимые питомцы.
+// sql.ErrNoRows — напоминания нет либо оно недоступно. lock=true блокирует
+// строку напоминания до конца транзакции.
 func GetReminderForUserWith(exec dbExecutor, reminderID uuid.UUID, userID string, lock bool) (*ReminderFull, error) {
 	query := `
 		SELECT r.id, r.plan_id, r.remind_at, r.notes, r.closed_at, r.close_reason, r.fact_event_id,
 		       ` + reminderPlanColumns + `, COALESCE(med.name, vac.name)
 		FROM reminder r
 		JOIN reminder_plan p ON p.id = r.plan_id` + reminderPlanJoins + `
-		WHERE r.id = $1 AND p.user_id = $2 AND ` + reminderPlanVisibleClause
+		WHERE r.id = $1 AND ` + reminderPlanReadableClause("$2")
 	if lock {
 		query += ` FOR UPDATE OF r`
 	}
@@ -490,6 +514,20 @@ func GetReminderForUserWith(exec dbExecutor, reminderID uuid.UUID, userID string
 	}
 	full.Pets = pets[plan.ID]
 	return &full, nil
+}
+
+// GetReminderForWriteWith — GetReminderForUserWith для операций записи: кроме
+// видимости требует роль owner или full у каждого видимого питомца настроек
+// напоминания, иначе ErrForbidden.
+func GetReminderForWriteWith(exec dbExecutor, reminderID uuid.UUID, userID string, lock bool) (*ReminderFull, error) {
+	full, err := GetReminderForUserWith(exec, reminderID, userID, lock)
+	if err != nil {
+		return nil, err
+	}
+	if err := EnsureWritableWith(exec, userID, full.Pets); err != nil {
+		return nil, err
+	}
+	return full, nil
 }
 
 // scanReminderPlanWithPrefix — scanReminderPlan для запросов, где колонки
@@ -564,6 +602,8 @@ type ReminderCalendarRow struct {
 	// PlanUnclosedCount — число незавершённых напоминаний настроек, включая
 	// само напоминание.
 	PlanUnclosedCount int
+	// AuthorID — пользователь, создавший настройки (reminder_plan.user_id).
+	AuthorID string
 }
 
 // scanReminderCalendarRows читает строки напоминаний календаря и дополняет
@@ -575,7 +615,7 @@ func scanReminderCalendarRows(exec dbExecutor, rows *sql.Rows) ([]ReminderCalend
 		var it ReminderCalendarRow
 		var value []byte
 		if err := rows.Scan(&it.ID, &it.PlanID, &it.RemindAt, &it.ReminderNotes, &it.PlanNotes, &it.Type, &value,
-			&it.PlanSource, &it.PlanSourceTitle, &it.PlanUnclosedCount); err != nil {
+			&it.PlanSource, &it.PlanSourceTitle, &it.PlanUnclosedCount, &it.AuthorID); err != nil {
 			return nil, err
 		}
 		it.Value = json.RawMessage(value)
@@ -599,15 +639,17 @@ func scanReminderCalendarRows(exec dbExecutor, rows *sql.Rows) ([]ReminderCalend
 	return items, nil
 }
 
-// reminderCalendarSelect — незавершённые напоминания настроек userID, у
-// которых есть хотя бы один не мягко удалённый питомец.
+// reminderCalendarSelect — незавершённые напоминания настроек, видимых
+// пользователю $1: у настроек есть хотя бы один не мягко удалённый питомец и
+// пользователю доступны все видимые питомцы настроек.
 var reminderCalendarSelect = `
 	SELECT r.id, r.plan_id, r.remind_at, r.notes, p.notes, p.type, p.value,
 	       p.source, COALESCE(med.name, vac.name),
-	       (SELECT COUNT(*) FROM reminder o WHERE o.plan_id = p.id AND o.closed_at IS NULL)
+	       (SELECT COUNT(*) FROM reminder o WHERE o.plan_id = p.id AND o.closed_at IS NULL),
+	       p.user_id::text
 	FROM reminder r
 	JOIN reminder_plan p ON p.id = r.plan_id` + reminderPlanJoins + `
-	WHERE p.user_id = $1 AND r.closed_at IS NULL AND ` + reminderPlanVisibleClause
+	WHERE r.closed_at IS NULL AND ` + reminderPlanReadableClause("$1")
 
 // GetRemindersByUserIDInRange возвращает незавершённые напоминания настроек
 // userID с видимыми питомцами, чей remind_at попадает в полуоткрытый
@@ -656,7 +698,8 @@ func GetUpcomingRemindersByPetID(userID string, petID uuid.UUID, now time.Time, 
 }
 
 // CountRemindersByUserIDGroupedByDay возвращает число незавершённых
-// напоминаний настроек userID с видимыми питомцами, чей remind_at попадает в
+// напоминаний настроек, видимых userID (видимый питомец, доступны все видимые
+// питомцы настроек), чей remind_at попадает в
 // [start, end), сгруппированное по календарному дню в поясе loc
 // (YYYY-MM-DD). Напоминание общих настроек считается один раз. Группировка
 // выполняется в Go по той же причине, что у CountEventsByUserIDGroupedByDay.
@@ -665,7 +708,7 @@ func CountRemindersByUserIDGroupedByDay(userID string, start, end time.Time, loc
 		SELECT r.remind_at
 		FROM reminder r
 		JOIN reminder_plan p ON p.id = r.plan_id
-		WHERE p.user_id = $1 AND r.closed_at IS NULL AND `+reminderPlanVisibleClause+`
+		WHERE r.closed_at IS NULL AND `+reminderPlanReadableClause("$1")+`
 		AND r.remind_at >= $2 AND r.remind_at < $3
 	`, userID, start.UTC(), end.UTC())
 	if err != nil {
@@ -685,33 +728,37 @@ func CountRemindersByUserIDGroupedByDay(userID string, start, end time.Time, loc
 	return result, rows.Err()
 }
 
-// CheckReminderPlanFileOwnership — правило владения для owner_type =
-// "reminder_plan_file": настройки существуют, принадлежат userID
-// (reminder_plan.user_id) и имеют хотя бы одного не мягко удалённого питомца.
-func CheckReminderPlanFileOwnership(planID uuid.UUID, userID string) (bool, error) {
-	var count int
-	err := DB.QueryRow(`
-		SELECT COUNT(1) FROM reminder_plan p
-		WHERE p.id = $1 AND p.user_id = $2 AND `+reminderPlanVisibleClause, planID, userID).Scan(&count)
-	if err != nil {
-		return false, err
+// CheckReminderPlanFileOwnership — правило доступа для owner_type =
+// "reminder_plan_file": настройки видны userID (есть не мягко удалённый
+// питомец, доступны все видимые питомцы); операции с файлами — записи, поэтому
+// нужна роль owner или full у каждого видимого питомца (иначе AccessReadOnly).
+func CheckReminderPlanFileOwnership(planID uuid.UUID, userID string) (AccessCheck, error) {
+	plan, err := GetReminderPlanForUserWith(DB, planID, userID, false)
+	if err == sql.ErrNoRows {
+		return AccessNone, nil
 	}
-	return count == 1, nil
+	if err != nil {
+		return AccessNone, err
+	}
+	return accessCheckForPets(DB, userID, plan.Pets)
 }
 
-// CheckReminderFileOwnership — правило владения для owner_type =
-// "reminder_file": напоминание незавершённое, его настройки принадлежат
-// userID и имеют хотя бы одного не мягко удалённого питомца.
-func CheckReminderFileOwnership(reminderID uuid.UUID, userID string) (bool, error) {
-	var count int
-	err := DB.QueryRow(`
-		SELECT COUNT(1) FROM reminder r
-		JOIN reminder_plan p ON p.id = r.plan_id
-		WHERE r.id = $1 AND r.closed_at IS NULL AND p.user_id = $2 AND `+reminderPlanVisibleClause, reminderID, userID).Scan(&count)
-	if err != nil {
-		return false, err
+// CheckReminderFileOwnership — правило доступа для owner_type =
+// "reminder_file": напоминание незавершённое, его настройки видны userID;
+// роль owner или full нужна у каждого видимого питомца настроек (иначе
+// AccessReadOnly).
+func CheckReminderFileOwnership(reminderID uuid.UUID, userID string) (AccessCheck, error) {
+	full, err := GetReminderForUserWith(DB, reminderID, userID, false)
+	if err == sql.ErrNoRows {
+		return AccessNone, nil
 	}
-	return count == 1, nil
+	if err != nil {
+		return AccessNone, err
+	}
+	if full.Reminder.ClosedAt.Valid {
+		return AccessNone, nil
+	}
+	return accessCheckForPets(DB, userID, full.Pets)
 }
 
 // GetFilesForOwnerWith — GetFilesForOwner на произвольном dbExecutor.

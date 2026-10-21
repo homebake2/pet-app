@@ -46,7 +46,7 @@ func expectRegistrationAllowed(mock sqlmock.Sqlmock, count int) {
 // удалённых питомцев пользователя, выполняемый login/register/guest перед
 // финальным ответом.
 func expectPetsCount(mock sqlmock.Sqlmock, userID string, count int) {
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
 }
@@ -185,7 +185,7 @@ func TestRegisterHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).
 		WithArgs(userID).
 		WillReturnError(assertError)
 
@@ -371,7 +371,7 @@ func TestLoginHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).
 		WithArgs(userID).
 		WillReturnError(assertError)
 
@@ -598,7 +598,7 @@ func TestGuestHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WithArgs(sqlmock.AnyArg(), existingID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet WHERE user_id = \$1 AND deleted_at IS NULL`).
+	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).
 		WithArgs(existingID).
 		WillReturnError(assertError)
 

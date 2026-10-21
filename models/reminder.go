@@ -182,6 +182,9 @@ type ReminderPlanResponse struct {
 	// FutureRemindersWithFilesCount — число незавершённых напоминаний с
 	// remind_at > now(), у которых есть собственные файлы.
 	FutureRemindersWithFilesCount int `json:"future_reminders_with_files_count"`
+	// Author — пользователь, создавший настройки; null, если питомцем
+	// пользуется один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 // ReminderResponse — тело ответа GET /reminders/{id}.
@@ -198,6 +201,9 @@ type ReminderResponse struct {
 	PlanFiles         []EventFileItem `json:"plan_files"`
 	Files             []EventFileItem `json:"files"`
 	PlanUnclosedCount int             `json:"plan_unclosed_count"`
+	// Author — пользователь, создавший настройки напоминания; null, если
+	// питомцем пользуется один человек.
+	Author *EventAuthor `json:"author"`
 }
 
 // CompleteReminderRequest — тело запроса POST /reminders/{id}/complete.

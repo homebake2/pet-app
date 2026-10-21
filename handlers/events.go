@@ -114,14 +114,9 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	belongs, err := database.CheckPetBelongsToUser(petID, userID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки принадлежности питомца")
-		return
-	}
-
-	if !belongs {
-		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Питомец не найден")
+	// Питомец должен существовать, не быть удалён и быть доступен пользователю
+	// с любой ролью (владение или выданный доступ).
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 
@@ -132,9 +127,14 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start, end := localDaysBounds(fromDate, toDate, loc)
-	eventsDB, err := database.GetEventsByPetIDAndDateRange(petID, start, end)
+	eventsDB, err := database.GetEventsByPetIDAndDateRange(petID, userID, start, end)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
+		return
+	}
+	authors, err := eventAuthors(userID, eventsDB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов событий")
 		return
 	}
 
@@ -149,7 +149,7 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eventsByDay := make(map[string][]models.ActivityEvent)
-	for _, eventFull := range eventsDB {
+	for i, eventFull := range eventsDB {
 		eventDB := eventFull.Event
 		// Календарный день события для группировки — его день в часовом
 		// поясе клиента tz, а не в location, в которой драйвер вернул
@@ -170,6 +170,7 @@ func GetActivitiesHandler(w http.ResponseWriter, r *http.Request) {
 			Value:      eventDB.Value,
 			FilesCount: filesCounts[eventDB.ID],
 			Pets:       database.EventPetRefs(eventFull.Pets),
+			Author:     authors[i],
 		}
 		eventsByDay[dateStr] = append(eventsByDay[dateStr], activityEvent)
 	}
@@ -207,6 +208,8 @@ type PetEventItem struct {
 	FilesCount int             `json:"files_count"`
 	// Pets — видимые питомцы события (запись общая у нескольких питомцев).
 	Pets []models.EventPetRef `json:"pets"`
+	// Author — автор события; null, если питомцем пользуется один человек.
+	Author *models.EventAuthor `json:"author"`
 }
 
 // PetEventTypeCountItem - элемент available_filters.types.
@@ -357,22 +360,29 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 		return
 	}
 
-	// Питомец должен существовать, не быть удалён (deleted_at IS NULL) и
-	// принадлежать userID — то же условие, что и в GET /pet/{id}. Иначе
-	// события мягко удалённого/чужого/несуществующего питомца "утекают".
-	if _, ok := resolveOwnedPet(w, petID, userID); !ok {
+	// Питомец должен существовать, не быть удалён (deleted_at IS NULL) и быть
+	// доступен userID (владение или выданный доступ) — то же условие, что и в
+	// GET /pet/{id}. Иначе события мягко удалённого/чужого/несуществующего
+	// питомца "утекают".
+	if _, ok := resolvePetRole(w, petID, userID, petNeedRead); !ok {
 		return
 	}
 
-	eventsDB, err := database.GetEventsByPetID(petID, limit, offset, filter)
+	eventsDB, err := database.GetEventsByPetID(petID, userID, limit, offset, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
 		return
 	}
 
-	total, err := database.CountEventsByPetID(petID, filter)
+	total, err := database.CountEventsByPetID(petID, userID, filter)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества событий")
+		return
+	}
+
+	authors, err := eventAuthors(userID, eventsDB)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов событий")
 		return
 	}
 
@@ -387,7 +397,7 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 	}
 
 	items := make([]PetEventItem, 0, len(eventsDB))
-	for _, eventFull := range eventsDB {
+	for i, eventFull := range eventsDB {
 		eventDB := eventFull.Event
 		var notes *string
 		if eventDB.Notes.Valid {
@@ -401,12 +411,13 @@ func GetPetEventsHandler(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 			Value:      eventDB.Value,
 			FilesCount: filesCounts[eventDB.ID],
 			Pets:       database.EventPetRefs(eventFull.Pets),
+			Author:     authors[i],
 		})
 	}
 
 	response := PetEventsResponse{Items: items, Total: total}
 	if offset == 0 {
-		available, err := database.GetPetEventsAvailableFilters(petID, tzName)
+		available, err := database.GetPetEventsAvailableFilters(petID, userID, tzName)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения доступных фильтров событий")
 			return
@@ -454,8 +465,9 @@ func DeleteEventHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Удаление не требует видимых питомцев: событие, чьи питомцы мягко
-	// удалены, можно очистить из истории.
-	if _, ok := resolveOwnedEvent(w, eventID, userID, false); !ok {
+	// удалены, можно очистить из истории. Видимые питомцы требуют роли owner
+	// или full: у view событие видно, но удалять его нельзя (403).
+	if _, ok := resolveAccessibleEvent(w, eventID, userID, true, true); !ok {
 		return
 	}
 
@@ -484,12 +496,12 @@ func GetEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	eventFull, ok := resolveOwnedEvent(w, eventID, userID, true)
+	eventFull, ok := resolveAccessibleEvent(w, eventID, userID, false, false)
 	if !ok {
 		return
 	}
 
-	writeEventResponse(w, r, http.StatusOK, eventFull)
+	writeEventResponse(w, r, userID, http.StatusOK, eventFull)
 }
 
 // POST /events
@@ -570,7 +582,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 
 	if idempotencyKey != "" {
 		if existing, err := database.GetEventByUserIDAndIdempotencyKey(userID, idempotencyKey); err == nil {
-			writeEventResponse(w, r, http.StatusCreated, existing)
+			writeEventResponse(w, r, userID, http.StatusCreated, existing)
 			return
 		} else if err != sql.ErrNoRows {
 			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки idempotency key")
@@ -588,7 +600,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
 				return
 			}
-			writeEventResponse(w, r, http.StatusCreated, existing)
+			writeEventResponse(w, r, userID, http.StatusCreated, existing)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка при создании события")
@@ -601,7 +613,7 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeEventResponse(w, r, http.StatusCreated, createdEvent)
+	writeEventResponse(w, r, userID, http.StatusCreated, createdEvent)
 }
 
 // writeEventResponse строит EventResponse для одного события (POST /events,
@@ -609,18 +621,25 @@ func CreateEventHandler(w http.ResponseWriter, r *http.Request) {
 // Backend», раздел «Чтение») перед отправкой ответа. Отдельной проверки
 // владения для files не требуется — она уже выполнена при выборке самого
 // события.
-func writeEventResponse(w http.ResponseWriter, r *http.Request, status int, eventFull *database.EventFull) {
-	response, ok := buildEventResponse(w, r, eventFull)
+func writeEventResponse(w http.ResponseWriter, r *http.Request, viewerID string, status int, eventFull *database.EventFull) {
+	response, ok := buildEventResponse(w, r, viewerID, eventFull)
 	if !ok {
 		return
 	}
 	writeJSON(w, status, response)
 }
 
-// buildEventResponse строит EventResponse события с полем `files`; при
-// ошибке сама пишет 500 и возвращает ok=false.
-func buildEventResponse(w http.ResponseWriter, r *http.Request, eventFull *database.EventFull) (models.EventResponse, bool) {
+// buildEventResponse строит EventResponse события с полями `files` и `author`
+// (автор показывается viewerID); при ошибке сама пишет 500 и возвращает
+// ok=false.
+func buildEventResponse(w http.ResponseWriter, r *http.Request, viewerID string, eventFull *database.EventFull) (models.EventResponse, bool) {
 	response := eventResponseFromDB(eventFull)
+	author, err := eventAuthor(viewerID, eventFull)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения автора события")
+		return response, false
+	}
+	response.Author = author
 	if !attachEventFiles(w, r, eventFull.Event.ID, &response) {
 		return response, false
 	}
@@ -706,9 +725,11 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Владение событием проверяется по владельцу записи (event.user_id);
-	// событие без видимых питомцев не существует для изменения.
-	current, ok := resolveOwnedEvent(w, eventID, userID, true)
+	// Доступ к событию определяется его питомцами, а не автором (event.user_id):
+	// событие должно быть видно пользователю, а изменять его можно при роли
+	// owner или full у каждого видимого питомца (иначе 403). Событие без
+	// видимых питомцев не существует для изменения.
+	current, ok := resolveAccessibleEvent(w, eventID, userID, true, false)
 	if !ok {
 		return
 	}
@@ -816,7 +837,7 @@ func UpdateEventHandler(w http.ResponseWriter, r *http.Request) {
 	// Поля и связи с питомцами применяются атомарно: либо изменено всё, либо
 	// ничего.
 	err = database.RunInTx(func(tx *sql.Tx) error {
-		if _, err := database.GetEventForUserWith(tx, eventID, userID, true); err != nil {
+		if _, err := database.GetEventForWriteWith(tx, eventID, userID, true, false); err != nil {
 			return err
 		}
 		if err := database.UpdateEventWith(tx, eventID, dateTime, req.Type, req.Notes, req.Value); err != nil {

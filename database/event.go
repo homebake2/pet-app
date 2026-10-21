@@ -151,21 +151,48 @@ func GetEventFullByID(eventID uuid.UUID) (*EventFull, error) {
 	`, eventID)
 }
 
-// GetEventForUserWith возвращает неудалённое событие, принадлежащее userID
-// (event.user_id), вместе с его видимыми питомцами. Видимых питомцев может
-// не быть — требовать их наличия или нет, решает вызывающий (удаление
-// события не требует, чтение и изменение — требуют). lock=true блокирует
-// строку события до конца транзакции. sql.ErrNoRows — события нет, оно
-// удалено либо чужое.
-func GetEventForUserWith(exec dbExecutor, eventID uuid.UUID, userID string, lock bool) (*EventFull, error) {
+// GetEventForUserWith возвращает неудалённое событие, видимое userID, вместе
+// с его видимыми питомцами. Событие видно, если у него есть хотя бы один
+// видимый питомец и пользователю доступен каждый из них (владение или
+// выданный доступ любой роли); автор события (event.user_id) доступ не
+// определяет. allowNoVisiblePets=true дополнительно допускает событие без
+// видимых питомцев (удаление очищает историю мягко удалённого питомца) — его
+// получает автор события и владелец любого из привязанных питомцев. lock=true
+// блокирует строку события до конца транзакции. sql.ErrNoRows — события нет,
+// оно удалено либо недоступно.
+func GetEventForUserWith(exec dbExecutor, eventID uuid.UUID, userID string, lock bool, allowNoVisiblePets bool) (*EventFull, error) {
+	access := eventPetLinks.readableClause("e", "id", "$2")
+	if allowNoVisiblePets {
+		access = `(` + access + ` OR (NOT ` + eventPetLinks.visibleExistsClause("e", "id") + ` AND (
+			e.user_id = $2 OR EXISTS (
+				SELECT 1 FROM event_pet hidden_link JOIN pet hidden_pet ON hidden_pet.id = hidden_link.pet_id
+				WHERE hidden_link.event_id = e.id AND hidden_pet.user_id = $2
+			)
+		)))`
+	}
 	query := `
 	SELECT ` + eventColumns + `
 	FROM event e
-	WHERE e.id = $1 AND e.user_id = $2 AND e.deleted_at IS NULL`
+	WHERE e.id = $1 AND e.deleted_at IS NULL AND ` + access
 	if lock {
 		query += ` FOR UPDATE OF e`
 	}
 	return getEventFullOne(exec, query, eventID, userID)
+}
+
+// GetEventForWriteWith — GetEventForUserWith для операций записи: кроме
+// видимости требует роль owner или full у каждого видимого питомца события,
+// иначе ErrForbidden (событие без видимых питомцев проверки ролей не
+// требует).
+func GetEventForWriteWith(exec dbExecutor, eventID uuid.UUID, userID string, lock bool, allowNoVisiblePets bool) (*EventFull, error) {
+	eventFull, err := GetEventForUserWith(exec, eventID, userID, lock, allowNoVisiblePets)
+	if err != nil {
+		return nil, err
+	}
+	if err := EnsureWritableWith(exec, userID, eventFull.Pets); err != nil {
+		return nil, err
+	}
+	return eventFull, nil
 }
 
 // UpdateEvent - функция обновления события
@@ -285,18 +312,19 @@ func DeleteEventWith(exec dbExecutor, eventID uuid.UUID) error {
 // Границы уже вычислены вызывающим кодом из календарных дат в часовом поясе
 // клиента (см. handlers.localDaysBounds и страницу "Просмотр календаря —
 // Backend"). В каждом событии отдаются все его видимые питомцы.
-func GetEventsByPetIDAndDateRange(petID uuid.UUID, start, end time.Time) ([]EventFull, error) {
+func GetEventsByPetIDAndDateRange(petID uuid.UUID, userID string, start, end time.Time) ([]EventFull, error) {
 	query := `
 	SELECT ` + eventColumns + `
 	FROM event e
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
-	AND e.date_time >= $2
-	AND e.date_time < $3
+	AND e.date_time >= $3
+	AND e.date_time < $4
+	AND ` + eventPetLinks.readableClause("e", "id", "$2") + `
 	ORDER BY e.date_time, e.id
 	`
-	rows, err := DB.Query(query, petID, start.UTC(), end.UTC())
+	rows, err := DB.Query(query, petID, userID, start.UTC(), end.UTC())
 	if err != nil {
 		log.Println("GetEventsByPetIDAndDateRange error:", err)
 		return nil, err
@@ -312,26 +340,27 @@ func GetEventsByPetIDAndDateRange(petID uuid.UUID, start, end time.Time) ([]Even
 // CheckEventFileOwnership проверяет владение событием по правилу,
 // зарегистрированному для owner_type = "event_file" в реестре типов
 // владельцев generic-механизма файлов сущностей (см. handlers/files.go,
-// «Файлы события — Backend»): событие не мягко удалено, принадлежит userID
-// (event.user_id) и имеет хотя бы одного не мягко удалённого питомца — то же
-// правило, что и при создании/редактировании события (в отличие от удаления
-// самого события, где мягко удалённые питомцы операцию не блокируют).
-func CheckEventFileOwnership(eventID uuid.UUID, userID string) (bool, error) {
-	query := `
-	SELECT COUNT(1) FROM event
-	WHERE id = $1 AND deleted_at IS NULL AND user_id = $2
-	AND ` + eventPetLinks.visibleExistsClause("event", "id")
-	var count int
-	err := DB.QueryRow(query, eventID, userID).Scan(&count)
-	if err != nil {
-		return false, err
+// «Файлы события — Backend»): событие не мягко удалено, имеет хотя бы одного
+// не мягко удалённого питомца и доступно userID по всем видимым питомцам — то
+// же правило, что и при создании/редактировании события (в отличие от
+// удаления самого события, где мягко удалённые питомцы операцию не
+// блокируют). Загрузка, подтверждение и удаление файла — операции записи:
+// нужна роль owner или full у каждого видимого питомца события, иначе
+// AccessReadOnly.
+func CheckEventFileOwnership(eventID uuid.UUID, userID string) (AccessCheck, error) {
+	eventFull, err := GetEventForUserWith(DB, eventID, userID, false, false)
+	if err == sql.ErrNoRows {
+		return AccessNone, nil
 	}
-	return count == 1, nil
+	if err != nil {
+		return AccessNone, err
+	}
+	return accessCheckForPets(DB, userID, eventFull.Pets)
 }
 
 // CountEventsByUserIDGroupedByDay возвращает количество неудалённых событий
-// (фактов) userID, у которых есть хотя бы один не мягко удалённый питомец и
-// чей date_time попадает в полуоткрытый интервал [start, end), сгруппированное
+// (фактов), видимых userID (есть видимый питомец и доступны все видимые
+// питомцы), и чей date_time попадает в полуоткрытый интервал [start, end), сгруппированное
 // по календарному дню события в часовом поясе loc (YYYY-MM-DD) — см.
 // «Просмотр календаря — Backend», GET /activities/calendar. Событие с
 // несколькими питомцами считается один раз. Группировка выполняется в Go, а
@@ -343,11 +372,10 @@ func CountEventsByUserIDGroupedByDay(userID string, start, end time.Time, loc *t
 	query := `
 	SELECT e.date_time
 	FROM event e
-	WHERE e.user_id = $1
-	AND e.deleted_at IS NULL
+	WHERE e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
-	AND ` + eventPetLinks.visibleExistsClause("e", "id")
+	AND ` + eventPetLinks.readableClause("e", "id", "$1")
 	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
 	if err != nil {
 		log.Println("CountEventsByUserIDGroupedByDay error:", err)
@@ -370,8 +398,8 @@ func CountEventsByUserIDGroupedByDay(userID string, start, end time.Time, loc *t
 	return result, nil
 }
 
-// GetEventsByUserIDInRange возвращает все неудалённые события userID, у
-// которых есть хотя бы один не мягко удалённый питомец и чей date_time
+// GetEventsByUserIDInRange возвращает все неудалённые события, видимые
+// userID (есть видимый питомец и доступны все видимые питомцы), и чей date_time
 // попадает в полуоткрытый интервал [start, end) — для GET /activities/day это
 // границы одних локальных суток клиента (см. handlers.localDaysBounds), —
 // отсортированные по date_time, затем по id по возрастанию — см.
@@ -381,11 +409,10 @@ func GetEventsByUserIDInRange(userID string, start, end time.Time) ([]EventFull,
 	query := `
 	SELECT ` + eventColumns + `
 	FROM event e
-	WHERE e.user_id = $1
-	AND e.deleted_at IS NULL
+	WHERE e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
-	AND ` + eventPetLinks.visibleExistsClause("e", "id") + `
+	AND ` + eventPetLinks.readableClause("e", "id", "$1") + `
 	ORDER BY e.date_time ASC, e.id ASC
 	`
 	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
@@ -418,19 +445,20 @@ func escapeLikePattern(s string) string {
 // vaccination) содержат search (регистронезависимо); Types, From и To
 // ограничивают тип и момент события. Незаданный фильтр не применяется. В
 // каждом событии отдаются все его видимые питомцы.
-func GetEventsByPetID(petID uuid.UUID, limit, offset int, filter PetEventsFilter) ([]EventFull, error) {
-	where, filterArgs := petEventsWhere(filter, 4)
+func GetEventsByPetID(petID uuid.UUID, userID string, limit, offset int, filter PetEventsFilter) ([]EventFull, error) {
+	where, filterArgs := petEventsWhere(filter, 5)
 	query := `
 	SELECT ` + eventColumns + `
 	FROM event e
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
+	AND ` + eventPetLinks.readableClause("e", "id", "$2") + `
 	` + where + `
 	ORDER BY e.date_time DESC, e.id DESC
-	LIMIT $2 OFFSET $3
+	LIMIT $3 OFFSET $4
 	`
-	args := append([]any{petID, limit, offset}, filterArgs...)
+	args := append([]any{petID, userID, limit, offset}, filterArgs...)
 
 	rows, err := DB.Query(query, args...)
 	if err != nil {
@@ -448,18 +476,19 @@ func GetEventsByPetID(petID uuid.UUID, limit, offset int, filter PetEventsFilter
 // привязанных к питомцу, подходящих под тот же search-фильтр, что и
 // GetEventsByPetID, без учёта limit/offset — используется для поля total в
 // ответе GET /pet/{id}/events.
-func CountEventsByPetID(petID uuid.UUID, filter PetEventsFilter) (int, error) {
-	where, filterArgs := petEventsWhere(filter, 2)
+func CountEventsByPetID(petID uuid.UUID, userID string, filter PetEventsFilter) (int, error) {
+	where, filterArgs := petEventsWhere(filter, 3)
 	query := `
 	SELECT COUNT(*)
 	FROM event e
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
+	AND ` + eventPetLinks.readableClause("e", "id", "$2") + `
 	` + where
 
 	var total int
-	if err := DB.QueryRow(query, append([]any{petID}, filterArgs...)...).Scan(&total); err != nil {
+	if err := DB.QueryRow(query, append([]any{petID, userID}, filterArgs...)...).Scan(&total); err != nil {
 		log.Println("CountEventsByPetID error:", err)
 		return 0, err
 	}
@@ -534,8 +563,8 @@ func petEventsWhere(f PetEventsFilter, firstIdx int) (string, []any) {
 // удалённым событиям питомца без учёта search/types/from/to: общее число,
 // число событий по типам и число различных календарных дней в часовом поясе
 // tzName (имя IANA, понятное и Go, и Postgres). Питомец должен быть уже
-// проверен вызывающим как видимый.
-func GetPetEventsAvailableFilters(petID uuid.UUID, tzName string) (*PetEventsAvailableFilters, error) {
+// проверен вызывающим как видимый; считаются только события, видимые userID.
+func GetPetEventsAvailableFilters(petID uuid.UUID, userID string, tzName string) (*PetEventsAvailableFilters, error) {
 	result := &PetEventsAvailableFilters{Types: []PetEventTypeCount{}}
 
 	err := DB.QueryRow(`
@@ -544,7 +573,8 @@ func GetPetEventsAvailableFilters(petID uuid.UUID, tzName string) (*PetEventsAva
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
-	`, petID, tzName).Scan(&result.Total, &result.DistinctDays)
+	AND `+eventPetLinks.readableClause("e", "id", "$3")+`
+	`, petID, tzName, userID).Scan(&result.Total, &result.DistinctDays)
 	if err != nil {
 		log.Println("GetPetEventsAvailableFilters totals error:", err)
 		return nil, err
@@ -556,9 +586,10 @@ func GetPetEventsAvailableFilters(petID uuid.UUID, tzName string) (*PetEventsAva
 	JOIN event_pet ep ON ep.event_id = e.id
 	WHERE ep.pet_id = $1
 	AND e.deleted_at IS NULL
+	AND `+eventPetLinks.readableClause("e", "id", "$2")+`
 	GROUP BY e.type
 	ORDER BY COUNT(*) DESC, e.type ASC
-	`, petID)
+	`, petID, userID)
 	if err != nil {
 		log.Println("GetPetEventsAvailableFilters types error:", err)
 		return nil, err

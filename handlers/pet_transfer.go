@@ -98,6 +98,11 @@ func createPetTransferHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	if !ok {
 		return
 	}
+	// Передавать питомца может только владелец: участник с любой ролью — 403,
+	// пользователь без доступа — 404.
+	if _, ok := resolvePetRole(w, petID, userID, petNeedOwner); !ok {
+		return
+	}
 
 	for attempt := 0; attempt < petTransferCodeAttempts; attempt++ {
 		code, err := generatePetTransferCode()
@@ -133,6 +138,9 @@ func getPetTransferHandler(w http.ResponseWriter, r *http.Request, petID uuid.UU
 	if !ok {
 		return
 	}
+	if _, ok := resolvePetRole(w, petID, userID, petNeedOwner); !ok {
+		return
+	}
 
 	transfer, err := database.GetActivePetTransfer(petID, userID)
 	if err != nil {
@@ -152,6 +160,9 @@ func cancelPetTransferHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	if !ok {
 		return
 	}
+	if _, ok := resolvePetRole(w, petID, userID, petNeedOwner); !ok {
+		return
+	}
 
 	if err := database.CancelActivePetTransfer(petID, userID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -164,10 +175,11 @@ func cancelPetTransferHandler(w http.ResponseWriter, r *http.Request, petID uuid
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// readPetTransferCode выполняет общие шаги эндпоинтов с кодом: метод,
-// авторизация, разбор и нормализация кода, ограничение подбора. При отказе
-// сама пишет ответ и возвращает ok=false.
-func readPetTransferCode(w http.ResponseWriter, r *http.Request) (userID string, code string, ok bool) {
+// readCodeRequest выполняет общие шаги эндпоинтов с кодом — передачи питомца и
+// приглашения к доступу, у которых один формат кода и общий счётчик неудачных
+// обращений: метод, авторизация, разбор и нормализация кода, ограничение
+// подбора. При отказе сама пишет ответ и возвращает ok=false.
+func readCodeRequest(w http.ResponseWriter, r *http.Request) (userID string, code string, ok bool) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
 		return "", "", false
@@ -185,7 +197,7 @@ func readPetTransferCode(w http.ResponseWriter, r *http.Request) (userID string,
 	}
 	code, valid := normalizePetTransferCode(req.Code)
 	if !valid {
-		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный код передачи")
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Некорректный код")
 		return "", "", false
 	}
 
@@ -201,19 +213,19 @@ func readPetTransferCode(w http.ResponseWriter, r *http.Request) (userID string,
 	return userID, code, true
 }
 
-// writeInvalidPetTransferCode учитывает неудачное обращение с кодом и пишет
-// единый 404 — причины недействительности кода не различаются.
-func writeInvalidPetTransferCode(w http.ResponseWriter, userID string) {
+// writeInvalidCode учитывает неудачное обращение с кодом и пишет единый 404 с
+// сообщением message — причины недействительности кода не различаются.
+func writeInvalidCode(w http.ResponseWriter, userID string, message string) {
 	if err := database.RecordPetTransferCodeFailure(userID); err != nil {
 		log.Printf("RecordPetTransferCodeFailure error: %v", err)
 	}
-	writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Код передачи недействителен")
+	writeError(w, http.StatusNotFound, openapi.NOTFOUND, message)
 }
 
-// handlePetTransferCodeError пишет ответ по ошибке операции с кодом.
+// handlePetTransferCodeError пишет ответ по ошибке операции с кодом передачи.
 func handlePetTransferCodeError(w http.ResponseWriter, userID string, err error, internalMessage string) {
 	if errors.Is(err, sql.ErrNoRows) {
-		writeInvalidPetTransferCode(w, userID)
+		writeInvalidCode(w, userID, "Код передачи недействителен")
 		return
 	}
 	if errors.Is(err, database.ErrTransferOwnPet) {
@@ -225,7 +237,7 @@ func handlePetTransferCodeError(w http.ResponseWriter, userID string, err error,
 
 // PetTransferPreviewHandler обрабатывает POST /pet-transfers/preview.
 func PetTransferPreviewHandler(w http.ResponseWriter, r *http.Request) {
-	userID, code, ok := readPetTransferCode(w, r)
+	userID, code, ok := readCodeRequest(w, r)
 	if !ok {
 		return
 	}
@@ -240,7 +252,7 @@ func PetTransferPreviewHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pet, err := database.GetPetByIDAndUserID(transfer.PetID, transfer.FromUserID)
+	pet, err := database.GetPetForUser(transfer.PetID, transfer.FromUserID)
 	if err != nil {
 		handlePetTransferCodeError(w, userID, err, "Ошибка получения питомца")
 		return
@@ -307,7 +319,7 @@ func petTransferPhotoURL(w http.ResponseWriter, r *http.Request, petID uuid.UUID
 
 // PetTransferDeclineHandler обрабатывает POST /pet-transfers/decline.
 func PetTransferDeclineHandler(w http.ResponseWriter, r *http.Request) {
-	userID, code, ok := readPetTransferCode(w, r)
+	userID, code, ok := readCodeRequest(w, r)
 	if !ok {
 		return
 	}
@@ -321,7 +333,7 @@ func PetTransferDeclineHandler(w http.ResponseWriter, r *http.Request) {
 
 // PetTransferAcceptHandler обрабатывает POST /pet-transfers/accept.
 func PetTransferAcceptHandler(w http.ResponseWriter, r *http.Request) {
-	userID, code, ok := readPetTransferCode(w, r)
+	userID, code, ok := readCodeRequest(w, r)
 	if !ok {
 		return
 	}

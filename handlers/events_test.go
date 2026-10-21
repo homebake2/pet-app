@@ -81,8 +81,7 @@ func TestGetActivitiesHandler_InvalidPetID(t *testing.T) {
 func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
+	expectPetRoleMissing(mock)
 
 	w := httptest.NewRecorder()
 	path := "/activities?from=2024-01-01&to=2024-01-02&tz=UTC&pet_id=" + testPetID
@@ -94,8 +93,7 @@ func TestGetActivitiesHandler_PetNotOwned(t *testing.T) {
 func TestGetActivitiesHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectPetRole(mock, "owner")
 	mock.ExpectQuery(`SELECT name FROM pet WHERE id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Rex"))
 	eventDate := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
@@ -103,6 +101,7 @@ func TestGetActivitiesHandler_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(eventColumnNames).
 			AddRow(testEventID, testUserID, eventDate, "weight", nil, []byte(`{"amount":5}`)))
 	expectEventPets(mock, testEventID, testPet{ID: testPetID, Name: "Rex", Species: "DOG"})
+	expectNoSharedPets(mock)
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
 
@@ -127,17 +126,17 @@ func TestGetActivitiesHandler_Success(t *testing.T) {
 func TestGetActivitiesHandler_GroupsByClientTimeZone(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(`SELECT COUNT\(1\) FROM pet WHERE id = \$1 AND user_id = \$2`).
-		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	expectPetRole(mock, "owner")
 	mock.ExpectQuery(`SELECT name FROM pet WHERE id = \$1`).
 		WillReturnRows(sqlmock.NewRows([]string{"name"}).AddRow("Rex"))
 	mock.ExpectQuery(`SELECT e.id, e.user_id, e.date_time, e.type, e.notes, e.value\s+FROM event e\s+JOIN event_pet ep ON ep.event_id = e.id\s+WHERE ep.pet_id = \$1`).
-		WithArgs(sqlmock.AnyArg(),
+		WithArgs(sqlmock.AnyArg(), testUserID,
 			timeArg(time.Date(2023, 12, 31, 21, 0, 0, 0, time.UTC)),
 			timeArg(time.Date(2024, 1, 2, 21, 0, 0, 0, time.UTC))).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames).
 			AddRow(testEventID, testUserID, time.Date(2024, 1, 1, 22, 30, 0, 0, time.UTC), "weight", nil, []byte(`{"amount":5}`)))
 	expectEventPets(mock, testEventID, testPet{ID: testPetID, Name: "Rex", Species: "DOG"})
+	expectNoSharedPets(mock)
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}))
 
@@ -336,6 +335,7 @@ func TestCreateEventHandler_IdempotencyKey_ReturnsExisting(t *testing.T) {
 		WithArgs(testUserID, "11111111-1111-4111-8111-111111111111").
 		WillReturnRows(eventRow(existingEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, time.Now()))
 	expectEventPets(mock, existingEventID, petRex, petTom)
+	expectNoSharedPets(mock)
 	expectEventFilesEmpty(mock)
 
 	w := httptest.NewRecorder()
@@ -534,7 +534,7 @@ func TestGetEventHandler_NoVisiblePets_NotFound(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	deleted := petRex
 	deleted.Deleted = true
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, deleted)
+	mock.ExpectQuery(eventForUserQuery).WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
 	GetEventHandler(w, eventRequest(t, http.MethodGet, "/events/"+testEventID, nil, true))
@@ -549,6 +549,7 @@ func TestGetEventHandler_ReturnsOnlyVisiblePets(t *testing.T) {
 	deleted := petTom
 	deleted.Deleted = true
 	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, deleted)
+	expectNoSharedPets(mock)
 	expectEventFilesEmpty(mock)
 
 	w := httptest.NewRecorder()
@@ -566,6 +567,7 @@ func TestGetEventHandler_WithFiles(t *testing.T) {
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
 	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectNoSharedPets(mock)
 	docFileID := "99999999-9999-9999-9999-999999999999"
 	docFilename := "analysis.pdf"
 	mock.ExpectQuery(filesByOwnerSQL).
@@ -590,7 +592,7 @@ func TestGetEventHandler_WithFiles(t *testing.T) {
 func TestDeleteEventHandler_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	mock.ExpectQuery(eventForUserQuery).WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery(eventForDeleteQuery).WillReturnError(sql.ErrNoRows)
 
 	w := httptest.NewRecorder()
 	DeleteEventHandler(w, eventRequest(t, http.MethodDelete, "/events/"+testEventID, nil, true))
@@ -603,7 +605,8 @@ func TestDeleteEventHandler_Success(t *testing.T) {
 	expectTokensValid(mock, testUserID)
 	deleted := petRex
 	deleted.Deleted = true
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, deleted)
+	mock.ExpectQuery(eventForDeleteQuery).WillReturnRows(eventRow(testEventID, "weight", `{"amount":5}`, time.Now().Add(-time.Hour)))
+	expectEventPets(mock, testEventID, deleted)
 	mock.ExpectExec(`UPDATE event SET deleted_at = \$1 WHERE id = \$2 AND deleted_at IS NULL`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -638,9 +641,9 @@ func TestUpdateEventHandler_NotFound(t *testing.T) {
 func TestUpdateEventHandler_NoVisiblePets_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	deleted := petRex
-	deleted.Deleted = true
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, deleted)
+	// Запись без видимых питомцев для изменения не существует: SQL-условие
+	// видимости её не возвращает.
+	mock.ExpectQuery(eventForUserQuery).WillReturnError(sql.ErrNoRows)
 
 	notes := "x"
 	w := patchEvent(t, models.UpdateEventRequest{Notes: &notes})
@@ -650,7 +653,7 @@ func TestUpdateEventHandler_NoVisiblePets_NotFound(t *testing.T) {
 func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 
 	w := patchEvent(t, models.UpdateEventRequest{})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -659,7 +662,7 @@ func TestUpdateEventHandler_NoFieldsToUpdate(t *testing.T) {
 func TestUpdateEventHandler_TypeWithoutValue(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 
 	newType := "other"
 	w := patchEvent(t, models.UpdateEventRequest{Type: &newType})
@@ -669,7 +672,7 @@ func TestUpdateEventHandler_TypeWithoutValue(t *testing.T) {
 func TestUpdateEventHandler_ValueInvalidForCurrentType(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 
 	w := patchEvent(t, models.UpdateEventRequest{Value: eventValuePtr(`{"amount":500}`)})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -679,7 +682,7 @@ func TestUpdateEventHandler_ValueInvalidForCurrentType(t *testing.T) {
 func TestUpdateEventHandler_TypeNotApplicableToPetSpecies(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petNemo)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petNemo)
 
 	newType := "heat_cycle"
 	w := patchEvent(t, models.UpdateEventRequest{Type: &newType, Value: eventValuePtr(`{"phase":"started"}`)})
@@ -691,7 +694,7 @@ func TestUpdateEventHandler_TypeNotApplicableToPetSpecies(t *testing.T) {
 func TestUpdateEventHandler_MeasurementTypeWithMultiplePets(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, petTom)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, petTom)
 
 	newType := "weight"
 	w := patchEvent(t, models.UpdateEventRequest{Type: &newType, Value: eventValuePtr(`{"amount":5}`)})
@@ -704,9 +707,9 @@ func TestUpdateEventHandler_MeasurementTypeWithMultiplePets(t *testing.T) {
 func TestUpdateEventHandler_TypeUnchangedApplicabilityNotChecked(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "heat_cycle", `{"phase":"started"}`, petNemo)
+	expectEventForUserWritable(mock, testEventID, "heat_cycle", `{"phase":"started"}`, petNemo)
 	mock.ExpectBegin()
-	expectEventForUser(mock, testEventID, "heat_cycle", `{"phase":"started"}`, petNemo)
+	expectEventForUserWritable(mock, testEventID, "heat_cycle", `{"phase":"started"}`, petNemo)
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -719,7 +722,7 @@ func TestUpdateEventHandler_TypeUnchangedApplicabilityNotChecked(t *testing.T) {
 func TestUpdateEventHandler_HygieneProcedureNotApplicableToPetSpecies(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "hygiene", `{"procedure":"water_change"}`, petNemo)
+	expectEventForUserWritable(mock, testEventID, "hygiene", `{"procedure":"water_change"}`, petNemo)
 
 	w := patchEvent(t, models.UpdateEventRequest{Value: eventValuePtr(`{"procedure":"brushing"}`)})
 	assert.Equal(t, http.StatusBadRequest, w.Code)
@@ -729,9 +732,9 @@ func TestUpdateEventHandler_HygieneProcedureNotApplicableToPetSpecies(t *testing
 func TestUpdateEventHandler_Success(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 	mock.ExpectBegin()
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -745,10 +748,10 @@ func TestUpdateEventHandler_Success(t *testing.T) {
 func TestUpdateEventHandler_AttachPet(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
 	expectOwnedPets(mock, petRex, petTom)
 	mock.ExpectBegin()
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
 	mock.ExpectExec(`DELETE FROM event_pet link`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -762,10 +765,10 @@ func TestUpdateEventHandler_AttachPet(t *testing.T) {
 func TestUpdateEventHandler_DetachPet(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, petTom)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, petTom)
 	expectOwnedPets(mock, petTom)
 	mock.ExpectBegin()
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, petTom)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex, petTom)
 	mock.ExpectExec(`DELETE FROM event_pet link`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectCommit()
@@ -779,7 +782,7 @@ func TestUpdateEventHandler_DetachPet(t *testing.T) {
 func TestUpdateEventHandler_AttachPet_StoredTypeNotApplicable(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "heat_cycle", `{"phase":"started"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "heat_cycle", `{"phase":"started"}`, petRex)
 	expectOwnedPets(mock, petRex, petNemo)
 
 	w := patchEvent(t, models.UpdateEventRequest{PetIDs: petIDsPtr(petRex, petNemo)})
@@ -791,7 +794,7 @@ func TestUpdateEventHandler_AttachPet_StoredTypeNotApplicable(t *testing.T) {
 func TestUpdateEventHandler_AttachPet_MeasurementType(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 	expectOwnedPets(mock, petRex, petTom)
 
 	w := patchEvent(t, models.UpdateEventRequest{PetIDs: petIDsPtr(petRex, petTom)})
@@ -815,7 +818,7 @@ func TestUpdateEventHandler_InvalidPetIDs(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			mock := setupMockDB(t)
 			expectTokensValid(mock, testUserID)
-			expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+			expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 
 			ids := ids
 			w := patchEvent(t, models.UpdateEventRequest{PetIDs: &ids})
@@ -828,7 +831,7 @@ func TestUpdateEventHandler_InvalidPetIDs(t *testing.T) {
 func TestUpdateEventHandler_AttachPet_NotOwned_NotFound(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
 	expectOwnedPets(mock, petRex)
 
 	ids := []string{testPetID, testOtherPet}
@@ -839,7 +842,7 @@ func TestUpdateEventHandler_AttachPet_NotOwned_NotFound(t *testing.T) {
 func TestUpdateEventHandler_AttachPet_Deleted(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "feeding", `{"amount":5,"unit":"g","food":"dry"}`, petRex)
 	deleted := petTom
 	deleted.Deleted = true
 	expectOwnedPets(mock, petRex, deleted)
@@ -892,7 +895,7 @@ func TestCreateEventHandler_ResponseHasNoNotificationsField(t *testing.T) {
 func TestUpdateEventHandler_MoveToFutureDateRejected(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 
 	futureDate := time.Now().Add(48 * time.Hour).UTC().Format(time.RFC3339)
 	w := patchEvent(t, models.UpdateEventRequest{Date: &futureDate})
@@ -907,8 +910,9 @@ func TestUpdateEventHandler_StoredDateNotRecheckedWhenDateNotSent(t *testing.T) 
 	future := time.Now().Add(48 * time.Hour)
 	mock.ExpectQuery(eventForUserQuery).WillReturnRows(eventRow(testEventID, "weight", `{"amount":5}`, future))
 	expectEventPets(mock, testEventID, petRex)
+	expectWritable(mock, true)
 	mock.ExpectBegin()
-	expectEventForUser(mock, testEventID, "weight", `{"amount":5}`, petRex)
+	expectEventForUserWritable(mock, testEventID, "weight", `{"amount":5}`, petRex)
 	mock.ExpectExec(`UPDATE event SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 

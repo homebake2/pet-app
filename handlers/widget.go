@@ -41,7 +41,7 @@ func GetWidgetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pets, err := database.GetPetsByUserID(userID)
+	pets, err := database.GetAccessiblePetsByUserID(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить питомцев")
 		return
@@ -82,13 +82,20 @@ func GetWidgetHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		// Кнопки быстрого создания события предлагаются только там, где
+		// создание доступно: при роли view их нет.
+		quickActions := []models.WidgetQuickAction{}
+		if database.CanWriteRole(pet.Access) {
+			quickActions = widgetQuickActions(pet.Species, frequency[pet.ID])
+		}
+
 		response.Items = append(response.Items, models.WidgetPet{
 			ID:                pet.ID.String(),
 			Name:              pet.Name,
 			Species:           pet.Species,
 			PhotoURL:          photoItems[i].PhotoURL,
 			UpcomingReminders: upcoming,
-			QuickActions:      widgetQuickActions(pet.Species, frequency[pet.ID]),
+			QuickActions:      quickActions,
 		})
 	}
 

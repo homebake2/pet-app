@@ -75,11 +75,14 @@ type ownerTypeSpec struct {
 	// напоминания и самого напоминания файлы вместе должны помещаться в один
 	// факт (до 10), поэтому лимит одного зависит от числа файлов другого.
 	effectiveMaxCount func(ownerID uuid.UUID) (int, error)
-	// checkOwnership возвращает true, если ownerID существует и принадлежит
-	// userID (для pet_photo — ещё и не удалён). Ошибка — сбой БД (500);
-	// false без ошибки — единый 404 (см. «Общие требования: IDOR и владение
-	// ресурсами»), без утечки деталей о причине отказа.
-	checkOwnership func(ownerID uuid.UUID, userID string) (bool, error)
+	// checkOwnership определяет право userID на операции записи с файлами
+	// ownerID (загрузка, подтверждение, удаление): AccessNone — владельца нет,
+	// он удалён либо недоступен пользователю (единый 404, см. «Общие
+	// требования: IDOR и владение ресурсами», без утечки деталей о причине
+	// отказа); AccessReadOnly — доступ есть, но роли недостаточно (403, см.
+	// «Общие требования: Доступ к питомцу»); AccessWritable — операция
+	// разрешена. Ошибка — сбой БД (500).
+	checkOwnership func(ownerID uuid.UUID, userID string) (database.AccessCheck, error)
 }
 
 // ownerTypeRegistry — статическая таблица «owner_type → { проверка владения,
@@ -97,7 +100,7 @@ var ownerTypeRegistry = map[string]ownerTypeSpec{
 			"image/png":  true,
 			"image/webp": true,
 		},
-		checkOwnership: database.CheckPetOwnership,
+		checkOwnership: database.CheckPetFileAccess,
 	},
 	eventFileOwnerType: {
 		cardinality: cardinalityUpToN,
@@ -250,13 +253,17 @@ func FilesUploadUrlHandler(w http.ResponseWriter, r *http.Request) {
 
 	// (c) проверка владения — единый 404, если ресурс не существует, чужой
 	// или мягко удалён.
-	owns, err := spec.checkOwnership(ownerID, userID)
+	access, err := spec.checkOwnership(ownerID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки владения")
 		return
 	}
-	if !owns {
+	if access == database.AccessNone {
 		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Ресурс не найден")
+		return
+	}
+	if access == database.AccessReadOnly {
+		writeForbidden(w)
 		return
 	}
 
@@ -422,13 +429,17 @@ func resolveOwnedFile(w http.ResponseWriter, fileID uuid.UUID, userID string) (*
 		return nil, false
 	}
 
-	owns, err := spec.checkOwnership(file.OwnerID, userID)
+	access, err := spec.checkOwnership(file.OwnerID, userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка проверки владения")
 		return nil, false
 	}
-	if !owns {
+	if access == database.AccessNone {
 		writeError(w, http.StatusNotFound, openapi.NOTFOUND, "Файл не найден")
+		return nil, false
+	}
+	if access == database.AccessReadOnly {
+		writeForbidden(w)
 		return nil, false
 	}
 

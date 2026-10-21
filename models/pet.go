@@ -77,6 +77,14 @@ type EventPetRef struct {
 	PetName string `json:"pet_name"`
 }
 
+// EventAuthor — автор записи в ответах API: имя из профиля (при отсутствии
+// профиля — логин) и признак «запись создал сам текущий пользователь».
+// Поле author ответа равно null, пока записью пользуется один человек.
+type EventAuthor struct {
+	Name string `json:"name"`
+	IsMe bool   `json:"is_me"`
+}
+
 type EventResponse struct {
 	ID    string          `json:"id"`
 	Date  string          `json:"date"`
@@ -85,6 +93,9 @@ type EventResponse struct {
 	Notes *string         `json:"notes,omitempty"`
 	// Pets — видимые (не мягко удалённые) питомцы события.
 	Pets []EventPetRef `json:"pets"`
+	// Author — автор события; null, если ни одним из видимых питомцев не
+	// пользуются несколько человек.
+	Author *EventAuthor `json:"author"`
 	// Files — прикреплённые файлы события (фото и документы), в порядке
 	// position, не более 10 элементов (см. «Файлы события — Backend»).
 	Files []EventFileItem `json:"files"`
@@ -221,10 +232,34 @@ type PetItem struct {
 	// = "pet_photo" в generic-механизме файлов сущностей); null, если
 	// фотографии нет. См. «Фотография питомца — Backend».
 	PhotoURL *string `json:"photo_url"`
+	// Access — роль текущего пользователя у питомца: owner, full или view.
+	Access string `json:"access"`
+	// Owner — владелец питомца.
+	Owner PetOwnerRef `json:"owner"`
+}
+
+// PetOwnerRef — владелец питомца в ответах API: id (pet.user_id) и имя
+// (first_name и last_name профиля через пробел, при их отсутствии — логин).
+type PetOwnerRef struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// PetAccessLostItem — уведомление о потере доступа в ответе GET /pet: только
+// снимок имени и вида питомца.
+type PetAccessLostItem struct {
+	PetID      string `json:"pet_id"`
+	Name       string `json:"name"`
+	Species    string `json:"species"`
+	Reason     string `json:"reason"`
+	OccurredAt string `json:"occurred_at"`
 }
 
 type PetResponse struct {
 	Items []PetItem `json:"items"`
+	// AccessLost — уведомления текущего пользователя о потере доступа; пустой
+	// массив, если уведомлений нет.
+	AccessLost []PetAccessLostItem `json:"access_lost"`
 }
 
 type PetDB struct {
@@ -232,6 +267,10 @@ type PetDB struct {
 	Name    string         `db:"name"`
 	Breed   sql.NullString `db:"breed"`
 	Species string         `db:"species"`
+	// Access — роль текущего пользователя у питомца: owner, full или view.
+	Access string `db:"access"`
+	// OwnerID — pet.user_id.
+	OwnerID string `db:"owner_id"`
 }
 
 type PetIdResponse struct {
@@ -246,6 +285,13 @@ type PetIdResponse struct {
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  bool    `json:"is_deleted"`
 	Breed      *string `json:"breed,omitempty"`
+	// Access — роль текущего пользователя у питомца: owner, full или view.
+	Access string `json:"access"`
+	// Shared — питомцем пользуются несколько человек: у него есть хотя бы
+	// один участник (для участника всегда true).
+	Shared bool `json:"shared"`
+	// Owner — владелец питомца.
+	Owner PetOwnerRef `json:"owner"`
 	// PhotoURL — presigned GET URL на текущую фотографию питомца; null, если
 	// фотографии нет. PhotoFileID — id соответствующей строки file, нужен
 	// клиенту для DELETE /files/{file_id}. Оба вычисляются на чтении join'ом

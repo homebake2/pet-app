@@ -30,7 +30,10 @@ type StatsAggregate struct {
 // провалидирован (time.LoadLocation), — как и у GET /activities/calendar
 // (см. CountEventsByUserIDGroupedByDay).
 type StatsQuery struct {
-	PetID        uuid.UUID
+	PetID uuid.UUID
+	// UserID — пользователь, чей доступ учитывается: в агрегацию попадают
+	// только события, видимые ему (доступны все видимые питомцы события).
+	UserID       string
 	Type         string
 	SplitField   string
 	BucketStarts []time.Time
@@ -93,11 +96,12 @@ func AggregateEvents(q StatsQuery) ([]StatsRow, error) {
 	  AND e.deleted_at IS NULL
 	  AND e.date_time >= $3
 	  AND e.date_time < $4
+	  AND %s
 	GROUP BY 1, 2
 	ORDER BY 1, 2
-	`, strings.Join(selectParts, ",\n\t       "))
+	`, strings.Join(selectParts, ",\n\t       "), eventPetLinks.readableClause("e", "id", "$6"))
 
-	rows, err := DB.Query(query, q.PetID, q.Type, q.From.UTC(), q.To.UTC(), pq.Array(bucketStarts))
+	rows, err := DB.Query(query, q.PetID, q.Type, q.From.UTC(), q.To.UTC(), pq.Array(bucketStarts), q.UserID)
 	if err != nil {
 		log.Println("AggregateEvents error:", err)
 		return nil, err

@@ -43,26 +43,32 @@ func parsePetIDs(raw []string) (ids []uuid.UUID, msg string) {
 	return ids, ""
 }
 
-// resolvePetSet загружает питомцев ids пользователя userID в порядке ids.
-// Питомец не найден либо принадлежит другому пользователю — 404 (без
-// раскрытия, какой именно), мягко удалён — 400 (события) либо 404 при
-// deletedAsNotFound (настройки напоминания: мягко удалённый питомец для них
-// неотличим от несуществующего). Ошибки проверки возвращаются как
+// resolvePetSet загружает питомцев ids для записи пользователя userID в
+// порядке ids: привязывать к записи можно только питомцев, у которых роль
+// пользователя owner или full. Питомец не найден либо у пользователя нет к
+// нему доступа — 404 (без раскрытия, какой именно), мягко удалён — 400
+// (события) либо 404 при deletedAsNotFound (настройки напоминания: мягко
+// удалённый питомец для них неотличим от несуществующего), роль view — 403,
+// питомцы разных владельцев — 400. Ошибки проверки возвращаются как
 // reminderHTTPError, прочие — как есть (500).
 func resolvePetSet(exec database.Executor, userID string, ids []uuid.UUID, deletedAsNotFound bool) ([]database.LinkedPet, error) {
-	owned, err := database.GetOwnedPetsWith(exec, userID, ids)
+	accessible, err := database.GetAccessiblePetsWith(exec, userID, ids)
 	if err != nil {
 		return nil, err
 	}
 	pets := make([]database.LinkedPet, 0, len(ids))
 	anyDeleted := false
+	anyReadOnly := false
 	for _, id := range ids {
-		pet, ok := owned[id]
+		pet, ok := accessible[id]
 		if !ok {
 			return nil, newReminderHTTPError(http.StatusNotFound, openapi.NOTFOUND, "Питомец "+id.String()+" не найден")
 		}
 		if pet.Deleted {
 			anyDeleted = true
+		}
+		if !database.CanWriteRole(pet.Role) {
+			anyReadOnly = true
 		}
 		pets = append(pets, pet.LinkedPet)
 	}
@@ -71,6 +77,14 @@ func resolvePetSet(exec database.Executor, userID string, ids []uuid.UUID, delet
 			return nil, newReminderHTTPError(http.StatusNotFound, openapi.NOTFOUND, "Питомец не найден")
 		}
 		return nil, newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Невозможно использовать питомца, так как он удален")
+	}
+	if anyReadOnly {
+		return nil, newReminderHTTPError(http.StatusForbidden, openapi.FORBIDDEN, "Недостаточно прав: питомец доступен только для просмотра")
+	}
+	for _, id := range ids {
+		if accessible[id].OwnerID != accessible[ids[0]].OwnerID {
+			return nil, newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, "Все питомцы записи должны принадлежать одному владельцу")
+		}
 	}
 	return pets, nil
 }
