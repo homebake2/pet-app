@@ -153,6 +153,17 @@ type UpdateReminderPlanRequest struct {
 	Times         *[]string             `json:"times,omitempty"`
 	StartDate     *string               `json:"start_date,omitempty"`
 	EndDate       OptionalField[string] `json:"end_date,omitzero"`
+	// ReminderID — напоминание настроек, открытое на клиенте; само по себе не
+	// считается полем обновления.
+	ReminderID *string `json:"reminder_id,omitempty"`
+}
+
+// UpdateReminderPlanResponse — тело ответа PATCH /reminder-plans/{id}.
+// ReminderID — id напоминания, представляющего переданное reminder_id после
+// изменения; null, если оно не передано, не принадлежит настройкам, закрыто
+// или удалено.
+type UpdateReminderPlanResponse struct {
+	ReminderID *string `json:"reminder_id"`
 }
 
 // ReminderRef — элемент reminders в ReminderPlanResponse.

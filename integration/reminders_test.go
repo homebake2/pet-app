@@ -397,7 +397,7 @@ func TestReminderPlan_PatchDataAndSchedule(t *testing.T) {
 		"type":  "medication",
 		"value": map[string]any{"name": "Нурофен Форте"},
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	changed := getReminderPlan(t, tokens.AccessToken, plan.ID)
 	require.Equal(t, "Нурофен Форте", changed.Value.Name)
 	require.Equal(t, plan.Reminders[0].ID, changed.Reminders[0].ID)
@@ -415,7 +415,7 @@ func TestReminderPlan_PatchDataAndSchedule(t *testing.T) {
 		"start_date":     futureDate(1),
 		"end_date":       futureDate(4),
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	changed = getReminderPlan(t, tokens.AccessToken, plan.ID)
 	got := make([]string, 0, len(changed.Reminders))
 	for _, ref := range changed.Reminders {
@@ -1134,7 +1134,7 @@ func TestReminderPlan_MedicationSourceRules(t *testing.T) {
 		"frequency_type": "daily", "times": []string{"08:00", "22:00"},
 		"start_date": futureDate(1), "end_date": futureDate(3),
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 
 	list := doRequest(t, http.MethodGet, "/pet/"+petID+"/medications?tz=UTC", nil, tokens.AccessToken)
 	var listBody struct {
@@ -1214,7 +1214,7 @@ func TestReminderPlan_VaccinationSourceRules(t *testing.T) {
 	patch := doRequest(t, http.MethodPatch, path, map[string]any{
 		"frequency_type": "once", "times": []string{"11:15"}, "start_date": newDate,
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	list := doRequest(t, http.MethodGet, "/pet/"+petID+"/vaccinations", nil, tokens.AccessToken)
 	var listBody struct {
 		Items []struct {

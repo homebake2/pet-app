@@ -2227,6 +2227,9 @@ type UpdateReminderPlanRequest struct {
 	// PetIds Питомцы записи: от 1 до 10 различных uuid, все принадлежат пользователю и не мягко удалены. Измерительные типы (weight, temperature, water_quality) допускают ровно одного питомца. Желаемый полный набор питомцев настроек; принимается только при source=manual (для medication и vaccination — 400). Привязка питомца не создаёт и не пересоздаёт напоминания.
 	PetIds *[]openapi_types.UUID `json:"pet_ids,omitempty"`
 
+	// ReminderId Напоминание этих настроек, открытое на клиенте. Само по себе не считается полем обновления. По нему ответ возвращает reminder_id напоминания, которое теперь его представляет.
+	ReminderId *openapi_types.UUID `json:"reminder_id,omitempty"`
+
 	// StartDate Дата начала расписания; при frequency_type=once — дата напоминания.
 	StartDate *openapi_types.Date `json:"start_date,omitempty"`
 
@@ -2259,6 +2262,12 @@ type UpdateReminderPlanRequest struct {
 
 	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
 	Weekdays *[]int `json:"weekdays"`
+}
+
+// UpdateReminderPlanResponse defines model for UpdateReminderPlanResponse.
+type UpdateReminderPlanResponse struct {
+	// ReminderId Если в запросе передан reminder_id незавершённого напоминания этих настроек: его же id, пока оно сохранилось; если смена расписания пересоздала его (будущее напоминание) — id нового напоминания на его момент, а когда такого момента в новом расписании нет — id первого из созданных. null, если reminder_id не передан, напоминание не принадлежит настройкам, закрыто либо удалено.
+	ReminderId *openapi_types.UUID `json:"reminder_id"`
 }
 
 // UpdateVaccinationRequest defines model for UpdateVaccinationRequest.

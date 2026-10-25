@@ -3633,8 +3633,15 @@
           }
         },
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateReminderPlanResponse"
+                }
+              }
+            }
           },
           "400": {
             "description": "Bad Request",
@@ -9200,11 +9207,31 @@
           }
         }
       },
+      "UpdateReminderPlanResponse": {
+        "title": "UpdateReminderPlanResponse",
+        "type": "object",
+        "required": [
+          "reminder_id"
+        ],
+        "properties": {
+          "reminder_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Если в запросе передан reminder_id незавершённого напоминания этих настроек: его же id, пока оно сохранилось; если смена расписания пересоздала его (будущее напоминание) — id нового напоминания на его момент, а когда такого момента в новом расписании нет — id первого из созданных. null, если reminder_id не передан, напоминание не принадлежит настройкам, закрыто либо удалено."
+          }
+        }
+      },
       "UpdateReminderPlanRequest": {
         "title": "UpdateReminderPlanRequest",
         "type": "object",
         "description": "Частичное обновление настроек («Изменить все»). Хотя бы одно поле обязательно (в том числе pet_ids). Поля расписания передаются только целиком: frequency_type, weekdays, interval_days, times, start_date, end_date (end_date: null — без даты окончания).",
         "properties": {
+          "reminder_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Напоминание этих настроек, открытое на клиенте. Само по себе не считается полем обновления. По нему ответ возвращает reminder_id напоминания, которое теперь его представляет."
+          },
           "type": {
             "$ref": "#/components/schemas/GetEventEnum",
             "description": "Если передан, value обязателен в этом же запросе. Для настроек с source != manual не принимается."

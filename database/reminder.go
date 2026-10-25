@@ -204,6 +204,23 @@ func InsertRemindersWith(exec dbExecutor, planID uuid.UUID, moments []models.Rem
 	return ids, nil
 }
 
+// GetOpenReminderRemindAtWith возвращает remind_at незавершённого напоминания
+// reminderID настроек planID. found=false, если напоминания нет, оно закрыто
+// либо принадлежит другим настройкам.
+func GetOpenReminderRemindAtWith(exec dbExecutor, planID, reminderID uuid.UUID) (time.Time, bool, error) {
+	var remindAt time.Time
+	err := exec.QueryRow(`
+		SELECT remind_at FROM reminder WHERE id = $1 AND plan_id = $2 AND closed_at IS NULL
+	`, reminderID, planID).Scan(&remindAt)
+	if err == sql.ErrNoRows {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return remindAt, true, nil
+}
+
 // SetReminderPlanSourceWith записывает источник настроек (source/source_id).
 func SetReminderPlanSourceWith(exec dbExecutor, planID uuid.UUID, source string, sourceID uuid.NullUUID) error {
 	_, err := exec.Exec(`UPDATE reminder_plan SET source = $1, source_id = $2 WHERE id = $3`, source, sourceID, planID)

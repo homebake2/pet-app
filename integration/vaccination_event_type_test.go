@@ -117,7 +117,7 @@ func TestVaccinationType_CalendarMoveSyncsVaccinationAt(t *testing.T) {
 	move := doRequest(t, http.MethodPatch, "/reminder-plans/"+*item.NextPlanID+"?tz=UTC", map[string]any{
 		"frequency_type": "once", "times": []string{"16:20"}, "start_date": futureDate(45),
 	}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, move.status, "%s", move.body)
+	require.Equalf(t, http.StatusOK, move.status, "%s", move.body)
 
 	items := listVaccinations(t, tokens.AccessToken, petID)
 	require.Equal(t, futureDate(45), *items[0].NextDate)

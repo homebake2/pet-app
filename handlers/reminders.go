@@ -523,6 +523,18 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 	}
 	tz := r.URL.Query().Get("tz")
 
+	// reminder_id — подсказка для ответа, а не поле обновления: проверяется
+	// отдельно и не учитывается в «хотя бы одно поле».
+	var openReminderID *uuid.UUID
+	if req.ReminderID != nil {
+		parsed, err := uuid.Parse(*req.ReminderID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле reminder_id должно быть корректным uuid")
+			return
+		}
+		openReminderID = &parsed
+	}
+
 	scheduleGiven := req.FrequencyType != nil || req.Weekdays != nil || req.IntervalDays != nil ||
 		req.Times != nil || req.StartDate != nil || req.EndDate.Set
 	dataGiven := req.Type != nil || req.Value != nil || req.Notes != nil
@@ -582,10 +594,25 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 
 	now := time.Now().UTC()
 	var orphanKeys []string
+	var responseReminderID *uuid.UUID
 	err := database.RunInTx(func(tx *sql.Tx) error {
+		responseReminderID = nil
 		plan, err := database.GetReminderPlanForWriteWith(tx, planID, userID, true)
 		if err != nil {
 			return err
+		}
+		// Момент открытого напоминания до изменений: по нему после пересоздания
+		// расписания находится напоминание-преемник.
+		var openRemindAt time.Time
+		openFound := false
+		if openReminderID != nil {
+			openRemindAt, openFound, err = database.GetOpenReminderRemindAtWith(tx, planID, *openReminderID)
+			if err != nil {
+				return err
+			}
+			if openFound {
+				responseReminderID = openReminderID
+			}
 		}
 		bad := func(msg string) error {
 			return newReminderHTTPError(http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
@@ -685,10 +712,21 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 			if err != nil {
 				return err
 			}
-			if _, err := database.InsertRemindersWith(tx, planID, moments); err != nil {
+			newIDs, err := database.InsertRemindersWith(tx, planID, moments)
+			if err != nil {
 				return err
 			}
 			update.Schedule = planScheduleFromSpec(spec, tz)
+
+			if openFound {
+				_, stillOpen, err := database.GetOpenReminderRemindAtWith(tx, planID, *openReminderID)
+				if err != nil {
+					return err
+				}
+				if !stillOpen {
+					responseReminderID = successorReminderID(moments, newIDs, openRemindAt)
+				}
+			}
 
 			if err := applyScheduleToPlanOwner(tx, plan.ReminderPlanDB, med, spec, loc); err != nil {
 				return err
@@ -708,7 +746,34 @@ func UpdateReminderPlanHandler(w http.ResponseWriter, r *http.Request, planID uu
 	}
 	deleteOrphanedObjects(r.Context(), orphanKeys)
 
-	w.WriteHeader(http.StatusNoContent)
+	resp := models.UpdateReminderPlanResponse{}
+	if responseReminderID != nil {
+		id := responseReminderID.String()
+		resp.ReminderID = &id
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// successorReminderID выбирает напоминание, которое после пересоздания
+// расписания представляет удалённое напоминание на момент remindAt: созданное
+// на тот же момент, а если такого нет — первое по remind_at. newIDs идут в
+// порядке moments.
+func successorReminderID(moments []models.ReminderMoment, newIDs []uuid.UUID, remindAt time.Time) *uuid.UUID {
+	if len(moments) == 0 || len(moments) != len(newIDs) {
+		return nil
+	}
+	earliest := 0
+	for i, m := range moments {
+		if m.RemindAt.Equal(remindAt) {
+			id := newIDs[i]
+			return &id
+		}
+		if m.RemindAt.Before(moments[earliest].RemindAt) {
+			earliest = i
+		}
+	}
+	id := newIDs[earliest]
+	return &id
 }
 
 // applyScheduleToPlanOwner применяет новое расписание настроек к записи

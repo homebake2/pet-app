@@ -323,7 +323,7 @@ func TestMultiPet_ReminderPlanLifecycle(t *testing.T) {
 
 	// Привязка и отвязка питомцев без пересоздания напоминаний.
 	patch := doRequest(t, http.MethodPatch, "/reminder-plans/"+plan.ID+"?tz=UTC", map[string]any{"pet_ids": []string{dog, fish}}, tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, patch.status, "%s", patch.body)
+	require.Equalf(t, http.StatusOK, patch.status, "%s", patch.body)
 	got := getReminderPlan(t, tokens.AccessToken, plan.ID)
 	require.ElementsMatch(t, []string{dog, fish}, petIDsOf(got.Pets))
 	require.Len(t, got.Reminders, 1)

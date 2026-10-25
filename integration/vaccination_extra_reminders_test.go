@@ -327,7 +327,7 @@ func TestVaccinationExtras_CalendarReschedule(t *testing.T) {
 	}
 
 	ok := doRequest(t, http.MethodPatch, extraPath, once(futureDate(11), "06:00"), tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, ok.status, "%s", ok.body)
+	require.Equalf(t, http.StatusOK, ok.status, "%s", ok.body)
 	items := listVaccinations(t, tokens.AccessToken, petID)
 	require.Equal(t, futureDate(30), *items[0].NextDate)
 	require.Equal(t, "10:00", *items[0].NextTime)
@@ -344,7 +344,7 @@ func TestVaccinationExtras_CalendarReschedule(t *testing.T) {
 
 	// Основное — на новую дату и время: next_date и next_time вакцинации.
 	moved := doRequest(t, http.MethodPatch, mainPath, once(futureDate(45), "16:20"), tokens.AccessToken)
-	require.Equalf(t, http.StatusNoContent, moved.status, "%s", moved.body)
+	require.Equalf(t, http.StatusOK, moved.status, "%s", moved.body)
 	items = listVaccinations(t, tokens.AccessToken, petID)
 	require.Equal(t, futureDate(45), *items[0].NextDate)
 	require.Equal(t, "16:20", *items[0].NextTime)
