@@ -281,7 +281,7 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login, err := database.GetLoginByUserID(userID)
+	login, createdAt, err := database.GetLoginAndCreatedAtByUserID(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить логин")
 		return
@@ -303,6 +303,7 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		Email:      profile.Email,
 		Phone:      profile.Phone,
 		Login:      login,
+		CreatedAt:  createdAt,
 	}
 
 	writeJSON(w, http.StatusOK, resp)

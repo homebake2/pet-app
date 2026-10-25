@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type Profile struct {
 	UserID     string  `json:"user_id"`
 	FirstName  string  `json:"first_name"`
@@ -19,4 +21,6 @@ type ProfileResponse struct {
 	Email      *string `json:"email"`
 	Phone      *string `json:"phone"`
 	Login      string  `json:"login"`
+	// CreatedAt — момент регистрации аккаунта (users.created_at).
+	CreatedAt time.Time `json:"created_at"`
 }

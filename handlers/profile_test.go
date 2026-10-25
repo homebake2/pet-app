@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/stretchr/testify/assert"
@@ -304,9 +305,9 @@ func TestGetProfileHandler_EmptyLogin(t *testing.T) {
 		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "first_name", "middle_name", "last_name", "email", "phone"}).
 			AddRow(testUserID, "Ann", nil, nil, nil, nil))
-	mock.ExpectQuery(`SELECT login FROM users WHERE id=\$1`).
+	mock.ExpectQuery(`SELECT login, created_at FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
-		WillReturnRows(sqlmock.NewRows([]string{"login"}).AddRow(""))
+		WillReturnRows(sqlmock.NewRows([]string{"login", "created_at"}).AddRow("", time.Time{}))
 
 	w := httptest.NewRecorder()
 	r := profileRequest(t, http.MethodGet, nil, true)
@@ -323,9 +324,9 @@ func TestGetProfileHandler_UnsetOptionalFieldsSerializeAsNull(t *testing.T) {
 		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "first_name", "middle_name", "last_name", "email", "phone"}).
 			AddRow(testUserID, "Ann", nil, nil, nil, nil))
-	mock.ExpectQuery(`SELECT login FROM users WHERE id=\$1`).
+	mock.ExpectQuery(`SELECT login, created_at FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
-		WillReturnRows(sqlmock.NewRows([]string{"login"}).AddRow("ann-login"))
+		WillReturnRows(sqlmock.NewRows([]string{"login", "created_at"}).AddRow("ann-login", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)))
 
 	w := httptest.NewRecorder()
 	r := profileRequest(t, http.MethodGet, nil, true)
@@ -357,9 +358,9 @@ func TestGetProfileHandler_Success(t *testing.T) {
 		WithArgs(testUserID).
 		WillReturnRows(sqlmock.NewRows([]string{"user_id", "first_name", "middle_name", "last_name", "email", "phone"}).
 			AddRow(testUserID, "Ann", nil, nil, nil, nil))
-	mock.ExpectQuery(`SELECT login FROM users WHERE id=\$1`).
+	mock.ExpectQuery(`SELECT login, created_at FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
-		WillReturnRows(sqlmock.NewRows([]string{"login"}).AddRow("ann-login"))
+		WillReturnRows(sqlmock.NewRows([]string{"login", "created_at"}).AddRow("ann-login", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)))
 
 	w := httptest.NewRecorder()
 	r := profileRequest(t, http.MethodGet, nil, true)
@@ -370,5 +371,6 @@ func TestGetProfileHandler_Success(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
 	assert.Equal(t, "Ann", resp.FirstName)
 	assert.Equal(t, "ann-login", resp.Login)
+	assert.True(t, resp.CreatedAt.Equal(time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)))
 	require.NoError(t, mock.ExpectationsWereMet())
 }

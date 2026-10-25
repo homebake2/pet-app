@@ -922,8 +922,10 @@ type GetLoginResponse struct {
 
 // GetMasterProfileResponse defines model for GetMasterProfileResponse.
 type GetMasterProfileResponse struct {
-	Email     *string `json:"email"`
-	FirstName string  `json:"first_name"`
+	// CreatedAt Момент регистрации аккаунта (users.created_at)
+	CreatedAt time.Time `json:"created_at"`
+	Email     *string   `json:"email"`
+	FirstName string    `json:"first_name"`
 
 	// Id Идентификатор пользователя (users.id), а не первичный ключ строки profile
 	Id         openapi_types.UUID `json:"id"`

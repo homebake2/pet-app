@@ -5641,7 +5641,8 @@
           "middle_name",
           "last_name",
           "email",
-          "phone"
+          "phone",
+          "created_at"
         ],
         "properties": {
           "id": {
@@ -5691,6 +5692,11 @@
             "x-stoplight": {
               "id": "tud9r7wirdywd"
             }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Момент регистрации аккаунта (users.created_at)"
           }
         }
       },

@@ -10,19 +10,21 @@ import (
 	"github.com/lib/pq"
 )
 
-// Получить login по user_id
-func GetLoginByUserID(userID string) (string, error) {
-	query := `SELECT login FROM users WHERE id=$1`
+// Получить login и момент регистрации (users.created_at) по user_id.
+// Для несуществующего пользователя возвращает пустой login без ошибки.
+func GetLoginAndCreatedAtByUserID(userID string) (string, time.Time, error) {
+	query := `SELECT login, created_at FROM users WHERE id=$1`
 	var login string
-	err := DB.QueryRow(query, userID).Scan(&login)
+	var createdAt time.Time
+	err := DB.QueryRow(query, userID).Scan(&login, &createdAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", nil // не нашли пользователя
+			return "", time.Time{}, nil // не нашли пользователя
 		}
 		log.Printf("Error get login: %v", err)
-		return "", err
+		return "", time.Time{}, err
 	}
-	return login, nil
+	return login, createdAt, nil
 }
 
 // ClearRefreshTokenByIDIfMatches атомарно инвалидирует refresh_token
