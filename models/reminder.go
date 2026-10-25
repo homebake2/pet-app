@@ -198,6 +198,12 @@ type ReminderResponse struct {
 	Pets              []EventPetRef   `json:"pets"`
 	PlanSource        string          `json:"plan_source"`
 	PlanSourceTitle   *string         `json:"plan_source_title"`
+	FrequencyType     string          `json:"frequency_type"`
+	Weekdays          *[]int          `json:"weekdays"`
+	IntervalDays      *int            `json:"interval_days"`
+	Times             []string        `json:"times"`
+	StartDate         string          `json:"start_date"`
+	EndDate           *string         `json:"end_date"`
 	PlanFiles         []EventFileItem `json:"plan_files"`
 	Files             []EventFileItem `json:"files"`
 	PlanUnclosedCount int             `json:"plan_unclosed_count"`

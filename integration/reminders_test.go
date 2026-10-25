@@ -83,6 +83,12 @@ type reminderBody struct {
 	Pets              []petRefBody   `json:"pets"`
 	PlanSource        string         `json:"plan_source"`
 	PlanSourceTitle   *string        `json:"plan_source_title"`
+	FrequencyType     string         `json:"frequency_type"`
+	Weekdays          *[]int         `json:"weekdays"`
+	IntervalDays      *int           `json:"interval_days"`
+	Times             []string       `json:"times"`
+	StartDate         string         `json:"start_date"`
+	EndDate           *string        `json:"end_date"`
 	PlanFiles         []planFileBody `json:"plan_files"`
 	Files             []planFileBody `json:"files"`
 	PlanUnclosedCount int            `json:"plan_unclosed_count"`
@@ -196,6 +202,13 @@ func TestReminderPlan_CreateAndRead(t *testing.T) {
 	require.NotNil(t, reminder.Notes)
 	require.Equal(t, "после еды", *reminder.Notes)
 	require.Equal(t, start+"T08:00:00Z", reminder.RemindAt)
+	// Расписание настроек в ответе напоминания совпадает с планом.
+	require.Equal(t, plan.FrequencyType, reminder.FrequencyType)
+	require.Equal(t, plan.Times, reminder.Times)
+	require.Equal(t, plan.StartDate, reminder.StartDate)
+	require.Equal(t, plan.EndDate, reminder.EndDate)
+	require.Nil(t, reminder.Weekdays)
+	require.Nil(t, reminder.IntervalDays)
 
 	// Напоминания — не факты: событий у питомца нет.
 	require.Empty(t, listPetEvents(t, tokens.AccessToken, petID))
@@ -335,6 +348,12 @@ func TestReminderPlan_FrequencyKinds(t *testing.T) {
 	require.Len(t, everyThree.Reminders, 4) // +1, +4, +7, +10
 	require.NotNil(t, everyThree.IntervalDays)
 	require.Equal(t, 3, *everyThree.IntervalDays)
+	everyThreeReminder := getReminder(t, tokens.AccessToken, everyThree.Reminders[0].ID)
+	require.Equal(t, "every_n_days", everyThreeReminder.FrequencyType)
+	require.NotNil(t, everyThreeReminder.IntervalDays)
+	require.Equal(t, 3, *everyThreeReminder.IntervalDays)
+	require.Nil(t, everyThreeReminder.Weekdays)
+	require.Equal(t, everyThree.EndDate, everyThreeReminder.EndDate)
 
 	weekly := createPlan(t, tokens.AccessToken, map[string]any{
 		"pet_ids": []string{petID}, "type": "medication", "value": map[string]any{"name": "B"},
@@ -350,6 +369,11 @@ func TestReminderPlan_FrequencyKinds(t *testing.T) {
 	}
 	require.NotNil(t, weekly.Weekdays)
 	require.Equal(t, []int{1, 3, 5}, *weekly.Weekdays)
+	weeklyReminder := getReminder(t, tokens.AccessToken, weekly.Reminders[0].ID)
+	require.Equal(t, "specific_days", weeklyReminder.FrequencyType)
+	require.NotNil(t, weeklyReminder.Weekdays)
+	require.Equal(t, []int{1, 3, 5}, *weeklyReminder.Weekdays)
+	require.Nil(t, weeklyReminder.IntervalDays)
 }
 
 // --- C. PATCH /reminder-plans/{id} ---

@@ -226,6 +226,28 @@ func insertPreparedReminderPlan(exec database.Executor, p *preparedReminderPlan)
 // Ответы.
 // ---------------------------------------------------------------------------
 
+// planScheduleOptionals возвращает необязательные поля расписания настроек
+// (weekdays, interval_days, end_date) в формате ответов API; общая для
+// ReminderPlanResponse и ReminderResponse.
+func planScheduleOptionals(plan models.ReminderPlanDB) (*[]int, *int, *string) {
+	var weekdays *[]int
+	if plan.Weekdays != nil {
+		w := plan.Weekdays
+		weekdays = &w
+	}
+	var intervalDays *int
+	if plan.IntervalDays.Valid {
+		v := int(plan.IntervalDays.Int64)
+		intervalDays = &v
+	}
+	var endDate *string
+	if plan.EndDate.Valid {
+		s := plan.EndDate.Time.Format("2006-01-02")
+		endDate = &s
+	}
+	return weekdays, intervalDays, endDate
+}
+
 // buildReminderPlanResponse строит ReminderPlanResponse по настройкам:
 // незавершённые напоминания, файлы настроек (с presigned-ссылками) и число
 // будущих напоминаний с собственными файлами.
@@ -269,18 +291,7 @@ func buildReminderPlanResponse(r *http.Request, viewerID string, plan *database.
 	if plan.Notes.Valid {
 		resp.Notes = &plan.Notes.String
 	}
-	if plan.Weekdays != nil {
-		weekdays := plan.Weekdays
-		resp.Weekdays = &weekdays
-	}
-	if plan.IntervalDays.Valid {
-		v := int(plan.IntervalDays.Int64)
-		resp.IntervalDays = &v
-	}
-	if plan.EndDate.Valid {
-		s := plan.EndDate.Time.Format("2006-01-02")
-		resp.EndDate = &s
-	}
+	resp.Weekdays, resp.IntervalDays, resp.EndDate = planScheduleOptionals(plan.ReminderPlanDB)
 	if plan.SourceID.Valid {
 		s := plan.SourceID.UUID.String()
 		resp.SourceID = &s
@@ -842,10 +853,14 @@ func GetReminderHandler(w http.ResponseWriter, r *http.Request, reminderID uuid.
 		Notes:             effectiveReminderNotes(full.Reminder.Notes, full.Plan.Notes),
 		Pets:              database.EventPetRefs(full.Pets),
 		PlanSource:        full.Plan.Source,
+		FrequencyType:     full.Plan.FrequencyType,
+		Times:             full.Plan.Times,
+		StartDate:         full.Plan.StartDate.Format("2006-01-02"),
 		PlanFiles:         planFileItems,
 		Files:             ownFileItems,
 		PlanUnclosedCount: unclosed,
 	}
+	resp.Weekdays, resp.IntervalDays, resp.EndDate = planScheduleOptionals(full.Plan)
 	if full.SourceTitle.Valid {
 		resp.PlanSourceTitle = &full.SourceTitle.String
 	}

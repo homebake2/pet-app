@@ -9436,6 +9436,9 @@
           "value",
           "pets",
           "plan_source",
+          "frequency_type",
+          "times",
+          "start_date",
           "plan_files",
           "files",
           "plan_unclosed_count",
@@ -9481,6 +9484,51 @@
             "type": "string",
             "nullable": true,
             "description": "Название лекарства либо вакцинации; null при plan_source=manual."
+          },
+          "frequency_type": {
+            "$ref": "#/components/schemas/ReminderFrequencyTypeEnum"
+          },
+          "weekdays": {
+            "type": "array",
+            "nullable": true,
+            "minItems": 1,
+            "maxItems": 7,
+            "uniqueItems": true,
+            "description": "Дни недели настроек (пн=1..вс=7); задан, если и только если frequency_type=specific_days.",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 7
+            }
+          },
+          "interval_days": {
+            "type": "integer",
+            "nullable": true,
+            "minimum": 2,
+            "maximum": 365,
+            "description": "Интервал в днях настроек; задан, если и только если frequency_type=every_n_days."
+          },
+          "times": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "uniqueItems": true,
+            "description": "От 1 до 4 различных времён суток настроек HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.",
+            "items": {
+              "type": "string",
+              "format": "time"
+            }
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date",
+            "description": "Дата начала расписания настроек; при frequency_type=once — дата напоминания."
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "description": "Дата окончания расписания настроек; null или отсутствие — без даты окончания."
           },
           "plan_files": {
             "type": "array",

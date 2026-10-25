@@ -1994,9 +1994,18 @@ type ReminderResponse struct {
 	// Author Автор записи; null, если питомцем пользуется один человек.
 	Author *EventAuthor `json:"author"`
 
+	// EndDate Дата окончания расписания настроек; null или отсутствие — без даты окончания.
+	EndDate *openapi_types.Date `json:"end_date"`
+
 	// Files Собственные файлы напоминания (owner_type=reminder_file).
-	Files []EventFile        `json:"files"`
-	Id    openapi_types.UUID `json:"id"`
+	Files []EventFile `json:"files"`
+
+	// FrequencyType once — один раз, daily — каждый день, specific_days — определённые дни недели, every_n_days — через каждые N дней.
+	FrequencyType ReminderFrequencyTypeEnum `json:"frequency_type"`
+	Id            openapi_types.UUID        `json:"id"`
+
+	// IntervalDays Интервал в днях настроек; задан, если и только если frequency_type=every_n_days.
+	IntervalDays *int `json:"interval_days"`
 
 	// Notes Собственная заметка напоминания, а при её отсутствии — заметка настроек.
 	Notes *string `json:"notes"`
@@ -2015,9 +2024,15 @@ type ReminderResponse struct {
 	PlanSourceTitle *string `json:"plan_source_title"`
 
 	// PlanUnclosedCount Сколько незавершённых напоминаний у настроек, включая это; по нему клиент решает, предлагать ли выбор «это / все».
-	PlanUnclosedCount int          `json:"plan_unclosed_count"`
-	RemindAt          time.Time    `json:"remind_at"`
-	Type              GetEventEnum `json:"type"`
+	PlanUnclosedCount int       `json:"plan_unclosed_count"`
+	RemindAt          time.Time `json:"remind_at"`
+
+	// StartDate Дата начала расписания настроек; при frequency_type=once — дата напоминания.
+	StartDate openapi_types.Date `json:"start_date"`
+
+	// Times От 1 до 4 различных времён суток настроек HH:mm (допускается HH:MM:SS) в часовом поясе tz; при frequency_type=once — ровно одно.
+	Times []string     `json:"times"`
+	Type  GetEventEnum `json:"type"`
 
 	// Value Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 	//
@@ -2041,6 +2056,9 @@ type ReminderResponse struct {
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
+
+	// Weekdays Дни недели настроек (пн=1..вс=7); задан, если и только если frequency_type=specific_days.
+	Weekdays *[]int `json:"weekdays"`
 }
 
 // ReminderSourceEnum Источник настроек: manual — создано пользователем; medication — набор напоминаний лекарства; vaccination — напоминание на дату и время следующей вакцинации; vaccination_extra — дополнительное напоминание вакцинации.
