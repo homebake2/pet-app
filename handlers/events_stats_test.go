@@ -228,7 +228,7 @@ func TestGetEventStatsHandler_CategorySeries(t *testing.T) {
 	expectOwnedPet(mock)
 	mock.ExpectQuery(`SELECT width_bucket`).
 		WillReturnRows(sqlmock.NewRows([]string{"bucket_number", "split_value", "event_count", "count"}).
-			AddRow(1, "abnormal", 2, 2.0))
+			AddRow(1, "bloody", 2, 2.0))
 
 	w := httptest.NewRecorder()
 	GetEventStatsHandler(w, eventRequest(t, http.MethodGet, statsPath("from=2024-01-01&to=2024-01-01&bucket=day&types=urine"), nil, true))
@@ -236,14 +236,14 @@ func TestGetEventStatsHandler_CategorySeries(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var resp models.EventStatsResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Len(t, resp.Series, 2)
+	require.Len(t, resp.Series, 7)
 
 	for _, series := range resp.Series {
 		assert.Equal(t, "category", series.ValueKind)
 		assert.Equal(t, "count", series.Aggregation)
 		assert.Empty(t, series.Unit)
 		assert.NotEmpty(t, series.Category)
-		if series.Category == "abnormal" {
+		if series.Category == "bloody" {
 			require.NotNil(t, series.Buckets[0].Value)
 			assert.Equal(t, 2.0, *series.Buckets[0].Value)
 		} else {

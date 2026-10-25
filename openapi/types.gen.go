@@ -21,9 +21,9 @@ const (
 
 // Defines values for AllergySeverityEnum.
 const (
-	Mild     AllergySeverityEnum = "mild"
-	Moderate AllergySeverityEnum = "moderate"
-	Severe   AllergySeverityEnum = "severe"
+	AllergySeverityEnumMild     AllergySeverityEnum = "mild"
+	AllergySeverityEnumModerate AllergySeverityEnum = "moderate"
+	AllergySeverityEnumSevere   AllergySeverityEnum = "severe"
 )
 
 // Defines values for BannerCtaAction.
@@ -96,16 +96,28 @@ const (
 	EventActivityKindEnumWalk      EventActivityKindEnum = "walk"
 )
 
+// Defines values for EventDefecationStatusEnum.
+const (
+	EventDefecationStatusEnumBloody       EventDefecationStatusEnum = "bloody"
+	EventDefecationStatusEnumConstipation EventDefecationStatusEnum = "constipation"
+	EventDefecationStatusEnumMucus        EventDefecationStatusEnum = "mucus"
+	EventDefecationStatusEnumNormal       EventDefecationStatusEnum = "normal"
+	EventDefecationStatusEnumOther        EventDefecationStatusEnum = "other"
+	EventDefecationStatusEnumSoft         EventDefecationStatusEnum = "soft"
+)
+
+// Defines values for EventDiarrheaStatusEnum.
+const (
+	EventDiarrheaStatusEnumBloody EventDiarrheaStatusEnum = "bloody"
+	EventDiarrheaStatusEnumMild   EventDiarrheaStatusEnum = "mild"
+	EventDiarrheaStatusEnumOther  EventDiarrheaStatusEnum = "other"
+	EventDiarrheaStatusEnumSevere EventDiarrheaStatusEnum = "severe"
+)
+
 // Defines values for EventEggLayingStatusEnum.
 const (
 	EventEggLayingStatusEnumAbnormal EventEggLayingStatusEnum = "abnormal"
 	EventEggLayingStatusEnumNormal   EventEggLayingStatusEnum = "normal"
-)
-
-// Defines values for EventExcretionStatusEnum.
-const (
-	EventExcretionStatusEnumAbnormal EventExcretionStatusEnum = "abnormal"
-	EventExcretionStatusEnumNormal   EventExcretionStatusEnum = "normal"
 )
 
 // Defines values for EventFeedingFoodEnum.
@@ -222,6 +234,27 @@ const (
 	Environment EventTemperatureKindEnum = "environment"
 )
 
+// Defines values for EventUrineStatusEnum.
+const (
+	EventUrineStatusEnumBloody      EventUrineStatusEnum = "bloody"
+	EventUrineStatusEnumColorChange EventUrineStatusEnum = "color_change"
+	EventUrineStatusEnumFrequent    EventUrineStatusEnum = "frequent"
+	EventUrineStatusEnumNormal      EventUrineStatusEnum = "normal"
+	EventUrineStatusEnumOther       EventUrineStatusEnum = "other"
+	EventUrineStatusEnumPainful     EventUrineStatusEnum = "painful"
+	EventUrineStatusEnumScant       EventUrineStatusEnum = "scant"
+)
+
+// Defines values for EventVomitStatusEnum.
+const (
+	EventVomitStatusEnumBloody      EventVomitStatusEnum = "bloody"
+	EventVomitStatusEnumFoam        EventVomitStatusEnum = "foam"
+	EventVomitStatusEnumFoodResidue EventVomitStatusEnum = "food_residue"
+	EventVomitStatusEnumOnce        EventVomitStatusEnum = "once"
+	EventVomitStatusEnumOther       EventVomitStatusEnum = "other"
+	EventVomitStatusEnumRepeated    EventVomitStatusEnum = "repeated"
+)
+
 // Defines values for GetEventEnum.
 const (
 	GetEventEnumActivity     GetEventEnum = "activity"
@@ -248,9 +281,9 @@ const (
 
 // Defines values for GetGenderEnum.
 const (
-	GetGenderEnumFemale GetGenderEnum = "female"
-	GetGenderEnumMale   GetGenderEnum = "male"
-	GetGenderEnumOther  GetGenderEnum = "other"
+	Female GetGenderEnum = "female"
+	Male   GetGenderEnum = "male"
+	Other  GetGenderEnum = "other"
 )
 
 // Defines values for GetHabilitationEnum.
@@ -262,10 +295,10 @@ const (
 
 // Defines values for MedicationFrequencyTypeEnum.
 const (
-	AsNeeded     MedicationFrequencyTypeEnum = "as_needed"
-	Daily        MedicationFrequencyTypeEnum = "daily"
-	EveryNDays   MedicationFrequencyTypeEnum = "every_n_days"
-	SpecificDays MedicationFrequencyTypeEnum = "specific_days"
+	MedicationFrequencyTypeEnumAsNeeded     MedicationFrequencyTypeEnum = "as_needed"
+	MedicationFrequencyTypeEnumDaily        MedicationFrequencyTypeEnum = "daily"
+	MedicationFrequencyTypeEnumEveryNDays   MedicationFrequencyTypeEnum = "every_n_days"
+	MedicationFrequencyTypeEnumSpecificDays MedicationFrequencyTypeEnum = "specific_days"
 )
 
 // Defines values for PetAccessEnum.
@@ -388,7 +421,10 @@ type ActivitiesDayItem struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -397,7 +433,7 @@ type ActivitiesDayItem struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -521,11 +557,14 @@ type EventAuthor struct {
 	Name string `json:"name"`
 }
 
+// EventDefecationStatusEnum Характер дефекации (value.status при type=defecation). soft — мягкий стул; constipation — запор; mucus — со слизью; bloody — с кровью.
+type EventDefecationStatusEnum string
+
+// EventDiarrheaStatusEnum Характер поноса (value.status при type=diarrhea). mild — лёгкий; severe — тяжёлый; bloody — с кровью.
+type EventDiarrheaStatusEnum string
+
 // EventEggLayingStatusEnum Статус кладки (value.status при type=egg_laying). abnormal — осложнённая кладка (в т.ч. застрявшее яйцо).
 type EventEggLayingStatusEnum string
-
-// EventExcretionStatusEnum Статус выделений (value.status при type=urine|defecation|vomit|diarrhea).
-type EventExcretionStatusEnum string
 
 // EventFeedingFoodEnum Вид корма (value.food при type=feeding). Не каждое значение допустимо для каждого вида питомца (pet.species) — сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 type EventFeedingFoodEnum string
@@ -615,6 +654,9 @@ type EventStatsValueKindEnum string
 // EventTemperatureKindEnum Вид замера температуры (value.kind при type=temperature): body — температура тела, environment — температура среды обитания (террариум, точка прогрева, вода аквариума).
 type EventTemperatureKindEnum string
 
+// EventUrineStatusEnum Характер мочеиспускания (value.status при type=urine). frequent — учащённое; scant — скудное или отсутствует; painful — болезненное; bloody — с кровью; color_change — изменился цвет.
+type EventUrineStatusEnum string
+
 // EventValue Типизированное значение события. Состав полей определяется полем type события (размеченное объединение, дискриминатор — type; см. требование «Модель значения события и реестр метрик»). На уровне схемы перечислены все возможные поля; обязательность, диапазоны и допустимость поля для конкретного type проверяются сервером по единому реестру метрик. Поле, не описанное формой value для данного type, даёт 400, а не игнорируется молча.
 //
 // Состав по типам:
@@ -627,7 +669,10 @@ type EventTemperatureKindEnum string
 // * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 // * hygiene — procedure
 // * mood — state
-// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+// * urine — status (EventUrineStatusEnum)
+// * defecation — status (EventDefecationStatusEnum)
+// * diarrhea — status (EventDiarrheaStatusEnum)
+// * vomit — status (EventVomitStatusEnum)
 // * other — label (1–50)
 // * molting — status (EventMoltingStatusEnum)
 // * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -636,7 +681,7 @@ type EventTemperatureKindEnum string
 // * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 // * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 //
-// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 type EventValue struct {
 	// AmmoniaPpm Концентрация аммиака в воде, ppm (type=water_quality, опционально).
 	AmmoniaPpm *float32 `json:"ammonia_ppm,omitempty"`
@@ -692,7 +737,7 @@ type EventValue struct {
 	// State Состояние питомца (value.state при type=mood).
 	State *EventMoodStateEnum `json:"state,omitempty"`
 
-	// Status Статус: при type=urine|defecation|vomit|diarrhea — значение EventExcretionStatusEnum, при type=molting — значение EventMoltingStatusEnum, при type=egg_laying (опционально) — значение EventEggLayingStatusEnum.
+	// Status Статус: при type=urine — значение EventUrineStatusEnum, при type=defecation — EventDefecationStatusEnum, при type=diarrhea — EventDiarrheaStatusEnum, при type=vomit — EventVomitStatusEnum, при type=molting — значение EventMoltingStatusEnum, при type=egg_laying (опционально) — значение EventEggLayingStatusEnum.
 	Status *string `json:"status,omitempty"`
 
 	// TemperatureC Температура воды в °C (type=water_quality, опционально).
@@ -704,6 +749,9 @@ type EventValue struct {
 	// VaccinationAt Момент вакцинации (type=vaccination, опционально): задан у дополнительных напоминаний вакцинации, поддерживается сервером при изменении даты следующей вакцинации; у фактов и напоминания на следующую вакцинацию отсутствует. Клиентом не задаётся.
 	VaccinationAt *time.Time `json:"vaccination_at,omitempty"`
 }
+
+// EventVomitStatusEnum Характер рвоты (value.status при type=vomit). once — однократная; repeated — повторная; bloody — с кровью; foam — с пеной; food_residue — с остатками пищи.
+type EventVomitStatusEnum string
 
 // GetActivitiesCalendarResponse defines model for GetActivitiesCalendarResponse.
 type GetActivitiesCalendarResponse struct {
@@ -828,7 +876,10 @@ type GetEventIdResponseRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -837,7 +888,7 @@ type GetEventIdResponseRequest struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -863,7 +914,10 @@ type GetEventRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -872,7 +926,7 @@ type GetEventRequest struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -903,7 +957,10 @@ type GetEventResponse struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -912,7 +969,7 @@ type GetEventResponse struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -1340,7 +1397,10 @@ type ImportLocalDataEvent struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -1349,7 +1409,7 @@ type ImportLocalDataEvent struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -1525,7 +1585,10 @@ type ImportReminderPlan struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -1534,7 +1597,7 @@ type ImportReminderPlan struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 
 	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
@@ -1927,7 +1990,10 @@ type ReminderPlanRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -1936,7 +2002,7 @@ type ReminderPlanRequest struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 
 	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
@@ -1999,7 +2065,10 @@ type ReminderPlanResponse struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -2008,7 +2077,7 @@ type ReminderPlanResponse struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 
 	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
@@ -2080,7 +2149,10 @@ type ReminderResponse struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -2089,7 +2161,7 @@ type ReminderResponse struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 
 	// Weekdays Дни недели настроек (пн=1..вс=7); задан, если и только если frequency_type=specific_days.
@@ -2121,7 +2193,10 @@ type UpcomingReminderItem struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -2130,7 +2205,7 @@ type UpcomingReminderItem struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 
@@ -2173,7 +2248,10 @@ type UpdateEventRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -2182,7 +2260,7 @@ type UpdateEventRequest struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value *EventValue `json:"value,omitempty"`
 }
 
@@ -2286,7 +2364,10 @@ type UpdateReminderPlanRequest struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -2295,7 +2376,7 @@ type UpdateReminderPlanRequest struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value *EventValue `json:"value,omitempty"`
 
 	// Weekdays Дни недели (пн=1..вс=7). Обязателен, если и только если frequency_type=specific_days.
@@ -2393,7 +2474,10 @@ type WidgetQuickAction struct {
 	// * medication — name (1–100), dose_amount (0.001–10000) и dose_unit — только вместе, опционально
 	// * hygiene — procedure
 	// * mood — state
-	// * urine, defecation, vomit, diarrhea — status (EventExcretionStatusEnum)
+	// * urine — status (EventUrineStatusEnum)
+	// * defecation — status (EventDefecationStatusEnum)
+	// * diarrhea — status (EventDiarrheaStatusEnum)
+	// * vomit — status (EventVomitStatusEnum)
 	// * other — label (1–50)
 	// * molting — status (EventMoltingStatusEnum)
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
@@ -2402,7 +2486,7 @@ type WidgetQuickAction struct {
 	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
-	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
+	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
 }
 

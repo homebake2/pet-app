@@ -91,7 +91,7 @@ func TestEventStats_AggregatesByRegistry(t *testing.T) {
 	createEvent(t, tokens.AccessToken, petID, "2024-01-01T11:00:00Z", "medication", map[string]any{"name": "Ципровет", "dose_amount": 2.5, "dose_unit": "mg"})
 	createEvent(t, tokens.AccessToken, petID, "2024-01-01T23:00:00Z", "medication", map[string]any{"name": "Ципровет"})
 
-	createEvent(t, tokens.AccessToken, petID, "2024-01-01T13:00:00Z", "urine", map[string]any{"status": "abnormal"})
+	createEvent(t, tokens.AccessToken, petID, "2024-01-01T13:00:00Z", "urine", map[string]any{"status": "bloody"})
 
 	path := fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-03&bucket=day&tz=UTC&types=%s",
 		petID, "weight,temperature,feeding,activity,medication,urine")
@@ -166,10 +166,10 @@ func TestEventStats_AggregatesByRegistry(t *testing.T) {
 	require.InDelta(t, 2.0, *medication.Buckets[0].Value, 0.0001)
 
 	// category: по серии на каждое значение словаря.
-	abnormal, ok := seriesByKey(stats.Series, "urine", "count", "abnormal", "")
+	bloody, ok := seriesByKey(stats.Series, "urine", "count", "bloody", "")
 	require.True(t, ok)
-	require.NotNil(t, abnormal.Buckets[0].Value)
-	require.InDelta(t, 1.0, *abnormal.Buckets[0].Value, 0.0001)
+	require.NotNil(t, bloody.Buckets[0].Value)
+	require.InDelta(t, 1.0, *bloody.Buckets[0].Value, 0.0001)
 
 	normal, ok := seriesByKey(stats.Series, "urine", "count", "normal", "")
 	require.True(t, ok)

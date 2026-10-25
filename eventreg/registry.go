@@ -271,7 +271,10 @@ var (
 	medicationDoseUnit = []string{"mcg", "mg", "g", "ml", "drop", "tablet", "capsule"}
 	hygieneProcedures  = []string{"bath", "brushing", "teeth", "nails", "beak", "ears", "shedding", "antiparasitic", "enclosure", "water_change", "other"}
 	moodStates         = []string{"calm", "playful", "lethargic", "anxious", "aggressive", "hiding"}
-	excretionStatuses  = []string{"normal", "abnormal"}
+	urineStatuses      = []string{"normal", "frequent", "scant", "painful", "bloody", "color_change", "other"}
+	defecationStatuses = []string{"normal", "soft", "constipation", "mucus", "bloody", "other"}
+	diarrheaStatuses   = []string{"mild", "severe", "bloody", "other"}
+	vomitStatuses      = []string{"once", "repeated", "bloody", "foam", "food_residue", "other"}
 	moltingStatuses    = []string{"started", "stuck", "completed"}
 	eggLayingStatuses  = []string{"normal", "abnormal"}
 	heatCyclePhases    = []string{"started", "ended"}
@@ -408,15 +411,15 @@ var activityKindSpecies = map[string][]string{
 }
 
 // excretionSpec собирает одинаковую по форме запись реестра для типов
-// urine/defecation/vomit/diarrhea — они отличаются только значением type и
-// применимостью к видам питомца.
-func excretionSpec(eventType string, applicableSpecies []string) TypeSpec {
+// urine/defecation/vomit/diarrhea — они отличаются значением type, словарём
+// status и применимостью к видам питомца.
+func excretionSpec(eventType string, statuses, applicableSpecies []string) TypeSpec {
 	return TypeSpec{
 		Type:               eventType,
 		AllowsMultiplePets: true,
 		ValueKind:          KindCategory,
 		Fields: []Field{
-			{Name: "status", Type: FieldEnum, Required: true, Enum: excretionStatuses},
+			{Name: "status", Type: FieldEnum, Required: true, Enum: statuses},
 		},
 		Metrics:           []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField:        "status",
@@ -546,10 +549,10 @@ var specs = []TypeSpec{
 		SplitField:        "state",
 		ApplicableSpecies: allSpeciesExcept(coldBloodedExclusion...),
 	},
-	excretionSpec("urine", urineSpecies),
-	excretionSpec("defecation", allSpeciesExcept(defecationExclusion...)),
-	excretionSpec("vomit", vomitSpecies),
-	excretionSpec("diarrhea", allSpeciesExcept(diarrheaExclusion...)),
+	excretionSpec("urine", urineStatuses, urineSpecies),
+	excretionSpec("defecation", defecationStatuses, allSpeciesExcept(defecationExclusion...)),
+	excretionSpec("vomit", vomitStatuses, vomitSpecies),
+	excretionSpec("diarrhea", diarrheaStatuses, allSpeciesExcept(diarrheaExclusion...)),
 	{
 		Type:               "other",
 		AllowsMultiplePets: true,

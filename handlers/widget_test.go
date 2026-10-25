@@ -85,7 +85,7 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 	mock.ExpectQuery(widgetEventCountQuery).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"pet_id", "type", "count"}).
-			AddRow(testPetID, "vomit", 5).
+			AddRow(testPetID, "urine", 5).
 			AddRow(testPetID, "mood", 2).
 			AddRow(testPetID, "weight", 9))
 	reminderID := "55555555-5555-4555-8555-555555555556"
@@ -116,7 +116,7 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 
 	require.GreaterOrEqual(t, len(item.QuickActions), 2)
 	assert.LessOrEqual(t, len(item.QuickActions), 6)
-	assert.Equal(t, "vomit", item.QuickActions[0].Type)
+	assert.Equal(t, "urine", item.QuickActions[0].Type)
 	assert.Equal(t, map[string]string{"status": "normal"}, item.QuickActions[0].Value)
 	assert.Equal(t, "mood", item.QuickActions[1].Type)
 	assert.Equal(t, map[string]string{"state": "calm"}, item.QuickActions[1].Value)
@@ -125,14 +125,14 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 
 func TestWidgetQuickActions_TieKeepsDictionaryOrderAndLimit(t *testing.T) {
 	actions := widgetQuickActions("OTHER", nil)
-	require.Len(t, actions, widgetQuickActionsLimit)
+	require.LessOrEqual(t, len(actions), widgetQuickActionsLimit)
 
 	types := make([]string, 0, len(actions))
 	for _, a := range actions {
 		types = append(types, a.Type)
 	}
 	// Без частот порядок — порядок справочника типов.
-	assert.Equal(t, []string{"mood", "urine", "defecation", "vomit", "diarrhea", "molting"}, types)
+	assert.Equal(t, []string{"mood", "urine", "defecation", "molting", "heat_cycle"}, types)
 
 	boosted := widgetQuickActions("OTHER", map[string]int{"heat_cycle": 3})
 	assert.Equal(t, "heat_cycle", boosted[0].Type)

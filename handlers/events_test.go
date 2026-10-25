@@ -287,7 +287,7 @@ func TestCreateEventHandler_ValidValueForType(t *testing.T) {
 		{"hygiene", "hygiene", `{"procedure":"bath"}`},
 		{"mood", "mood", `{"state":"calm"}`},
 		{"status normal", "urine", `{"status":"normal"}`},
-		{"status abnormal", "vomit", `{"status":"abnormal"}`},
+		{"status vomit", "vomit", `{"status":"repeated"}`},
 		{"other", "other", `{"label":"рвота после еды"}`},
 	}
 	for _, c := range cases {

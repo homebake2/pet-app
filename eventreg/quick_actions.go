@@ -18,8 +18,6 @@ type QuickActionCandidate struct {
 var quickActionDefaults = map[string]map[string]string{
 	"urine":      {"status": "normal"},
 	"defecation": {"status": "normal"},
-	"vomit":      {"status": "normal"},
-	"diarrhea":   {"status": "normal"},
 	"mood":       {"state": "calm"},
 	"molting":    {"status": "started"},
 	"heat_cycle": {"phase": "started"},
