@@ -28,6 +28,7 @@ func TestRegistryCoversOpenAPIEventTypes(t *testing.T) {
 		openapi.GetEventEnumWaterQuality,
 		openapi.GetEventEnumHeatCycle,
 		openapi.GetEventEnumVaccination,
+		openapi.GetEventEnumPurchase,
 	}
 
 	if len(specTypes) != len(Types()) {
@@ -50,7 +51,7 @@ func TestRegistryCoversOpenAPIEventTypes(t *testing.T) {
 }
 
 func TestIsValidType(t *testing.T) {
-	valid := []string{"weight", "temperature", "feeding", "water", "activity", "sleep", "medication", "hygiene", "mood", "urine", "defecation", "vomit", "diarrhea", "other", "molting", "egg_laying", "water_quality", "heat_cycle", "vaccination"}
+	valid := []string{"weight", "temperature", "feeding", "water", "activity", "sleep", "medication", "hygiene", "mood", "urine", "defecation", "vomit", "diarrhea", "other", "molting", "egg_laying", "water_quality", "heat_cycle", "vaccination", "purchase"}
 	for _, v := range valid {
 		if !IsValidType(v) {
 			t.Errorf("ожидался валидный тип события %q", v)

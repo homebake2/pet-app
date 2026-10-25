@@ -39,7 +39,7 @@ func TestIsKnownSpeciesValue(t *testing.T) {
 
 func TestAllowedGendersMatchOpenAPI(t *testing.T) {
 	specGenders := []openapi.GetGenderEnum{
-		openapi.Male, openapi.Female, openapi.Other,
+		openapi.GetGenderEnumMale, openapi.GetGenderEnumFemale, openapi.GetGenderEnumOther,
 	}
 	if len(specGenders) != len(allowedGenders) {
 		t.Fatalf("spec defines %d gender values, allowedGenders has %d", len(specGenders), len(allowedGenders))

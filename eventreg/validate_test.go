@@ -50,6 +50,8 @@ func TestValidateValue_Valid(t *testing.T) {
 		{"water_quality", `{"temperature_c":25,"ph":7,"ammonia_ppm":0.5,"changed_volume_ml":5000}`},
 		{"heat_cycle", `{"phase":"started"}`},
 		{"heat_cycle", `{"phase":"ended"}`},
+		{"purchase", `{"category":"food","price":1250.5}`},
+		{"purchase", `{"category":"other","price":0}`},
 	}
 
 	for _, c := range cases {
@@ -113,6 +115,12 @@ func TestValidateValue_Invalid(t *testing.T) {
 		{"water_quality лишнее поле", "water_quality", `{"ph":7,"salinity":1}`},
 		{"heat_cycle без phase", "heat_cycle", `{}`},
 		{"heat_cycle с чужой phase", "heat_cycle", `{"phase":"peak"}`},
+		{"purchase без category", "purchase", `{"price":10}`},
+		{"purchase без price", "purchase", `{"category":"food"}`},
+		{"purchase с чужой category", "purchase", `{"category":"car","price":10}`},
+		{"purchase отрицательная price", "purchase", `{"category":"food","price":-1}`},
+		{"purchase price выше диапазона", "purchase", `{"category":"food","price":10000001}`},
+		{"purchase лишнее поле", "purchase", `{"category":"food","price":10,"label":"x"}`},
 	}
 
 	for _, c := range cases {

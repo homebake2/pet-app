@@ -181,6 +181,19 @@ const (
 	Playful    EventMoodStateEnum = "playful"
 )
 
+// Defines values for EventPurchaseCategoryEnum.
+const (
+	EventPurchaseCategoryEnumAccessories EventPurchaseCategoryEnum = "accessories"
+	EventPurchaseCategoryEnumCare        EventPurchaseCategoryEnum = "care"
+	EventPurchaseCategoryEnumEquipment   EventPurchaseCategoryEnum = "equipment"
+	EventPurchaseCategoryEnumFood        EventPurchaseCategoryEnum = "food"
+	EventPurchaseCategoryEnumLitter      EventPurchaseCategoryEnum = "litter"
+	EventPurchaseCategoryEnumMedicines   EventPurchaseCategoryEnum = "medicines"
+	EventPurchaseCategoryEnumOther       EventPurchaseCategoryEnum = "other"
+	EventPurchaseCategoryEnumToys        EventPurchaseCategoryEnum = "toys"
+	EventPurchaseCategoryEnumTreats      EventPurchaseCategoryEnum = "treats"
+)
+
 // Defines values for EventStatsAggregationEnum.
 const (
 	Avg   EventStatsAggregationEnum = "avg"
@@ -222,6 +235,7 @@ const (
 	GetEventEnumMolting      GetEventEnum = "molting"
 	GetEventEnumMood         GetEventEnum = "mood"
 	GetEventEnumOther        GetEventEnum = "other"
+	GetEventEnumPurchase     GetEventEnum = "purchase"
 	GetEventEnumSleep        GetEventEnum = "sleep"
 	GetEventEnumTemperature  GetEventEnum = "temperature"
 	GetEventEnumUrine        GetEventEnum = "urine"
@@ -234,9 +248,9 @@ const (
 
 // Defines values for GetGenderEnum.
 const (
-	Female GetGenderEnum = "female"
-	Male   GetGenderEnum = "male"
-	Other  GetGenderEnum = "other"
+	GetGenderEnumFemale GetGenderEnum = "female"
+	GetGenderEnumMale   GetGenderEnum = "male"
+	GetGenderEnumOther  GetGenderEnum = "other"
 )
 
 // Defines values for GetHabilitationEnum.
@@ -380,6 +394,7 @@ type ActivitiesDayItem struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -551,6 +566,9 @@ type EventPetRef struct {
 	PetName string             `json:"pet_name"`
 }
 
+// EventPurchaseCategoryEnum Категория покупки (value.category при type=purchase). food — корм, treats — лакомства, toys — игрушки, accessories — аксессуары (ошейник, поводок, лежанка, одежда), equipment — оборудование (клетка, аквариум, террариум, переноска), litter — наполнитель и подстилка, care — средства ухода, medicines — лекарства и витамины.
+type EventPurchaseCategoryEnum string
+
 // EventStatsAggregationEnum Способ свёртки значений метрики внутри интервала, применённый к этой серии.
 type EventStatsAggregationEnum string
 
@@ -615,6 +633,7 @@ type EventTemperatureKindEnum string
 // * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 // * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 // * heat_cycle — phase (EventHeatCyclePhaseEnum)
+// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 // * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 //
 // Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -624,6 +643,9 @@ type EventValue struct {
 
 	// Amount Числовая величина: weight (кг), temperature (°C), feeding (в единице unit), water (мл).
 	Amount *float32 `json:"amount,omitempty"`
+
+	// Category Категория покупки (value.category при type=purchase). food — корм, treats — лакомства, toys — игрушки, accessories — аксессуары (ошейник, поводок, лежанка, одежда), equipment — оборудование (клетка, аквариум, террариум, переноска), litter — наполнитель и подстилка, care — средства ухода, medicines — лекарства и витамины.
+	Category *EventPurchaseCategoryEnum `json:"category,omitempty"`
 
 	// ChangedVolumeMl Объём подменённой воды в мл (type=water_quality, опционально).
 	ChangedVolumeMl *float32 `json:"changed_volume_ml,omitempty"`
@@ -660,6 +682,9 @@ type EventValue struct {
 
 	// Phase Фаза течки (value.phase при type=heat_cycle).
 	Phase *EventHeatCyclePhaseEnum `json:"phase,omitempty"`
+
+	// Price Цена покупки (type=purchase); валюта не хранится.
+	Price *float32 `json:"price,omitempty"`
 
 	// Procedure Процедура гигиены (value.procedure при type=hygiene). Не каждое значение допустимо для каждого вида питомца (pet.species) — например, brushing неприменим к рыбе. Сервер независимо от клиента проверяет допустимость значения для вида питомца, привязанного к событию, и отклоняет запрос с 400 при несоответствии.
 	Procedure *EventHygieneProcedureEnum `json:"procedure,omitempty"`
@@ -809,6 +834,7 @@ type GetEventIdResponseRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -843,6 +869,7 @@ type GetEventRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -882,6 +909,7 @@ type GetEventResponse struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -1318,6 +1346,7 @@ type ImportLocalDataEvent struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -1502,6 +1531,7 @@ type ImportReminderPlan struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -1903,6 +1933,7 @@ type ReminderPlanRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -1974,6 +2005,7 @@ type ReminderPlanResponse struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -2054,6 +2086,7 @@ type ReminderResponse struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -2094,6 +2127,7 @@ type UpcomingReminderItem struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -2145,6 +2179,7 @@ type UpdateEventRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -2257,6 +2292,7 @@ type UpdateReminderPlanRequest struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
@@ -2363,6 +2399,7 @@ type WidgetQuickAction struct {
 	// * egg_laying — count (шт., 1–200), status (EventEggLayingStatusEnum, опционально)
 	// * water_quality — temperature_c (°C, 0–40, опц.), ph (0–14, опц.), ammonia_ppm (ppm, 0–10, опц.), changed_volume_ml (мл, 0–200000, опц.) — хотя бы одно из четырёх обязательно
 	// * heat_cycle — phase (EventHeatCyclePhaseEnum)
+	// * purchase — category (EventPurchaseCategoryEnum), price (0–10000000, валюта не хранится)
 	// * vaccination — name (1–100, название вакцины), vaccination_at (date-time, опционально). Системный тип: создаётся только флоу «Вакцинации»; POST /events и POST /reminder-plans с этим типом отклоняются (400), type и value у такой записи через PATCH не меняются (400).
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventExcretionStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.

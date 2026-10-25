@@ -275,6 +275,7 @@ var (
 	moltingStatuses    = []string{"started", "stuck", "completed"}
 	eggLayingStatuses  = []string{"normal", "abnormal"}
 	heatCyclePhases    = []string{"started", "ended"}
+	purchaseCategories = []string{"food", "treats", "toys", "accessories", "equipment", "litter", "care", "medicines", "other"}
 )
 
 // Единицы измерения метрик. Единица типа фиксирована конвенцией, кроме
@@ -639,6 +640,22 @@ var specs = []TypeSpec{
 		Metrics:           []Metric{{Key: "count", Aggregation: AggCount}},
 		SplitField:        "phase",
 		ApplicableSpecies: heatCycleSpecies,
+	},
+	{
+		// purchase — покупка для питомца. Цена хранится числом без валюты:
+		// единица денежной суммы не зафиксирована конвенцией типа, поэтому у
+		// метрики price_sum нет Unit.
+		Type:               "purchase",
+		AllowsMultiplePets: true,
+		ValueKind:          KindQuantity,
+		Fields: []Field{
+			{Name: "category", Type: FieldEnum, Required: true, Enum: purchaseCategories},
+			{Name: "price", Type: FieldNumber, Required: true, Min: 0, Max: 10000000},
+		},
+		Metrics: []Metric{
+			{Key: "price_sum", Field: "price", Aggregation: AggSum},
+		},
+		// purchase — применим ко всем видам справочника (ApplicableSpecies: nil).
 	},
 }
 
