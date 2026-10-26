@@ -30,7 +30,7 @@ func initSentry() {
 		SendDefaultPII:   false,
 		AttachStacktrace: true,
 		EnableTracing:    true,
-		TracesSampleRate: 1.0,
+		TracesSampleRate: 0.1,
 	})
 	if err != nil {
 		log.Printf("Ошибка инициализации Sentry: %v", err)
