@@ -38,6 +38,9 @@
 | `S3_KEY_ID` | Backblaze B2 access key (`keyID`) | обязателен; значение хранится только в Render, никогда не в репозитории и не передаётся клиенту |
 | `S3_APPLICATION_KEY` | Backblaze B2 secret key (`applicationKey`) | обязателен; та же политика хранения, что и `S3_KEY_ID` |
 | `S3_BUCKET` | имя bucket в Backblaze B2 | обязателен |
+| `SENTRY_DSN` | DSN проекта `pet-health-backend` в Sentry (организация `self-b6r`) | необязателен; без него Sentry выключен. Ошибки, паники и трейсы уходят в Sentry только при заданном DSN |
+| `SENTRY_ENVIRONMENT` | окружение события, например `production` | необязателен |
+| `SENTRY_RELEASE` | версия релиза | необязателен; если не задан, берётся `RENDER_GIT_COMMIT`, который Render подставляет сам |
 | `S3_REGION` | регион для AWS SDK | необязателен, по умолчанию `us-east-1` — Backblaze B2 не проверяет регион, но SDK требует непустое значение |
 
 ### Особенности free tier

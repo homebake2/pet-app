@@ -2,9 +2,12 @@ package utils
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
+
+	"github.com/getsentry/sentry-go"
 )
 
 // responseRecorder перехватывает статус и тело ответа, чтобы залогировать их
@@ -39,6 +42,13 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 
 		next.ServeHTTP(rec, r)
+
+		// Обработанные 5xx не паникуют, поэтому sentryhttp их не видит.
+		if rec.status >= http.StatusInternalServerError {
+			if hub := sentry.GetHubFromContext(r.Context()); hub != nil {
+				hub.CaptureMessage(fmt.Sprintf("%s %s: status %d", r.Method, r.URL.Path, rec.status))
+			}
+		}
 
 		log.Printf(
 			"%s %s | request_body=%s | status=%d | response_body=%s",

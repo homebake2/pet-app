@@ -9,7 +9,33 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/getsentry/sentry-go"
+	sentryhttp "github.com/getsentry/sentry-go/http"
 )
+
+// initSentry включает отправку ошибок и трейсов в Sentry. Без SENTRY_DSN SDK
+// остаётся выключенным (локальная разработка). Release берётся из
+// SENTRY_RELEASE, а на Render — из RENDER_GIT_COMMIT.
+func initSentry() {
+	release := os.Getenv("SENTRY_RELEASE")
+	if release == "" {
+		release = os.Getenv("RENDER_GIT_COMMIT")
+	}
+
+	err := sentry.Init(sentry.ClientOptions{
+		Dsn:              os.Getenv("SENTRY_DSN"),
+		Environment:      os.Getenv("SENTRY_ENVIRONMENT"),
+		Release:          release,
+		SendDefaultPII:   false,
+		AttachStacktrace: true,
+		EnableTracing:    true,
+		TracesSampleRate: 1.0,
+	})
+	if err != nil {
+		log.Printf("Ошибка инициализации Sentry: %v", err)
+	}
+}
 
 // runPetTransferCleanup периодически переводит истёкшие активные передачи
 // питомцев в expired: сразу при старте и затем раз в interval. Истёкшие
@@ -21,6 +47,7 @@ func runPetTransferCleanup(interval time.Duration) {
 	for {
 		expired, err := database.ExpireStalePetTransfers()
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Ошибка очистки истёкших передач питомцев: %v", err)
 		} else if expired > 0 {
 			log.Printf("Истёкших передач питомцев переведено в expired: %d", expired)
@@ -40,6 +67,7 @@ func runPetAccessInviteCleanup(interval time.Duration) {
 	for {
 		changed, err := database.ExpireStalePetAccessInvites()
 		if err != nil {
+			sentry.CaptureException(err)
 			log.Printf("Ошибка очистки приглашений к доступу: %v", err)
 		} else if changed > 0 {
 			log.Printf("Приглашений к доступу переведено в expired/cancelled: %d", changed)
@@ -49,6 +77,9 @@ func runPetAccessInviteCleanup(interval time.Duration) {
 }
 
 func main() {
+	initSentry()
+	defer sentry.Flush(2 * time.Second)
+
 	// Инициализация базы данных
 	database.InitDB()
 
@@ -80,7 +111,14 @@ func main() {
 
 	log.Printf("Запускаю на :%s", port)
 
-	if err := http.ListenAndServe(":"+port, utils.CORSMiddleware(utils.LoggingMiddleware(mux))); err != nil {
+	// Sentry — самый внешний слой: ловит паники всех слоёв ниже и ведёт трейс
+	// запроса. Repanic оставляет панику net/http, который сам закроет соединение.
+	sentryHandler := sentryhttp.New(sentryhttp.Options{Repanic: true})
+
+	handler := sentryHandler.Handle(utils.CORSMiddleware(utils.LoggingMiddleware(mux)))
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
+		sentry.CaptureException(err)
+		sentry.Flush(2 * time.Second)
 		log.Fatalf("Ошибка: %v", err)
 	}
 }
