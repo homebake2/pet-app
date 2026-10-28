@@ -806,6 +806,12 @@ type GetBannerResponse struct {
 	Items []Banner `json:"items"`
 }
 
+// GetConfigResponse defines model for GetConfigResponse.
+type GetConfigResponse struct {
+	// AboutMeUrl Абсолютный https URL внешней страницы, которую открывает пункт «Обо мне» на экране настроек.
+	AboutMeUrl string `json:"aboutMeUrl"`
+}
+
 // GetDiseaseIdResponseRequest defines model for GetDiseaseIdResponseRequest.
 type GetDiseaseIdResponseRequest struct {
 	Id openapi_types.UUID `json:"id"`

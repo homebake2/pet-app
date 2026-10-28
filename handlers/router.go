@@ -55,6 +55,8 @@ func NewMux() *http.ServeMux {
 	// у /events/stats против /events/.
 	mux.HandleFunc("/banner", GetBannerHandler)
 	mux.HandleFunc("/widget", GetWidgetHandler)
+	// Публичная конфигурация приложения (без авторизации, см. handlers/config.go).
+	mux.HandleFunc("/config", GetConfigHandler)
 	// Admin-методы управления баннерами: доступ по X-Admin-Key (переменная
 	// окружения ADMIN_KEY); без ключа в конфигурации отвечают 404.
 	mux.HandleFunc("/admin/banner", AdminBannerCollectionHandler)

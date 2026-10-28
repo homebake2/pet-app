@@ -1121,6 +1121,40 @@
         "security": []
       }
     },
+    "/config": {
+      "get": {
+        "summary": "/config",
+        "description": "Конфигурация приложения: параметры, которые владелец сервиса меняет без выпуска новой версии клиента. Публичный эндпоинт (без Authorization), ответ не зависит от пользователя, языка, платформы и версии приложения. Значения берутся из конфигурации сервиса (переменные окружения). Клиент игнорирует неизвестные поля.",
+        "tags": [
+          "public",
+          "config-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetConfigResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-config",
+        "security": []
+      }
+    },
     "/pet/{id}/events": {
       "parameters": [
         {
@@ -6000,6 +6034,22 @@
           "secondaryLabel": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "GetConfigResponse": {
+        "title": "GetConfigResponse",
+        "type": "object",
+        "required": [
+          "aboutMeUrl"
+        ],
+        "properties": {
+          "aboutMeUrl": {
+            "type": "string",
+            "format": "uri",
+            "pattern": "^https://",
+            "description": "Абсолютный https URL внешней страницы, которую открывает пункт «Обо мне» на экране настроек.",
+            "example": "https://example.com"
           }
         }
       },
