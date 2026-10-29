@@ -44,7 +44,7 @@ func expectNewReminderPlanInsert(mock sqlmock.Sqlmock, remindAt string) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339(remindAt), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), remindAtsArray(remindAt), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 }
 

@@ -502,3 +502,110 @@ func TestImportLocalData_VaccinationAdministeredTime(t *testing.T) {
 		map[string]string{"Idempotency-Key": uuid.NewString()})
 	require.Equal(t, http.StatusBadRequest, bad.status)
 }
+
+// TestImportLocalData_BatchInsertsEventsAndReminders проверяет пакетную
+// вставку: несколько событий одним запросом (в том числе с несколькими
+// питомцами, с заметкой и без неё), напоминания настроек одним запросом с
+// сохранением заметки, порядка и привязок к серверным id из ответа.
+func TestImportLocalData_BatchInsertsEventsAndReminders(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+
+	now := time.Now().UTC().Truncate(time.Second)
+	remindFirst := futureDate(3) + "T08:00:00Z"
+	remindSecond := futureDate(4) + "T08:00:00Z"
+	body := map[string]any{
+		"pets": []map[string]any{
+			{"local_id": "cat", "name": "Барсик", "species": "cat"},
+			{"local_id": "dog", "name": "Рекс", "species": "dog"},
+		},
+		"events": []map[string]any{
+			{
+				"local_id": "weight-cat", "pet_local_ids": []string{"cat"},
+				"date": now.Format(time.RFC3339), "type": "weight", "value": map[string]any{"amount": 4.2},
+				"notes": "после обеда",
+			},
+			{
+				"local_id": "walk-both", "pet_local_ids": []string{"dog", "cat"},
+				"date": now.Add(-time.Hour).Format(time.RFC3339), "type": "mood", "value": map[string]any{"state": "calm"},
+			},
+			{
+				"local_id": "weight-dog", "pet_local_ids": []string{"dog"},
+				"date": now.Add(-48 * time.Hour).Format(time.RFC3339), "type": "weight", "value": map[string]any{"amount": 12.5},
+			},
+		},
+		"reminder_plans": []map[string]any{
+			{
+				"local_id": "plan", "pet_local_ids": []string{"cat"}, "type": "feeding",
+				"value":          map[string]any{"amount": 50, "unit": "g", "food": "dry"},
+				"frequency_type": "daily", "times": []string{"08:00"}, "start_date": futureDate(3), "tz": "UTC",
+				"reminders": []map[string]any{
+					{"local_id": "r1", "remind_at": remindFirst, "notes": "утром"},
+					{"local_id": "r2", "remind_at": remindSecond},
+				},
+			},
+		},
+	}
+	resp := doRequest(t, http.MethodPost, "/import/local-data", body, tokens.AccessToken,
+		map[string]string{"Idempotency-Key": uuid.NewString()})
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+
+	var result struct {
+		Pets []struct {
+			LocalID string `json:"local_id"`
+			ID      string `json:"id"`
+		} `json:"pets"`
+		Events []struct {
+			LocalID string `json:"local_id"`
+			ID      string `json:"id"`
+		} `json:"events"`
+		ReminderPlans []struct {
+			Reminders []struct {
+				LocalID string `json:"local_id"`
+				ID      string `json:"id"`
+			} `json:"reminders"`
+		} `json:"reminder_plans"`
+	}
+	resp.decode(t, &result)
+	petID := map[string]string{}
+	for _, pet := range result.Pets {
+		petID[pet.LocalID] = pet.ID
+	}
+	eventID := map[string]string{}
+	for _, event := range result.Events {
+		eventID[event.LocalID] = event.ID
+	}
+	require.Len(t, eventID, 3)
+
+	require.Equal(t, 3, countRows(t, `SELECT COUNT(*) FROM event`))
+	require.Equal(t, 4, countRows(t, `SELECT COUNT(*) FROM event_pet`))
+
+	// Заметка сохраняется у события, у которого она есть, и пуста у остальных.
+	var notes *string
+	require.NoError(t, database.DB.QueryRow(`SELECT notes FROM event WHERE id = $1`, eventID["weight-cat"]).Scan(&notes))
+	require.NotNil(t, notes)
+	require.Equal(t, "после обеда", *notes)
+	require.NoError(t, database.DB.QueryRow(`SELECT notes FROM event WHERE id = $1`, eventID["walk-both"]).Scan(&notes))
+	require.Nil(t, notes)
+
+	// Питомцы события привязаны в порядке запроса: dog — первый, cat — второй.
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM event_pet WHERE event_id = $1 AND pet_id = $2 AND position = 1`, eventID["walk-both"], petID["dog"]))
+	require.Equal(t, 1, countRows(t, `SELECT COUNT(*) FROM event_pet WHERE event_id = $1 AND pet_id = $2 AND position = 2`, eventID["walk-both"], petID["cat"]))
+
+	// Событие читается обычным эндпоинтом: значение jsonb и дата сохранены.
+	got := doRequest(t, http.MethodGet, "/events/"+eventID["weight-dog"], nil, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, got.status, "%s", got.body)
+
+	// Напоминания: оба вставлены, id из ответа совпадают со строками, заметка
+	// есть только у первого.
+	require.Len(t, result.ReminderPlans, 1)
+	require.Len(t, result.ReminderPlans[0].Reminders, 2)
+	require.Equal(t, 2, countRows(t, `SELECT COUNT(*) FROM reminder`))
+	first, second := result.ReminderPlans[0].Reminders[0], result.ReminderPlans[0].Reminders[1]
+	require.Equal(t, "r1", first.LocalID)
+	require.NoError(t, database.DB.QueryRow(`SELECT notes FROM reminder WHERE id = $1 AND remind_at = $2`, first.ID, remindFirst).Scan(&notes))
+	require.NotNil(t, notes)
+	require.Equal(t, "утром", *notes)
+	require.NoError(t, database.DB.QueryRow(`SELECT notes FROM reminder WHERE id = $1 AND remind_at = $2`, second.ID, remindSecond).Scan(&notes))
+	require.Nil(t, notes)
+}

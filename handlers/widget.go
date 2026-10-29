@@ -57,23 +57,38 @@ func GetWidgetHandler(w http.ResponseWriter, r *http.Request) {
 		petIDs = append(petIDs, pet.ID)
 		photoItems = append(photoItems, models.PetItem{ID: pet.ID.String()})
 	}
-	if !attachPetPhotos(w, r, petIDs, photoItems) {
+	// Фото, частота событий и ближайшие напоминания зависят только от списка
+	// питомцев и читаются одновременно. Фото — единственный шаг, который
+	// пишет в w (ответ об ошибке), поэтому проверяется первым.
+	var (
+		photosOK       bool
+		frequency      map[uuid.UUID]map[string]int
+		frequencyErr   error
+		remindersByPet map[uuid.UUID][]database.WidgetUpcomingReminder
+		remindersErr   error
+	)
+	runParallel(
+		func() { photosOK = attachPetPhotos(w, r, petIDs, photoItems) },
+		func() { frequency, frequencyErr = database.CountEventsByPetsGroupedByType(userID, petIDs, start, end) },
+		func() {
+			remindersByPet, remindersErr = database.GetUpcomingRemindersByPetIDs(userID, petIDs, now.UTC(), widgetUpcomingRemindersLimit)
+		},
+	)
+	if !photosOK {
 		return
 	}
-
-	frequency, err := database.CountEventsByPetsGroupedByType(userID, petIDs, start, end)
-	if err != nil {
+	if frequencyErr != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить события питомцев")
+		return
+	}
+	if remindersErr != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения напоминаний")
 		return
 	}
 
 	response := models.WidgetResponse{Items: make([]models.WidgetPet, 0, len(pets))}
 	for i, pet := range pets {
-		reminders, err := database.GetUpcomingRemindersByPetID(userID, pet.ID, now.UTC(), widgetUpcomingRemindersLimit)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения напоминаний")
-			return
-		}
+		reminders := remindersByPet[pet.ID]
 		upcoming := make([]models.WidgetUpcomingReminder, 0, len(reminders))
 		for _, row := range reminders {
 			upcoming = append(upcoming, models.WidgetUpcomingReminder{

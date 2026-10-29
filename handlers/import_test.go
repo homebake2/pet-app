@@ -369,14 +369,17 @@ func TestImportLocalDataHandler_SuccessWithoutProfile(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
-	mock.ExpectQuery(`INSERT INTO event`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("66666666-6666-6666-6666-666666666666"))
+	// События вставляются одним запросом, id выдаёт сервис: тест запоминает его
+	// из аргумента вставки, чтобы сверить с отображением и ответом.
+	var insertedEventID string
+	mock.ExpectExec(`INSERT INTO event \(id, user_id`).
+		WithArgs(testUserID, captureArrayElement(&insertedEventID), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	const insertedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
-		WithArgs(1, 1, false, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+insertedEventID+`"}]`,
+		WithArgs(1, 1, false, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, eventsMappingArg("event-1", &insertedEventID),
 			0, 0, 0, 0, 0, `[]`, `[]`, `[]`, `[]`, `[]`, 0, `[]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
@@ -418,16 +421,19 @@ func TestImportLocalDataHandler_SuccessWithProfile(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery(`INSERT INTO pet`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(testPetID))
-	mock.ExpectQuery(`INSERT INTO event`).
-		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("66666666-6666-6666-6666-666666666666"))
+	// События вставляются одним запросом, id выдаёт сервис: тест запоминает его
+	// из аргумента вставки, чтобы сверить с отображением и ответом.
+	var insertedEventID string
+	mock.ExpectExec(`INSERT INTO event \(id, user_id`).
+		WithArgs(testUserID, captureArrayElement(&insertedEventID), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO event_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO profile`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
-	const insertedEventID = "66666666-6666-6666-6666-666666666666"
 	mock.ExpectExec(`UPDATE import_local_data_idempotency_key SET`).
-		WithArgs(1, 1, true, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, `[{"local_id":"event-1","id":"`+insertedEventID+`"}]`,
+		WithArgs(1, 1, true, `[{"local_id":"local-1","id":"`+testPetID+`"}]`, eventsMappingArg("event-1", &insertedEventID),
 			0, 0, 0, 0, 0, `[]`, `[]`, `[]`, `[]`, `[]`, 0, `[]`, testUserID, testImportIdempotencyKey).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 

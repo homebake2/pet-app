@@ -36,8 +36,8 @@ func TestWidget_AggregatesPetsRemindersAndQuickActions(t *testing.T) {
 	fish := createSpeciesPet(t, tokens.AccessToken, "Немо", "FISH")
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	createEvent(t, tokens.AccessToken, cat, now, "vomit", map[string]any{"status": "normal"})
-	createEvent(t, tokens.AccessToken, cat, now, "vomit", map[string]any{"status": "normal"})
+	createEvent(t, tokens.AccessToken, cat, now, "urine", map[string]any{"status": "normal"})
+	createEvent(t, tokens.AccessToken, cat, now, "urine", map[string]any{"status": "normal"})
 	createEvent(t, tokens.AccessToken, cat, now, "mood", map[string]any{"state": "calm"})
 	// Событие за пределами окна 365 дней в частоте не участвует.
 	old := time.Now().UTC().AddDate(-2, 0, 0).Format(time.RFC3339)
@@ -45,7 +45,11 @@ func TestWidget_AggregatesPetsRemindersAndQuickActions(t *testing.T) {
 	createEvent(t, tokens.AccessToken, cat, old, "heat_cycle", map[string]any{"phase": "started"})
 	createEvent(t, tokens.AccessToken, cat, old, "heat_cycle", map[string]any{"phase": "started"})
 
+	// Четыре напоминания: в виджет попадают три ближайших по порядку.
+	createOncePlan(t, tokens.AccessToken, cat, "feeding", map[string]any{"amount": 50, "unit": "g", "food": "dry"}, futureDate(5), "09:00")
 	createOncePlan(t, tokens.AccessToken, cat, "feeding", map[string]any{"amount": 50, "unit": "g", "food": "dry"}, futureDate(2), "09:00")
+	createOncePlan(t, tokens.AccessToken, cat, "feeding", map[string]any{"amount": 50, "unit": "g", "food": "dry"}, futureDate(4), "09:00")
+	createOncePlan(t, tokens.AccessToken, cat, "feeding", map[string]any{"amount": 50, "unit": "g", "food": "dry"}, futureDate(3), "09:00")
 
 	resp := doRequest(t, http.MethodGet, "/widget?tz=Europe/Moscow", nil, tokens.AccessToken)
 	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
@@ -57,14 +61,20 @@ func TestWidget_AggregatesPetsRemindersAndQuickActions(t *testing.T) {
 	require.Equal(t, fish, body.Items[1].ID)
 	require.Nil(t, body.Items[0].PhotoURL)
 
-	require.Len(t, body.Items[0].UpcomingReminders, 1)
-	require.Equal(t, "feeding", body.Items[0].UpcomingReminders[0].Type)
+	catReminders := body.Items[0].UpcomingReminders
+	require.Len(t, catReminders, 3)
+	for i, reminder := range catReminders {
+		require.Equal(t, "feeding", reminder.Type)
+		if i > 0 {
+			require.Less(t, catReminders[i-1].RemindAt, reminder.RemindAt)
+		}
+	}
 	require.Empty(t, body.Items[1].UpcomingReminders)
 
 	catActions := body.Items[0].QuickActions
 	require.NotEmpty(t, catActions)
 	require.LessOrEqual(t, len(catActions), 6)
-	require.Equal(t, "vomit", catActions[0].Type)
+	require.Equal(t, "urine", catActions[0].Type)
 	require.Equal(t, "mood", catActions[1].Type)
 	require.Equal(t, map[string]string{"status": "normal"}, catActions[0].Value)
 	// heat_cycle применим к кошке, но его события старше окна — частота 0,

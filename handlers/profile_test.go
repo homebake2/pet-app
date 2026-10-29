@@ -299,7 +299,7 @@ func TestGetProfileHandler_DBError(t *testing.T) {
 }
 
 func TestGetProfileHandler_EmptyLogin(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
 		WithArgs(testUserID).
@@ -318,7 +318,7 @@ func TestGetProfileHandler_EmptyLogin(t *testing.T) {
 }
 
 func TestGetProfileHandler_UnsetOptionalFieldsSerializeAsNull(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
 		WithArgs(testUserID).
@@ -352,7 +352,7 @@ func TestGetProfileHandler_UnsetOptionalFieldsSerializeAsNull(t *testing.T) {
 }
 
 func TestGetProfileHandler_Success(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT user_id, first_name, middle_name, last_name, email, phone FROM profile WHERE user_id=\$1`).
 		WithArgs(testUserID).

@@ -327,7 +327,7 @@ func TestCreateVaccinationHandler_ReminderCreatesPlan(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-02-01T06:30:00Z"), sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), remindAtsArray("2098-02-01T06:30:00Z"), sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`UPDATE vaccination SET administered_event_id = \$1, next_plan_id = \$2 WHERE id = \$3`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -781,11 +781,8 @@ func TestCreateMedicationHandler_AddRemindersCreatesPlanAndReminders(t *testing.
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-01T05:00:00Z"), "2 пипетки").
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-02T05:00:00Z"), "2 пипетки").
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), remindAtsArray("2098-01-01T05:00:00Z", "2098-01-02T05:00:00Z"), `{"2 пипетки","2 пипетки"}`).
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(`UPDATE medication SET reminder_plan_id = \$1 WHERE id = \$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -970,11 +967,8 @@ func TestCreateMedicationRemindersHandler_Success(t *testing.T) {
 	mock.ExpectExec(`INSERT INTO reminder_plan \(`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-01T08:00:00Z"), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-02T08:00:00Z"), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), remindAtsArray("2098-01-01T08:00:00Z", "2098-01-02T08:00:00Z"), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(`UPDATE medication SET reminder_plan_id`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	mock.ExpectQuery(medicationSelectRe).WillReturnRows(row())
@@ -1112,11 +1106,8 @@ func TestUpdateMedicationHandler_RegenerateReminders(t *testing.T) {
 	mock.ExpectQuery(`DELETE FROM reminder WHERE plan_id = \$1 AND closed_at IS NULL AND remind_at > \$2 RETURNING id`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-01T09:00:00Z"), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
-	mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339("2098-01-02T09:00:00Z"), sqlmock.AnyArg()).
-		WillReturnResult(sqlmock.NewResult(0, 1))
+		WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), remindAtsArray("2098-01-01T09:00:00Z", "2098-01-02T09:00:00Z"), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(`UPDATE reminder_plan SET`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
@@ -1345,7 +1336,7 @@ func TestCreateMedicationHandler_ScheduleTimesInClientTimeZone(t *testing.T) {
 			mock.ExpectExec(`INSERT INTO reminder_plan \(`).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(`INSERT INTO reminder_plan_pet`).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(`INSERT INTO reminder \(id, plan_id, remind_at, notes\)`).
-				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), mustRFC3339(tc.expected), sqlmock.AnyArg()).
+				WithArgs(sqlmock.AnyArg(), sqlmock.AnyArg(), remindAtsArray(tc.expected), sqlmock.AnyArg()).
 				WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectExec(`UPDATE medication SET reminder_plan_id`).WillReturnResult(sqlmock.NewResult(0, 1))
 			mock.ExpectCommit()

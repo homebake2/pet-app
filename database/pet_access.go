@@ -116,6 +116,35 @@ func (l petLinks) readableClause(ownerAlias, ownerIDColumn, userParam string) st
 	)`
 }
 
+// accessiblePetIDsSQL — подзапрос «id не мягко удалённых собственных питомцев
+// пользователя userParam и питомцев, выданных ему в доступ» (выданные
+// питомцы могут быть мягко удалены — вызывающий их отсеивает). Обе части
+// читаются по индексам пользователя (idx_pet_user_id, pet_access_user_idx),
+// поэтому подзапрос подходит для того, чтобы начинать выборку с питомцев
+// пользователя, а не перебирать строки всех пользователей.
+func accessiblePetIDsSQL(userParam string) string {
+	return `(
+		SELECT own.id FROM pet own WHERE own.user_id = ` + userParam + ` AND own.deleted_at IS NULL
+		UNION ALL
+		SELECT shared.pet_id FROM pet_access shared WHERE shared.user_id = ` + userParam + `
+	)`
+}
+
+// userScopeClause — условие «запись связана хотя бы с одним питомцем,
+// доступным пользователю userParam». Оно следует из readableClause и
+// результата не меняет, но даёт планировщику начать выборку записей
+// пользователя с его питомцев (event_pet_pet_id_idx,
+// reminder_plan_pet_pet_id_idx). Без него выборки по периоду (календарь,
+// ближайшие напоминания) перебирают события и напоминания всех пользователей
+// за период и проверяют readableClause для каждого. Ставится вместе с
+// readableClause в выборках, не ограниченных одним питомцем или одной записью.
+func (l petLinks) userScopeClause(ownerAlias, ownerIDColumn, userParam string) string {
+	return ownerAlias + `.` + ownerIDColumn + ` IN (
+		SELECT scope.` + l.ownerColumn + ` FROM ` + l.table + ` scope
+		WHERE scope.pet_id IN ` + accessiblePetIDsSQL(userParam) + `
+	)`
+}
+
 // ---------------------------------------------------------------------------
 // Роль пользователя у питомца.
 // ---------------------------------------------------------------------------

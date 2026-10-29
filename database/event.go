@@ -81,6 +81,78 @@ func InsertEventWith(exec dbExecutor, userID string, petIDs []uuid.UUID, fields 
 	return eventID, nil
 }
 
+// EventInsert — событие для пакетной вставки InsertEventsWith: поля события и
+// питомцы, к которым оно привязывается (в порядке привязки).
+type EventInsert struct {
+	PetIDs []uuid.UUID
+	Fields models.EventFields
+}
+
+// InsertEventsWith вставляет события владельца userID без ключа
+// идемпотентности и их связи event_pet двумя запросами независимо от числа
+// событий (вставка по одному стоила бы двух обращений к базе на каждое,
+// а перенос локальных данных присылает сотни событий). Возвращает id событий
+// в порядке events; id выдаются на стороне сервиса.
+func InsertEventsWith(exec dbExecutor, userID string, events []EventInsert) ([]uuid.UUID, error) {
+	ids := make([]uuid.UUID, len(events))
+	if len(events) == 0 {
+		return ids, nil
+	}
+
+	idStrs := make([]string, len(events))
+	dates := make([]string, len(events))
+	types := make([]string, len(events))
+	notes := make([]sql.NullString, len(events))
+	values := make([]string, len(events))
+	var linkEventIDs, linkPetIDs []string
+	var linkPositions []int64
+
+	for i, event := range events {
+		dateTime, err := time.Parse(time.RFC3339, event.Fields.Date)
+		if err != nil {
+			return nil, err
+		}
+		ids[i] = uuid.New()
+		idStrs[i] = ids[i].String()
+		dates[i] = dateTime.UTC().Format(time.RFC3339Nano)
+		types[i] = event.Fields.Type
+		if event.Fields.Notes != nil {
+			notes[i] = sql.NullString{String: *event.Fields.Notes, Valid: true}
+		}
+		// value передаётся строкой и приводится к jsonb в запросе — см.
+		// InsertEventWith.
+		values[i] = string(event.Fields.Value)
+		for position, petID := range event.PetIDs {
+			linkEventIDs = append(linkEventIDs, idStrs[i])
+			linkPetIDs = append(linkPetIDs, petID.String())
+			linkPositions = append(linkPositions, int64(position+1))
+		}
+	}
+
+	if _, err := exec.Exec(`
+		INSERT INTO event (id, user_id, date_time, type, notes, value)
+		SELECT t.id, $1::uuid, t.date_time, t.type, t.notes, t.value::jsonb
+		FROM unnest($2::uuid[], $3::timestamptz[], $4::text[], $5::text[], $6::text[])
+		     AS t(id, date_time, type, notes, value)
+	`, userID, pq.Array(idStrs), pq.Array(dates), pq.Array(types), pq.Array(notes), pq.Array(values)); err != nil {
+		log.Println("InsertEvents error:", err)
+		return nil, err
+	}
+
+	if len(linkEventIDs) > 0 {
+		if _, err := exec.Exec(`
+			INSERT INTO event_pet (event_id, pet_id, position)
+			SELECT t.event_id, t.pet_id, t.position
+			FROM unnest($1::uuid[], $2::uuid[], $3::int[]) AS t(event_id, pet_id, position)
+		`, pq.Array(linkEventIDs), pq.Array(linkPetIDs), pq.Array(linkPositions)); err != nil {
+			log.Println("InsertEvents pets error:", err)
+			return nil, err
+		}
+	}
+
+	return ids, nil
+}
+
 const eventColumns = `e.id, e.user_id, e.date_time, e.type, e.notes, e.value`
 
 func scanEventRows(rows *sql.Rows) ([]models.EventDB, error) {
@@ -375,6 +447,7 @@ func CountEventsByUserIDGroupedByDay(userID string, start, end time.Time, loc *t
 	WHERE e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
+	AND ` + eventPetLinks.userScopeClause("e", "id", "$1") + `
 	AND ` + eventPetLinks.readableClause("e", "id", "$1")
 	rows, err := DB.Query(query, userID, start.UTC(), end.UTC())
 	if err != nil {
@@ -412,6 +485,7 @@ func GetEventsByUserIDInRange(userID string, start, end time.Time) ([]EventFull,
 	WHERE e.deleted_at IS NULL
 	AND e.date_time >= $2
 	AND e.date_time < $3
+	AND ` + eventPetLinks.userScopeClause("e", "id", "$1") + `
 	AND ` + eventPetLinks.readableClause("e", "id", "$1") + `
 	ORDER BY e.date_time ASC, e.id ASC
 	`

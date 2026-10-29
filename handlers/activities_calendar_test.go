@@ -15,8 +15,9 @@ import (
 )
 
 // calendarEventsQuery — выборка моментов событий для GET /activities/calendar
-// (группировка по дню клиента выполняется в Go).
-const calendarEventsQuery = `SELECT e\.date_time\s+FROM event e\s+WHERE e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND EXISTS \(`
+// (группировка по дню клиента выполняется в Go). Выборка начинается с
+// питомцев пользователя (userScopeClause), а не с событий всех пользователей.
+const calendarEventsQuery = `SELECT e\.date_time\s+FROM event e\s+WHERE e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND e\.id IN \(\s+SELECT scope\.event_id FROM event_pet scope\s+WHERE scope\.pet_id IN \(\s+SELECT own\.id FROM pet own WHERE own\.user_id = \$1[\s\S]+AND EXISTS \(`
 
 // timeArgMatcher сравнивает аргумент запроса с ожидаемым моментом времени
 // через time.Equal — представление location у значения не важно.
@@ -31,7 +32,7 @@ func timeArg(want time.Time) sqlmock.Argument { return timeArgMatcher{want: want
 
 // calendarRemindersQuery — выборка моментов незавершённых напоминаний для
 // GET /activities/calendar.
-const calendarRemindersQuery = `SELECT r\.remind_at\s+FROM reminder r\s+JOIN reminder_plan p ON p\.id = r\.plan_id\s+WHERE r\.closed_at IS NULL AND EXISTS \(`
+const calendarRemindersQuery = `SELECT r\.remind_at\s+FROM reminder r\s+JOIN reminder_plan p ON p\.id = r\.plan_id\s+WHERE r\.closed_at IS NULL\s+AND p\.id IN \(\s+SELECT scope\.plan_id FROM reminder_plan_pet scope[\s\S]+AND EXISTS \(`
 
 // reminderCalendarQuery — выборка незавершённых напоминаний с данными
 // настроек (GET /activities/day).
@@ -88,7 +89,7 @@ func TestGetActivitiesCalendarHandler_MissingTimeZone(t *testing.T) {
 }
 
 func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(calendarEventsQuery).
 		WithArgs(testUserID,
@@ -130,7 +131,7 @@ func TestGetActivitiesCalendarHandler_Success(t *testing.T) {
 
 // День только с фактами: reminder_count=0.
 func TestGetActivitiesCalendarHandler_FactsOnlyHasNoReminders(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(calendarEventsQuery).
 		WillReturnRows(sqlmock.NewRows([]string{"date_time"}).AddRow(time.Date(2024, 1, 1, 8, 0, 0, 0, time.UTC)))
@@ -163,7 +164,7 @@ func TestGetActivitiesCalendarHandler_InvalidTimeZone(t *testing.T) {
 // Москве, а событие 30 сентября в 22:30Z попадает в 1 октября — именно тот
 // день, который пользователь видит в сетке.
 func TestGetActivitiesCalendarHandler_GroupsByClientTimeZone(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(calendarEventsQuery).
 		WithArgs(testUserID,
@@ -229,15 +230,18 @@ func TestGetActivitiesDayHandler_MissingTimeZone(t *testing.T) {
 }
 
 func TestGetActivitiesDayHandler_Success(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	eventDate := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
-	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND EXISTS`).
+	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL\s+AND e\.date_time >= \$2\s+AND e\.date_time < \$3\s+AND e\.id IN \(\s+SELECT scope\.event_id FROM event_pet scope[\s\S]+AND EXISTS`).
 		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg()).
 		WillReturnRows(eventRow(eventID, "weight", `{"amount":5}`, eventDate))
 	expectEventPets(mock, eventID, petRex)
+	// Запросы фактов и напоминаний идут одновременно, поэтому счётчики файлов
+	// различаются типом владельца (порядок запросов не определён).
 	mock.ExpectQuery(`SELECT owner_id, COUNT\(\*\) FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL\s+GROUP BY owner_id`).
+		WithArgs("event_file", sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_id", "count"}).AddRow(eventID, 2))
 	expectNoSharedPets(mock)
 	// Незавершённое напоминание, момент которого уже наступил, остаётся в
@@ -327,7 +331,7 @@ func TestGetActivitiesDayHandler_Success(t *testing.T) {
 // UTC-5: 27 сентября по Нью-Йорку — [27.09 04:00Z, 28.09 04:00Z), так что
 // событие 28.09 в 01:00Z (27.09 21:00 по местному времени) остаётся в 27-м.
 func TestGetActivitiesDayHandler_UsesClientTimeZoneBounds(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	eventID := "44444444-4444-4444-4444-444444444444"
 	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL`).
@@ -371,7 +375,7 @@ func TestGetActivitiesDayHandler_InvalidTimeZone(t *testing.T) {
 }
 
 func TestGetActivitiesDayHandler_EmptyResultNo404(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT e\.id, e\.user_id, e\.date_time, e\.type, e\.notes, e\.value\s+FROM event e\s+WHERE e\.deleted_at IS NULL`).
 		WillReturnRows(sqlmock.NewRows(eventColumnNames))

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"myauthservice/database"
 	"myauthservice/models"
 	"myauthservice/openapi"
@@ -62,13 +63,21 @@ func GetActivitiesCalendarHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start, end := localDaysBounds(fromDate, toDate, loc)
-	eventCounts, err := database.CountEventsByUserIDGroupedByDay(userID, start, end, loc)
-	if err != nil {
+	var (
+		eventCounts, reminderCounts map[string]int
+		eventsErr, remindersErr     error
+	)
+	runParallel(
+		func() { eventCounts, eventsErr = database.CountEventsByUserIDGroupedByDay(userID, start, end, loc) },
+		func() {
+			reminderCounts, remindersErr = database.CountRemindersByUserIDGroupedByDay(userID, start, end, loc)
+		},
+	)
+	if eventsErr != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта событий")
 		return
 	}
-	reminderCounts, err := database.CountRemindersByUserIDGroupedByDay(userID, start, end, loc)
-	if err != nil {
+	if remindersErr != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта напоминаний")
 		return
 	}
@@ -101,16 +110,17 @@ func reminderCalendarItems(viewerID string, rows []database.ReminderCalendarRow)
 		reminderIDs[i] = row.ID
 		authorRefs[i] = database.AuthorRef{AuthorID: row.AuthorID, PetIDs: petIDsOf(row.Pets)}
 	}
-	authors, err := database.ResolveAuthors(viewerID, authorRefs)
-	if err != nil {
-		return nil, err
-	}
-	planFileCounts, err := database.CountFilesForOwners(reminderPlanFileOwnerType, planIDs)
-	if err != nil {
-		return nil, err
-	}
-	ownFileCounts, err := database.CountFilesForOwners(reminderFileOwnerType, reminderIDs)
-	if err != nil {
+	var (
+		authors                       []*models.EventAuthor
+		planFileCounts, ownFileCounts map[uuid.UUID]int
+		authorsErr, planErr, ownErr   error
+	)
+	runParallel(
+		func() { authors, authorsErr = database.ResolveAuthors(viewerID, authorRefs) },
+		func() { planFileCounts, planErr = database.CountFilesForOwners(reminderPlanFileOwnerType, planIDs) },
+		func() { ownFileCounts, ownErr = database.CountFilesForOwners(reminderFileOwnerType, reminderIDs) },
+	)
+	if err := errors.Join(authorsErr, planErr, ownErr); err != nil {
 		return nil, err
 	}
 
@@ -185,26 +195,71 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start, end := localDaysBounds(date, date, loc)
+	// Факты и напоминания не зависят друг от друга — читаются одновременно.
+	var eventBranch, reminderBranch dayBranch
+	runParallel(
+		func() { eventBranch = dayEventItems(userID, start, end) },
+		func() { reminderBranch = dayReminderItems(userID, start, end) },
+	)
+	for _, branch := range []dayBranch{eventBranch, reminderBranch} {
+		if branch.err != nil {
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, branch.message)
+			return
+		}
+	}
+	items := append(eventBranch.items, reminderBranch.items...)
+
+	// Моменты у фактов и напоминаний отдаются одним форматом RFC3339 (UTC,
+	// секундная точность), поэтому сортировка по строке эквивалентна
+	// сортировке по времени.
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Date != items[j].Date {
+			return items[i].Date < items[j].Date
+		}
+		return items[i].ID < items[j].ID
+	})
+
+	writeJSON(w, http.StatusOK, models.ActivitiesDayResponse{
+		Date:  date.Format("2006-01-02"),
+		Items: items,
+	})
+}
+
+// dayBranch — результат чтения одной части ответа GET /activities/day: элементы
+// либо ошибка с сообщением для клиента.
+type dayBranch struct {
+	items   []models.ActivitiesDayItem
+	message string
+	err     error
+}
+
+// dayEventItems читает факты дня с их файлами и авторами. Количество файлов и
+// авторы зависят только от прочитанных событий и запрашиваются одновременно.
+func dayEventItems(userID string, start, end time.Time) dayBranch {
 	eventsFull, err := database.GetEventsByUserIDInRange(userID, start, end)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения событий")
-		return
+		return dayBranch{message: "Ошибка получения событий", err: err}
 	}
 
 	eventIDs := make([]uuid.UUID, len(eventsFull))
 	for i, e := range eventsFull {
 		eventIDs[i] = e.Event.ID
 	}
-	filesCounts, err := database.CountFilesForOwners(eventFileOwnerType, eventIDs)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов событий")
-		return
+	var (
+		filesCounts map[uuid.UUID]int
+		authors     []*models.EventAuthor
+		filesErr    error
+		authorsErr  error
+	)
+	runParallel(
+		func() { filesCounts, filesErr = database.CountFilesForOwners(eventFileOwnerType, eventIDs) },
+		func() { authors, authorsErr = eventAuthors(userID, eventsFull) },
+	)
+	if filesErr != nil {
+		return dayBranch{message: "Ошибка получения количества файлов событий", err: filesErr}
 	}
-
-	eventAuthorsList, err := eventAuthors(userID, eventsFull)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения авторов событий")
-		return
+	if authorsErr != nil {
+		return dayBranch{message: "Ошибка получения авторов событий", err: authorsErr}
 	}
 
 	items := make([]models.ActivitiesDayItem, 0, len(eventsFull))
@@ -222,34 +277,21 @@ func GetActivitiesDayHandler(w http.ResponseWriter, r *http.Request) {
 			Value:      e.Event.Value,
 			FilesCount: filesCounts[e.Event.ID],
 			Pets:       database.ActivitiesDayPetRefs(e.Pets),
-			Author:     eventAuthorsList[i],
+			Author:     authors[i],
 		})
 	}
+	return dayBranch{items: items}
+}
 
+// dayReminderItems читает незавершённые напоминания дня.
+func dayReminderItems(userID string, start, end time.Time) dayBranch {
 	reminderRows, err := database.GetRemindersByUserIDInRange(userID, start, end)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения напоминаний")
-		return
+		return dayBranch{message: "Ошибка получения напоминаний", err: err}
 	}
-	reminderItems, err := reminderCalendarItems(userID, reminderRows)
+	items, err := reminderCalendarItems(userID, reminderRows)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка получения количества файлов напоминаний")
-		return
+		return dayBranch{message: "Ошибка получения количества файлов напоминаний", err: err}
 	}
-	items = append(items, reminderItems...)
-
-	// Моменты у фактов и напоминаний отдаются одним форматом RFC3339 (UTC,
-	// секундная точность), поэтому сортировка по строке эквивалентна
-	// сортировке по времени.
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].Date != items[j].Date {
-			return items[i].Date < items[j].Date
-		}
-		return items[i].ID < items[j].ID
-	})
-
-	writeJSON(w, http.StatusOK, models.ActivitiesDayResponse{
-		Date:  date.Format("2006-01-02"),
-		Items: items,
-	})
+	return dayBranch{items: items}
 }

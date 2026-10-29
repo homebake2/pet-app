@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"myauthservice/database"
 	"myauthservice/utils"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,4 +129,60 @@ func expectOwnerNames(mock sqlmock.Sqlmock, names map[string]string) {
 		rows.AddRow(id, name)
 	}
 	mock.ExpectQuery(`SELECT ou\.id::text, COALESCE\(NULLIF\(trim\(concat_ws`).WillReturnRows(rows)
+}
+
+// setupMockDBUnordered — setupMockDB без проверки порядка запросов: для
+// хендлеров, которые читают независимые данные одновременно (runParallel), так
+// что порядок обращений к базе не определён.
+func setupMockDBUnordered(t *testing.T) sqlmock.Sqlmock {
+	t.Helper()
+	mock := setupMockDB(t)
+	mock.MatchExpectationsInOrder(false)
+	return mock
+}
+
+// remindAtsArray — ожидаемое значение аргумента remind_at пакетной вставки
+// напоминаний (InsertRemindersWith): массив моментов в UTC в порядке вставки.
+func remindAtsArray(moments ...string) string {
+	quoted := make([]string, len(moments))
+	for i, moment := range moments {
+		parsed, err := time.Parse(time.RFC3339, moment)
+		if err != nil {
+			panic(err)
+		}
+		quoted[i] = `"` + parsed.UTC().Format(time.RFC3339Nano) + `"`
+	}
+	return "{" + strings.Join(quoted, ",") + "}"
+}
+
+// arrayElementCapture запоминает единственный элемент строкового массива
+// Postgres, переданного аргументом запроса (`{"<значение>"}`): так тест узнаёт
+// id, который сервис выдал записи сам.
+type arrayElementCapture struct{ target *string }
+
+func (c arrayElementCapture) Match(v driver.Value) bool {
+	text, ok := v.(string)
+	if !ok || !strings.HasPrefix(text, `{"`) || !strings.HasSuffix(text, `"}`) {
+		return false
+	}
+	*c.target = strings.TrimSuffix(strings.TrimPrefix(text, `{"`), `"}`)
+	return true
+}
+
+func captureArrayElement(target *string) sqlmock.Argument { return arrayElementCapture{target: target} }
+
+// mappingArg сравнивает JSON-отображение local_id → id одного элемента с id,
+// запомненным captureArrayElement к моменту сравнения.
+type mappingArg struct {
+	localID string
+	id      *string
+}
+
+func (m mappingArg) Match(v driver.Value) bool {
+	text, ok := v.(string)
+	return ok && text == `[{"local_id":"`+m.localID+`","id":"`+*m.id+`"}]`
+}
+
+func eventsMappingArg(localID string, id *string) sqlmock.Argument {
+	return mappingArg{localID: localID, id: id}
 }

@@ -206,7 +206,7 @@ func GetAccessiblePetsByUserID(userID string) ([]models.PetDB, error) {
 	FROM pet p
 	LEFT JOIN pet_access pa ON pa.pet_id = p.id AND pa.user_id = $1
 	WHERE p.deleted_at IS NULL
-	  AND (p.user_id = $1 OR pa.user_id IS NOT NULL)
+	  AND p.id IN `+accessiblePetIDsSQL("$1")+`
 	ORDER BY p.created_at, p.id
 `, userID)
 	if err != nil {
@@ -677,7 +677,7 @@ func CountPetsByUserID(userID string) (int, error) {
 	var count int
 	err := DB.QueryRow(`
 		SELECT COUNT(*) FROM pet p
-		WHERE p.deleted_at IS NULL AND `+petAccessibleClause("p", "$1")+`
+		WHERE p.deleted_at IS NULL AND p.id IN `+accessiblePetIDsSQL("$1")+`
 	`, userID).Scan(&count)
 	if err != nil {
 		return 0, err

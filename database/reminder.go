@@ -185,21 +185,31 @@ func SyncEventPetsWith(exec dbExecutor, eventID uuid.UUID, desired []uuid.UUID) 
 }
 
 // InsertRemindersWith вставляет напоминания настроек planID по моментам и
-// возвращает их id в порядке moments.
+// возвращает их id в порядке moments. Все напоминания вставляются одним
+// запросом: настройки создают до models.ReminderMaxMomentsPerOperation
+// напоминаний сразу, а перенос локальных данных присылает их сотнями.
 func InsertRemindersWith(exec dbExecutor, planID uuid.UUID, moments []models.ReminderMoment) ([]uuid.UUID, error) {
-	ids := make([]uuid.UUID, 0, len(moments))
-	for _, m := range moments {
-		var notes sql.NullString
+	ids := make([]uuid.UUID, len(moments))
+	if len(moments) == 0 {
+		return ids, nil
+	}
+	idStrs := make([]string, len(moments))
+	remindAts := make([]string, len(moments))
+	notes := make([]sql.NullString, len(moments))
+	for i, m := range moments {
+		ids[i] = uuid.New()
+		idStrs[i] = ids[i].String()
+		remindAts[i] = m.RemindAt.UTC().Format(time.RFC3339Nano)
 		if m.Notes != nil && *m.Notes != "" {
-			notes = sql.NullString{String: *m.Notes, Valid: true}
+			notes[i] = sql.NullString{String: *m.Notes, Valid: true}
 		}
-		id := uuid.New()
-		if _, err := exec.Exec(`
-			INSERT INTO reminder (id, plan_id, remind_at, notes) VALUES ($1, $2, $3, $4)
-		`, id, planID, m.RemindAt.UTC(), notes); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
+	}
+	if _, err := exec.Exec(`
+		INSERT INTO reminder (id, plan_id, remind_at, notes)
+		SELECT t.id, $1::uuid, t.remind_at, t.notes
+		FROM unnest($2::uuid[], $3::timestamptz[], $4::text[]) AS t(id, remind_at, notes)
+	`, planID, pq.Array(idStrs), pq.Array(remindAts), pq.Array(notes)); err != nil {
+		return nil, err
 	}
 	return ids, nil
 }
@@ -666,7 +676,9 @@ var reminderCalendarSelect = `
 	       p.user_id::text
 	FROM reminder r
 	JOIN reminder_plan p ON p.id = r.plan_id` + reminderPlanJoins + `
-	WHERE r.closed_at IS NULL AND ` + reminderPlanReadableClause("$1")
+	WHERE r.closed_at IS NULL
+	AND ` + reminderPlanPetLinks.userScopeClause("p", "id", "$1") + `
+	AND ` + reminderPlanReadableClause("$1")
 
 // GetRemindersByUserIDInRange возвращает незавершённые напоминания настроек
 // userID с видимыми питомцами, чей remind_at попадает в полуоткрытый
@@ -725,7 +737,9 @@ func CountRemindersByUserIDGroupedByDay(userID string, start, end time.Time, loc
 		SELECT r.remind_at
 		FROM reminder r
 		JOIN reminder_plan p ON p.id = r.plan_id
-		WHERE r.closed_at IS NULL AND `+reminderPlanReadableClause("$1")+`
+		WHERE r.closed_at IS NULL
+		AND `+reminderPlanPetLinks.userScopeClause("p", "id", "$1")+`
+		AND `+reminderPlanReadableClause("$1")+`
 		AND r.remind_at >= $2 AND r.remind_at < $3
 	`, userID, start.UTC(), end.UTC())
 	if err != nil {

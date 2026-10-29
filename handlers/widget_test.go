@@ -71,7 +71,7 @@ func TestGetWidgetHandler_NoPets(t *testing.T) {
 // Кнопки сортируются по частоте типа за окно, при равенстве — по порядку
 // справочника; напоминания и фото приходят в том же ответе.
 func TestGetWidgetHandler_Success(t *testing.T) {
-	mock := setupMockDB(t)
+	mock := setupMockDBUnordered(t)
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
@@ -88,14 +88,11 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 			AddRow(testPetID, "urine", 5).
 			AddRow(testPetID, "mood", 2).
 			AddRow(testPetID, "weight", 9))
-	reminderID := "55555555-5555-4555-8555-555555555556"
-	planID := "66666666-6666-4666-8666-666666666666"
-	mock.ExpectQuery(reminderCalendarQuery).
-		WithArgs(testUserID, sqlmock.AnyArg(), 3, testPetID).
-		WillReturnRows(sqlmock.NewRows(reminderCalendarColumns).
-			AddRow(reminderID, planID, time.Date(2030, 1, 1, 8, 0, 0, 0, time.UTC), nil, nil, "feeding", []byte(`{}`), "manual", nil, 1, testUserID))
-	mock.ExpectQuery(`SELECT link\.plan_id, pet\.id, pet\.name, pet\.species\s+FROM reminder_plan_pet link`).
-		WillReturnRows(sqlmock.NewRows([]string{"plan_id", "id", "name", "species"}).AddRow(planID, testPetID, "Tom", "CAT"))
+	// Ближайшие напоминания всех питомцев — одним запросом.
+	mock.ExpectQuery(`SELECT pets\.pet_id, upcoming\.type, upcoming\.remind_at\s+FROM unnest\(\$2::uuid\[\]\)`).
+		WithArgs(testUserID, sqlmock.AnyArg(), sqlmock.AnyArg(), 3).
+		WillReturnRows(sqlmock.NewRows([]string{"pet_id", "type", "remind_at"}).
+			AddRow(testPetID, "feeding", time.Date(2030, 1, 1, 8, 0, 0, 0, time.UTC)))
 
 	w := httptest.NewRecorder()
 	GetWidgetHandler(w, eventRequest(t, http.MethodGet, "/widget?tz=Europe/Moscow", nil, true))

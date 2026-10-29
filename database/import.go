@@ -216,19 +216,23 @@ func ImportLocalData(userID string, req models.ImportLocalDataRequest) (result m
 		localIDToServerID[pet.LocalID] = petID
 	}
 
-	eventLocalIDToServerID := make(map[string]uuid.UUID, len(req.Events))
-	for _, event := range req.Events {
+	eventInserts := make([]EventInsert, len(req.Events))
+	for i, event := range req.Events {
 		var petIDs []uuid.UUID
 		petIDs, err = resolveImportedPetIDs(localIDToServerID, event.PetLocalIDs, "event")
 		if err != nil {
 			return result, err
 		}
-		var eventID uuid.UUID
-		eventID, err = InsertEventWith(tx, userID, petIDs, event.Fields(), "")
-		if err != nil {
-			return result, err
-		}
-		eventLocalIDToServerID[event.LocalID] = eventID
+		eventInserts[i] = EventInsert{PetIDs: petIDs, Fields: event.Fields()}
+	}
+	var eventIDs []uuid.UUID
+	eventIDs, err = InsertEventsWith(tx, userID, eventInserts)
+	if err != nil {
+		return result, err
+	}
+	eventLocalIDToServerID := make(map[string]uuid.UUID, len(req.Events))
+	for i, event := range req.Events {
+		eventLocalIDToServerID[event.LocalID] = eventIDs[i]
 	}
 
 	// Настройки напоминаний переносятся ровно с теми напоминаниями, что

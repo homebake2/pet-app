@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // phoneRegex — тот же паттерн, что используется на фронте для валидации телефона.
@@ -271,8 +272,18 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	profile, err := database.GetProfileByUserID(userID)
-	if err != nil {
+	var (
+		profile    *models.Profile
+		profileErr error
+		login      string
+		createdAt  time.Time
+		loginErr   error
+	)
+	runParallel(
+		func() { profile, profileErr = database.GetProfileByUserID(userID) },
+		func() { login, createdAt, loginErr = database.GetLoginAndCreatedAtByUserID(userID) },
+	)
+	if profileErr != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
 	}
@@ -281,8 +292,7 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	login, createdAt, err := database.GetLoginAndCreatedAtByUserID(userID)
-	if err != nil {
+	if loginErr != nil {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Не удалось получить логин")
 		return
 	}
