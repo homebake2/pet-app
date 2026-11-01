@@ -169,3 +169,45 @@ func aggregateExpr(agg StatsAggregate) (string, error) {
 func quoteLiteral(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
+
+// CountEventsByType считает неудалённые события питомца по типам среди
+// переданных types за период [from, to) одним запросом GROUP BY — без
+// построения рядов интервалов. Считаются только события, видимые userID (те
+// же правила доступа, что и у AggregateEvents). Типы без событий в результат
+// не входят; порядок — по убыванию числа событий, затем по имени типа.
+func CountEventsByType(petID uuid.UUID, userID string, types []string, from, to time.Time) ([]PetEventTypeCount, error) {
+	rows, err := DB.Query(`
+	SELECT e.type, count(*)
+	FROM event e
+	JOIN event_pet ep ON ep.event_id = e.id
+	WHERE ep.pet_id = $1
+	  AND e.type = ANY($2)
+	  AND e.deleted_at IS NULL
+	  AND e.date_time >= $3
+	  AND e.date_time < $4
+	  AND `+eventPetLinks.readableClause("e", "id", "$5")+`
+	GROUP BY e.type
+	ORDER BY count(*) DESC, e.type ASC
+	`, petID, pq.Array(types), from.UTC(), to.UTC(), userID)
+	if err != nil {
+		log.Println("CountEventsByType error:", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := []PetEventTypeCount{}
+	for rows.Next() {
+		var item PetEventTypeCount
+		if err := rows.Scan(&item.Type, &item.Count); err != nil {
+			log.Println("CountEventsByType scan error:", err)
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		log.Println("CountEventsByType rows error:", err)
+		return nil, err
+	}
+
+	return result, nil
+}

@@ -25,3 +25,14 @@ type EventStatsResponse struct {
 	PetName string             `json:"pet_name"`
 	Series  []EventStatsSeries `json:"series"`
 }
+
+// EventStatsTypeCount — число событий одного типа за период.
+type EventStatsTypeCount struct {
+	Type  string `json:"type"`
+	Count int    `json:"count"`
+}
+
+// EventStatsCountsResponse — тело ответа GET /events/stats/counts.
+type EventStatsCountsResponse struct {
+	Items []EventStatsTypeCount `json:"items"`
+}

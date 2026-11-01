@@ -265,3 +265,53 @@ func splitValueOf(value sql.NullString) string {
 	}
 	return value.String
 }
+
+// GetEventStatsCountsHandler обрабатывает GET /events/stats/counts — число
+// событий питомца по типам за период. Нужен экрану динамики, чтобы выбрать
+// метрику по умолчанию и упорядочить список метрик, не строя ряды всех типов
+// (см. "Графики динамики — Backend"). Границы периода и пояс трактуются так
+// же, как у GET /events/stats.
+func GetEventStatsCountsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, openapi.BADREQUEST, "Method not allowed")
+		return
+	}
+
+	petID, ok := parseRequiredPetIDParam(w, r)
+	if !ok {
+		return
+	}
+
+	fromDate, toDate, ok := parseEventDateRange(w, r)
+	if !ok {
+		return
+	}
+
+	loc, ok := parseTimeZoneParam(w, r)
+	if !ok {
+		return
+	}
+
+	userID, ok := requireUserID(w, r)
+	if !ok {
+		return
+	}
+
+	if _, ok := resolveAccessiblePet(w, petID, userID, petNeedRead); !ok {
+		return
+	}
+
+	rangeStart, rangeEnd := localDaysBounds(fromDate, toDate, loc)
+	counts, err := database.CountEventsByType(petID, userID, eventreg.AggregatableTypes(), rangeStart, rangeEnd)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка подсчёта событий")
+		return
+	}
+
+	items := make([]models.EventStatsTypeCount, 0, len(counts))
+	for _, count := range counts {
+		items = append(items, models.EventStatsTypeCount{Type: count.Type, Count: count.Count})
+	}
+
+	writeJSON(w, http.StatusOK, models.EventStatsCountsResponse{Items: items})
+}

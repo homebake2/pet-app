@@ -390,3 +390,65 @@ func TestEventStats_BucketsInClientTimeZone(t *testing.T) {
 	missingTZ := doUnvalidatedRequest(t, http.MethodGet, fmt.Sprintf("/events/stats?pet_id=%s&from=2024-01-01&to=2024-01-02&bucket=day", petID), nil, tokens.AccessToken)
 	require.Equal(t, http.StatusBadRequest, missingTZ.status)
 }
+
+type statsCountsResponse struct {
+	Items []struct {
+		Type  string `json:"type"`
+		Count int    `json:"count"`
+	} `json:"items"`
+}
+
+// Подсчёт по типам на реальной БД: считаются только события периода, мягко
+// удалённые и неагрегируемый тип (other) не входят, порядок — по убыванию.
+func TestEventStatsCounts_CountsPerTypeInPeriod(t *testing.T) {
+	resetDB(t)
+
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	createEvent(t, tokens.AccessToken, petID, "2024-02-01T10:00:00Z", "water", map[string]any{"amount": 100})
+	createEvent(t, tokens.AccessToken, petID, "2024-02-02T10:00:00Z", "water", map[string]any{"amount": 150})
+	createEvent(t, tokens.AccessToken, petID, "2024-02-03T10:00:00Z", "water", map[string]any{"amount": 120})
+	createEvent(t, tokens.AccessToken, petID, "2024-02-02T12:00:00Z", "weight", map[string]any{"amount": 4.2})
+	// Вне периода.
+	createEvent(t, tokens.AccessToken, petID, "2024-03-10T10:00:00Z", "weight", map[string]any{"amount": 4.3})
+	createEvent(t, tokens.AccessToken, petID, "2024-02-02T13:00:00Z", "other", map[string]any{"label": "Груминг"})
+
+	path := fmt.Sprintf("/events/stats/counts?pet_id=%s&from=2024-02-01&to=2024-02-29&tz=UTC", petID)
+	resp := doRequest(t, http.MethodGet, path, nil, tokens.AccessToken)
+	require.Equalf(t, http.StatusOK, resp.status, "%s", resp.body)
+
+	var counts statsCountsResponse
+	resp.decode(t, &counts)
+	require.Len(t, counts.Items, 2)
+	require.Equal(t, "water", counts.Items[0].Type)
+	require.Equal(t, 3, counts.Items[0].Count)
+	require.Equal(t, "weight", counts.Items[1].Type)
+	require.Equal(t, 1, counts.Items[1].Count)
+}
+
+func TestEventStatsCounts_ValidationAndOwnership(t *testing.T) {
+	resetDB(t)
+
+	tokens := registerUser(t, uniqueLogin(t), "correct-password")
+	petID := createPet(t, tokens.AccessToken, "Барсик")
+
+	empty := doRequest(t, http.MethodGet,
+		fmt.Sprintf("/events/stats/counts?pet_id=%s&from=2024-02-01&to=2024-02-29&tz=UTC", petID),
+		nil, tokens.AccessToken)
+	require.Equal(t, http.StatusOK, empty.status)
+	var counts statsCountsResponse
+	empty.decode(t, &counts)
+	require.Empty(t, counts.Items)
+
+	stranger := registerUser(t, uniqueLogin(t), "correct-password")
+	foreign := doRequest(t, http.MethodGet,
+		fmt.Sprintf("/events/stats/counts?pet_id=%s&from=2024-02-01&to=2024-02-29&tz=UTC", petID),
+		nil, stranger.AccessToken)
+	require.Equal(t, http.StatusNotFound, foreign.status)
+
+	unauthorized := doRequest(t, http.MethodGet,
+		fmt.Sprintf("/events/stats/counts?pet_id=%s&from=2024-02-01&to=2024-02-29&tz=UTC", petID),
+		nil, "")
+	require.Equal(t, http.StatusUnauthorized, unauthorized.status)
+}

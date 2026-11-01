@@ -1550,6 +1550,101 @@
       },
       "parameters": []
     },
+    "/events/stats/counts": {
+      "get": {
+        "summary": "/events/stats/counts",
+        "description": "Число событий питомца по типам за период — лёгкий запрос для выбора метрики по умолчанию на экране динамики, без построения рядов. Считаются неудалённые события, видимые пользователю, по типам с value_kind ≠ label; типы без событий в ответ не входят. from/to и tz трактуются так же, как у GET /events/stats; диапазон не должен превышать 366 дней.",
+        "tags": [
+          "event-controller"
+        ],
+        "operationId": "get-events-stats-counts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "pet_id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/TimeZone"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetEventStatsCountsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "parameters": []
+    },
     "/files/upload-url": {
       "post": {
         "summary": "/files/upload-url",
@@ -7569,6 +7664,38 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/EventStatsSeries"
+            }
+          }
+        }
+      },
+      "EventStatsTypeCount": {
+        "title": "EventStatsTypeCount",
+        "type": "object",
+        "required": [
+          "type",
+          "count"
+        ],
+        "properties": {
+          "type": {
+            "$ref": "#/components/schemas/GetEventEnum"
+          },
+          "count": {
+            "type": "integer",
+            "description": "Количество событий этого типа за период."
+          }
+        }
+      },
+      "GetEventStatsCountsResponse": {
+        "title": "GetEventStatsCountsResponse",
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventStatsTypeCount"
             }
           }
         }

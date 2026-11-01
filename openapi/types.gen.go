@@ -648,6 +648,13 @@ type EventStatsSeries struct {
 	ValueKind EventStatsValueKindEnum `json:"value_kind"`
 }
 
+// EventStatsTypeCount defines model for EventStatsTypeCount.
+type EventStatsTypeCount struct {
+	// Count Количество событий этого типа за период.
+	Count int          `json:"count"`
+	Type  GetEventEnum `json:"type"`
+}
+
 // EventStatsValueKindEnum Характер значения серии; определяет форму графика на клиенте. Тип с value_kind=label (other) не агрегируется и в ответе не встречается.
 type EventStatsValueKindEnum string
 
@@ -977,6 +984,11 @@ type GetEventResponse struct {
 	//
 	// Поле status используется несколькими типами с разными допустимыми значениями (EventUrineStatusEnum, EventDefecationStatusEnum, EventDiarrheaStatusEnum, EventVomitStatusEnum, EventMoltingStatusEnum, EventEggLayingStatusEnum в зависимости от type) — конкретный enum для присланного type проверяется сервером, а не схемой.
 	Value EventValue `json:"value"`
+}
+
+// GetEventStatsCountsResponse defines model for GetEventStatsCountsResponse.
+type GetEventStatsCountsResponse struct {
+	Items []EventStatsTypeCount `json:"items"`
 }
 
 // GetEventStatsResponse defines model for GetEventStatsResponse.
@@ -2575,6 +2587,16 @@ type GetEventsStatsParams struct {
 	From   openapi_types.Date   `form:"from" json:"from"`
 	To     openapi_types.Date   `form:"to" json:"to"`
 	Bucket EventStatsBucketEnum `form:"bucket" json:"bucket"`
+
+	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
+	Tz TimeZone `form:"tz" json:"tz"`
+}
+
+// GetEventsStatsCountsParams defines parameters for GetEventsStatsCounts.
+type GetEventsStatsCountsParams struct {
+	PetId openapi_types.UUID `form:"pet_id" json:"pet_id"`
+	From  openapi_types.Date `form:"from" json:"from"`
+	To    openapi_types.Date `form:"to" json:"to"`
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
