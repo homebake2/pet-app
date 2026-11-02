@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"myauthservice/database"
 	"myauthservice/handlers"
@@ -8,11 +9,17 @@ import (
 	"myauthservice/utils"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/getsentry/sentry-go"
 	sentryhttp "github.com/getsentry/sentry-go/http"
 )
+
+// shutdownTimeout — сколько ждём завершения текущих запросов после SIGTERM.
+// Render по умолчанию дожидается остановки сервиса около 30 секунд.
+const shutdownTimeout = 25 * time.Second
 
 // sentryEnvironment возвращает окружение событий Sentry: SENTRY_ENVIRONMENT,
 // а если оно не задано — "production" на Render (там задана RENDER) и
@@ -149,10 +156,44 @@ func main() {
 	// запроса. Repanic оставляет панику net/http, который сам закроет соединение.
 	sentryHandler := sentryhttp.New(sentryhttp.Options{Repanic: true})
 
-	handler := sentryHandler.Handle(utils.CORSMiddleware(utils.LoggingMiddleware(mux)))
-	if err := http.ListenAndServe(":"+port, handler); err != nil {
+	// Лимит тела стоит снаружи LoggingMiddleware: тот читает тело целиком.
+	handler := sentryHandler.Handle(utils.CORSMiddleware(utils.BodyLimitMiddleware(utils.MaxRequestBodyBytes, utils.LoggingMiddleware(mux))))
+
+	server := &http.Server{
+		Addr:    ":" + port,
+		Handler: handler,
+		// Таймауты закрывают медленные соединения (slowloris) и зависшие
+		// запросы. Файлы идут мимо сервиса по presigned-ссылкам, поэтому
+		// долгих загрузок через него нет.
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	// Render при деплое и остановке шлёт SIGTERM: даём текущим запросам
+	// дозавершиться, а не обрываем их.
+	stop, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	serverErr := make(chan error, 1)
+	go func() {
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
 		sentry.CaptureException(err)
 		sentry.Flush(2 * time.Second)
 		log.Fatalf("Ошибка: %v", err)
+	case <-stop.Done():
+		log.Printf("Получен сигнал остановки, завершаю запросы (до %s)", shutdownTimeout)
+		ctx, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
+		defer cancelShutdown()
+		if err := server.Shutdown(ctx); err != nil {
+			sentry.CaptureException(err)
+			log.Printf("Ошибка корректной остановки: %v", err)
+		}
+		sentry.Flush(2 * time.Second)
 	}
 }

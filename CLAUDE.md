@@ -60,7 +60,6 @@ Full details in `docs/deploy.md`. Summary: Render (Go web service, auto-deploy o
 
 ## Known limitations (tracked in docs/deploy.md)
 
-- No `http.Server` timeouts, request-body size limits on public routes, or graceful shutdown.
 - `JWT_SECRET` falls back to a public default when unset (must be set in production).
 
 ## Comments must not reference resources outside the repository

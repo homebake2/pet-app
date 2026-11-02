@@ -87,7 +87,7 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
 	default:
-		loginKey, ipKey := loginRateLimitKeys(req.Login, clientIP(r))
+		loginKey, ipKey := loginRateLimitKeys(req.Login, utils.ClientIP(r))
 		failures, err := database.GetLoginFailures(loginFailureWindow, loginKey, ipKey)
 		if err != nil {
 			// Fail closed: без счётчика пароль не проверяем, иначе лимит
@@ -156,7 +156,7 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 // При ошибке сама пишет ответ клиенту и возвращает err != nil, чтобы
 // вызывающая сторона просто сделала `return`.
 func registerNewUser(w http.ResponseWriter, r *http.Request, login, password string) (uuid.UUID, error) {
-	ip := clientIP(r)
+	ip := utils.ClientIP(r)
 	count, err := database.UpsertRegistrationAttempt(ip)
 	if err != nil {
 		// Fail closed: при ошибке БД на шаге rate-limit регистрация не должна

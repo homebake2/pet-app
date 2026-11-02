@@ -62,8 +62,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		}
 
 		log.Printf(
-			"%s %s | app_version=%s | request_body=%s | status=%d | response_body=%s",
-			r.Method, r.URL.Path, appVersion, MaskBodyForLog(reqBody), rec.status, MaskBodyForLog(rec.body.Bytes()),
+			"%s %s | ip=%s | app_version=%s | request_body=%s | status=%d | response_body=%s",
+			r.Method, r.URL.Path, ClientIP(r), appVersion, MaskBodyForLog(reqBody), rec.status, MaskBodyForLog(rec.body.Bytes()),
 		)
 	})
 }

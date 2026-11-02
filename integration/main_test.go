@@ -17,6 +17,7 @@ import (
 	"myauthservice/database"
 	"myauthservice/handlers"
 	"myauthservice/s3client"
+	"myauthservice/utils"
 	"net/http/httptest"
 	"os"
 	"testing"
@@ -32,6 +33,9 @@ var (
 )
 
 const testAdminKey = "integration-admin-key"
+
+// testClientIPHeader — заголовок, из которого сервис в тестах берёт IP клиента.
+const testClientIPHeader = "X-Test-Client-IP"
 
 func TestMain(m *testing.M) {
 	if os.Getenv("DATABASE_URL") == "" {
@@ -86,6 +90,9 @@ func TestMain(m *testing.M) {
 	adminSpec = adminDoc
 	os.Setenv("ADMIN_KEY", testAdminKey)
 
+	// Адрес клиента берётся из доверенного заголовка (как CF-Connecting-IP на
+	// проде): тесты задают его, чтобы у пользователей были разные IP.
+	utils.SetClientIPHeader(testClientIPHeader)
 	server = httptest.NewServer(handlers.NewMux())
 
 	code := m.Run()

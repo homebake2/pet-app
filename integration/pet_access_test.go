@@ -18,7 +18,7 @@ import (
 // удаление питомца, удаление аккаунта.
 
 // newAccessUser регистрирует пользователя с собственным адресом клиента
-// (X-Forwarded-For): регистрации ограничены тремя в сутки с одного IP, а в
+// (заголовок testClientIPHeader): регистрации ограничены тремя в сутки с одного IP, а в
 // сценариях доступа участвуют несколько пользователей.
 func newAccessUser(t *testing.T, firstName string) transferUser {
 	t.Helper()
@@ -27,7 +27,7 @@ func newAccessUser(t *testing.T, firstName string) transferUser {
 	resp := doRequest(t, http.MethodPost, "/auth/register", map[string]string{
 		"login":    login,
 		"password": "password123",
-	}, "", map[string]string{"X-Forwarded-For": fmt.Sprintf("10.%d.%d.%d", ip[0], ip[1], ip[2])})
+	}, "", map[string]string{testClientIPHeader: fmt.Sprintf("10.%d.%d.%d", ip[0], ip[1], ip[2])})
 	require.Equalf(t, http.StatusOK, resp.status, "регистрация не удалась: %s", resp.body)
 	var tokens authTokens
 	resp.decode(t, &tokens)
