@@ -30,9 +30,14 @@ var (
 	spec   *openapi3.T
 	// adminSpec — open-api/admin-spec.json (методы /admin/*, ключ X-Admin-Key).
 	adminSpec *openapi3.T
+	// webSpec — open-api/web-spec.json (методы сайта /web/*, ключ X-Api-Key).
+	webSpec *openapi3.T
 )
 
-const testAdminKey = "integration-admin-key"
+const (
+	testAdminKey  = "integration-admin-key"
+	testWebAPIKey = "integration-web-key"
+)
 
 // testClientIPHeader — заголовок, из которого сервис в тестах берёт IP клиента.
 const testClientIPHeader = "X-Test-Client-IP"
@@ -90,6 +95,14 @@ func TestMain(m *testing.M) {
 	adminSpec = adminDoc
 	os.Setenv("ADMIN_KEY", testAdminKey)
 
+	// Методы сайта описаны отдельной спекой, которая не входит в клиентскую.
+	webDoc, err := loader.LoadFromFile("../open-api/web-spec.json")
+	if err != nil {
+		panic("не удалось загрузить open-api/web-spec.json: " + err.Error())
+	}
+	webSpec = webDoc
+	os.Setenv("WEB_API_KEY", testWebAPIKey)
+
 	// Адрес клиента берётся из доверенного заголовка (как CF-Connecting-IP на
 	// проде): тесты задают его, чтобы у пользователей были разные IP.
 	utils.SetClientIPHeader(testClientIPHeader)
@@ -103,7 +116,7 @@ func TestMain(m *testing.M) {
 // resetDB очищает все таблицы перед тестом, обеспечивая изоляцию между тестами.
 func resetDB(t *testing.T) {
 	t.Helper()
-	if _, err := database.DB.Exec(`TRUNCATE TABLE banner, pet_transfer, pet_transfer_code_failure, file, reminder, reminder_plan_pet, reminder_plan, vaccination, disease, vet_visit, allergy, medication, event_pet, event, pet, profile, users, registration_rate_limit, login_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
+	if _, err := database.DB.Exec(`TRUNCATE TABLE banner, suggestion, pet_transfer, pet_transfer_code_failure, file, reminder, reminder_plan_pet, reminder_plan, vaccination, disease, vet_visit, allergy, medication, event_pet, event, pet, profile, users, registration_rate_limit, login_rate_limit, pet_idempotency_key, import_local_data_idempotency_key RESTART IDENTITY CASCADE`); err != nil {
 		t.Fatalf("не удалось очистить БД перед тестом: %v", err)
 	}
 }

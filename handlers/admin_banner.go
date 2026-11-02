@@ -38,15 +38,19 @@ func requireAdminKey(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	// Сравнение хешей фиксированной длины: время не зависит ни от содержимого,
-	// ни от длины переданного ключа.
-	provided := sha256.Sum256([]byte(r.Header.Get("X-Admin-Key")))
-	expected := sha256.Sum256([]byte(configured))
-	if subtle.ConstantTimeCompare(provided[:], expected[:]) != 1 {
+	if !keysEqual(r.Header.Get("X-Admin-Key"), configured) {
 		writeAdminError(w, http.StatusUnauthorized, adminapi.UNAUTHORIZED, "Отсутствует или неверен X-Admin-Key", nil)
 		return false
 	}
 	return true
+}
+
+// keysEqual сравнивает хеши фиксированной длины: время не зависит ни от
+// содержимого, ни от длины переданного ключа.
+func keysEqual(provided, configured string) bool {
+	providedSum := sha256.Sum256([]byte(provided))
+	configuredSum := sha256.Sum256([]byte(configured))
+	return subtle.ConstantTimeCompare(providedSum[:], configuredSum[:]) == 1
 }
 
 func writeAdminError(w http.ResponseWriter, status int, code adminapi.AdminErrorCode, message string, payload any) {

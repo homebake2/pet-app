@@ -1,0 +1,227 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Web OpenApi",
+    "version": "1.0",
+    "summary": "Методы для сайта pet-web. Не входят в клиентский контракт мобильного приложения: приложение их не вызывает. Сайт вызывает их только со своего сервера (Next.js), браузер ключ не видит."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3000"
+    }
+  ],
+  "security": [
+    {
+      "WebApiKey": []
+    }
+  ],
+  "paths": {
+    "/web/suggestions": {
+      "post": {
+        "summary": "/web/suggestions",
+        "description": "Приём предложения с формы «Новые идеи» на сайте. Доступ только по ключу X-Api-Key; без ключа в конфигурации сервера метод отключён и отвечает 404. Идентификатор пользователя берётся из тела запроса и не проверяется на существование: это `local` (локальный режим приложения), uuid аккаунта либо `anonymous` (посетитель без контекста приложения).",
+        "tags": [
+          "web-suggestion-controller"
+        ],
+        "operationId": "web-create-suggestion",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSuggestionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateSuggestionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "WebApiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Api-Key",
+        "description": "Ключ сайта из конфигурации сервера (WEB_API_KEY); то же значение хранится в серверном окружении сайта. Если ключ на сервере не задан, методы отключены и отвечают 404."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad Request: тело не прошло валидацию (VALIDATION_ERROR, payload — список проблем) или не является JSON (BAD_REQUEST).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebErrorResponse"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Unauthorized: отсутствует или неверен X-Api-Key.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not Found: методы отключены конфигурацией (WEB_API_KEY не задан).",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Internal Server Error: ошибка БД.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/WebErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "WebErrorCode": {
+        "title": "WebErrorCode",
+        "type": "string",
+        "description": "Подмножество ErrorCodeEnum клиентской спеки; формат ошибки тот же ({ code, message, payload }).",
+        "enum": [
+          "BAD_REQUEST",
+          "VALIDATION_ERROR",
+          "UNAUTHORIZED",
+          "NOT_FOUND",
+          "INTERNAL_ERROR"
+        ]
+      },
+      "WebErrorResponse": {
+        "title": "WebErrorResponse",
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/WebErrorCode"
+          },
+          "message": {
+            "type": "string"
+          },
+          "payload": {
+            "description": "Для VALIDATION_ERROR — массив WebValidationIssue."
+          }
+        }
+      },
+      "WebValidationIssue": {
+        "title": "WebValidationIssue",
+        "type": "object",
+        "required": [
+          "path",
+          "reason"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Имя поля тела запроса, например title."
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "SuggestionCategory": {
+        "title": "SuggestionCategory",
+        "type": "string",
+        "description": "Раздел приложения, к которому относится предложение.",
+        "enum": [
+          "pets",
+          "calendar",
+          "reminders",
+          "dynamics",
+          "access",
+          "other"
+        ]
+      },
+      "CreateSuggestionRequest": {
+        "title": "CreateSuggestionRequest",
+        "type": "object",
+        "required": [
+          "userId",
+          "category",
+          "title"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,64}$",
+            "description": "Идентификатор пользователя: `local`, uuid аккаунта или `anonymous`. Существование аккаунта не проверяется."
+          },
+          "category": {
+            "$ref": "#/components/schemas/SuggestionCategory"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Суть предложения; после обрезки пробелов не пустая."
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 5000,
+            "description": "Подробное описание."
+          },
+          "contact": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Контакт для ответа (почта или Telegram)."
+          }
+        }
+      },
+      "CreateSuggestionResponse": {
+        "title": "CreateSuggestionResponse",
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      }
+    }
+  }
+}

@@ -65,6 +65,9 @@ func NewMux() *http.ServeMux {
 	// окружения ADMIN_KEY); без ключа в конфигурации отвечают 404.
 	mux.HandleFunc("/admin/banner", AdminBannerCollectionHandler)
 	mux.HandleFunc("/admin/banner/", AdminBannerByIDHandler)
+	// Методы сайта pet-web: доступ по X-Api-Key (переменная окружения
+	// WEB_API_KEY); без ключа в конфигурации отвечают 404.
+	mux.HandleFunc("/web/suggestions", CreateWebSuggestionHandler)
 	mux.HandleFunc("/files/upload-url", FilesUploadUrlHandler)
 	mux.HandleFunc("/files/", FilesByIDHandler)
 	return mux
