@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const appConfigQuery = `SELECT about_me_url FROM app_config WHERE id`
+const appConfigQuery = `SELECT about_me_url, ads_enabled FROM app_config WHERE id`
 
 func TestGetConfigHandler_OKWithoutAuthorization(t *testing.T) {
 	mock := setupMockDB(t)
 	mock.ExpectQuery(appConfigQuery).
-		WillReturnRows(sqlmock.NewRows([]string{"about_me_url"}).AddRow("https://example.com"))
+		WillReturnRows(sqlmock.NewRows([]string{"about_me_url", "ads_enabled"}).AddRow("https://example.com", true))
 
 	w := httptest.NewRecorder()
 	GetConfigHandler(w, httptest.NewRequest(http.MethodGet, "/config", nil))
@@ -25,16 +25,16 @@ func TestGetConfigHandler_OKWithoutAuthorization(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, map[string]any{"aboutMeUrl": "https://example.com"}, body)
+	assert.Equal(t, map[string]any{"aboutMeUrl": "https://example.com", "adsEnabled": true}, body)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestGetConfigHandler_IgnoresInvalidAuthorization(t *testing.T) {
 	mock := setupMockDB(t)
 	mock.ExpectQuery(appConfigQuery).
-		WillReturnRows(sqlmock.NewRows([]string{"about_me_url"}).AddRow("https://example.com"))
+		WillReturnRows(sqlmock.NewRows([]string{"about_me_url", "ads_enabled"}).AddRow("https://example.com", false))
 
-	r := httptest.NewRequest(http.MethodGet, "/config", nil)
+	r :=httptest.NewRequest(http.MethodGet, "/config", nil)
 	r.Header.Set("Authorization", "Bearer garbage")
 	w := httptest.NewRecorder()
 	GetConfigHandler(w, r)

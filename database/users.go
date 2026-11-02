@@ -169,3 +169,64 @@ func DeleteUser(userID string) error {
 		return err
 	})
 }
+
+// GetLoginFailures возвращает число неудачных попыток входа по каждому из
+// ключей в текущем окне window (см. database/migrations/000037_login_rate_limit.up.sql).
+// Ключа без актуальной записи в результате нет — это ноль попыток.
+func GetLoginFailures(window time.Duration, keys ...string) (map[string]int, error) {
+	rows, err := DB.Query(`
+		SELECT key, failures FROM login_rate_limit
+		WHERE key = ANY($1) AND window_start > now() - make_interval(secs => $2)
+	`, pq.Array(keys), window.Seconds())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	failures := make(map[string]int, len(keys))
+	for rows.Next() {
+		var key string
+		var count int
+		if err := rows.Scan(&key, &count); err != nil {
+			return nil, err
+		}
+		failures[key] = count
+	}
+	return failures, rows.Err()
+}
+
+// AddLoginFailure атомарно увеличивает счётчики неудачных попыток по ключам.
+// Если окно ключа истекло, счёт начинается заново с одной попытки.
+func AddLoginFailure(window time.Duration, keys ...string) error {
+	_, err := DB.Exec(`
+		INSERT INTO login_rate_limit (key, window_start, failures)
+		SELECT unnest($1::text[]), now(), 1
+		ON CONFLICT (key) DO UPDATE SET
+			failures = CASE
+				WHEN login_rate_limit.window_start <= now() - make_interval(secs => $2) THEN 1
+				ELSE login_rate_limit.failures + 1
+			END,
+			window_start = CASE
+				WHEN login_rate_limit.window_start <= now() - make_interval(secs => $2) THEN now()
+				ELSE login_rate_limit.window_start
+			END
+	`, pq.Array(keys), window.Seconds())
+	return err
+}
+
+// ResetLoginFailures сбрасывает счётчик неудачных попыток по ключу (после
+// успешного входа).
+func ResetLoginFailures(key string) error {
+	_, err := DB.Exec(`DELETE FROM login_rate_limit WHERE key = $1`, key)
+	return err
+}
+
+// DeleteStaleLoginFailures удаляет записи, окно которых закончилось давно, —
+// без этого таблица росла бы по числу когда-либо атакованных ключей.
+func DeleteStaleLoginFailures(olderThan time.Duration) (int64, error) {
+	res, err := DB.Exec(`DELETE FROM login_rate_limit WHERE window_start < now() - make_interval(secs => $1)`, olderThan.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}

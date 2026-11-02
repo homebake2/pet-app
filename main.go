@@ -14,6 +14,20 @@ import (
 	sentryhttp "github.com/getsentry/sentry-go/http"
 )
 
+// sentryEnvironment возвращает окружение событий Sentry: SENTRY_ENVIRONMENT,
+// а если оно не задано — "production" на Render (там задана RENDER) и
+// "development" локально. Так события с прода не смешиваются с локальными
+// даже при забытой переменной.
+func sentryEnvironment() string {
+	if environment := os.Getenv("SENTRY_ENVIRONMENT"); environment != "" {
+		return environment
+	}
+	if os.Getenv("RENDER") != "" {
+		return "production"
+	}
+	return "development"
+}
+
 // initSentry включает отправку ошибок и трейсов в Sentry. Без SENTRY_DSN SDK
 // остаётся выключенным (локальная разработка). Release берётся из
 // SENTRY_RELEASE, а на Render — из RENDER_GIT_COMMIT.
@@ -25,7 +39,7 @@ func initSentry() {
 
 	err := sentry.Init(sentry.ClientOptions{
 		Dsn:              os.Getenv("SENTRY_DSN"),
-		Environment:      os.Getenv("SENTRY_ENVIRONMENT"),
+		Environment:      sentryEnvironment(),
 		Release:          release,
 		SendDefaultPII:   false,
 		AttachStacktrace: true,
@@ -76,6 +90,25 @@ func runPetAccessInviteCleanup(interval time.Duration) {
 	}
 }
 
+// runLoginRateLimitCleanup периодически удаляет из login_rate_limit записи,
+// окно которых давно закончилось: сразу при старте и затем раз в interval.
+// Устаревшие записи и без этого не влияют на лимит — очистка лишь не даёт
+// таблице расти.
+func runLoginRateLimitCleanup(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		deleted, err := database.DeleteStaleLoginFailures(24 * time.Hour)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Printf("Ошибка очистки счётчиков неудачных входов: %v", err)
+		} else if deleted > 0 {
+			log.Printf("Удалено устаревших счётчиков неудачных входов: %d", deleted)
+		}
+		<-ticker.C
+	}
+}
+
 func main() {
 	initSentry()
 	defer sentry.Flush(2 * time.Second)
@@ -103,6 +136,7 @@ func main() {
 
 	go runPetTransferCleanup(time.Hour)
 	go runPetAccessInviteCleanup(time.Hour)
+	go runLoginRateLimitCleanup(time.Hour)
 
 	port := os.Getenv("PORT")
 	if port == "" {

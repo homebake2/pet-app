@@ -42,6 +42,16 @@ func expectRegistrationAllowed(mock sqlmock.Sqlmock, count int) {
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
 }
 
+// expectLoginFailures мокает чтение счётчиков неудачных попыток входа;
+// failures — значения по ключам "login:..." и "ip:...", nil — попыток не было.
+func expectLoginFailures(mock sqlmock.Sqlmock, failures map[string]int) {
+	rows := sqlmock.NewRows([]string{"key", "failures"})
+	for key, count := range failures {
+		rows.AddRow(key, count)
+	}
+	mock.ExpectQuery(`SELECT key, failures FROM login_rate_limit`).WillReturnRows(rows)
+}
+
 // expectPetsCount мокает CountPetsByUserID — запрос количества не мягко
 // удалённых питомцев пользователя, выполняемый login/register/guest перед
 // финальным ответом.
@@ -161,6 +171,7 @@ func TestRegisterHandler_NormalizesLoginTrimAndCase(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
 		WithArgs("User").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, nil)
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	expectPetsCount(mock, userID, 3)
@@ -183,6 +194,7 @@ func TestRegisterHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, nil)
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).
@@ -306,6 +318,7 @@ func TestLoginHandler_SaveRefreshTokenError(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, nil)
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnError(assertError)
 
@@ -334,11 +347,89 @@ func TestLoginHandler_WrongPassword(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "correctpw")))
+	expectLoginFailures(mock, nil)
+	mock.ExpectExec(`INSERT INTO login_rate_limit`).WillReturnResult(sqlmock.NewResult(0, 2))
 
 	w := httptest.NewRecorder()
 	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "wrongpass"}))
 
 	assert.Equal(t, http.StatusForbidden, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Исчерпанный лимит неудачных входов по логину даёт 429 даже с верным
+// паролем, и пароль при этом не проверяется (счётчик не растёт).
+func TestLoginHandler_LoginFailuresLimitReached(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, map[string]int{"login:john": maxLoginFailuresPerLogin})
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.NotEmpty(t, w.Header().Get("Retry-After"))
+	var body openapi.GetErrorResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	assert.Equal(t, openapi.RATELIMITED, body.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Лимит по IP действует независимо от логина.
+func TestLoginHandler_IPFailuresLimitReached(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, map[string]int{"ip:192.0.2.1": maxLoginFailuresPerIP})
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Ошибка БД при чтении счётчика — fail closed: 500, пароль не проверяется.
+func TestLoginHandler_LoginFailuresDBErrorFailsClosed(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	mock.ExpectQuery(`SELECT key, failures FROM login_rate_limit`).WillReturnError(assertError)
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+// Успешный вход после неудачных попыток сбрасывает счётчик логина.
+func TestLoginHandler_SuccessResetsLoginFailures(t *testing.T) {
+	mock := setupMockDB(t)
+	userID := "11111111-1111-1111-1111-111111111111"
+	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
+		WithArgs("john").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, map[string]int{"login:john": 3})
+	mock.ExpectExec(`DELETE FROM login_rate_limit WHERE key = \$1`).
+		WithArgs("login:john").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	expectPetsCount(mock, userID, 0)
+
+	w := httptest.NewRecorder()
+	LoginHandler(w, doRequest(http.MethodPost, "/auth/login", models.User{Login: "john", Password: "password"}))
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestLoginHandler_Success(t *testing.T) {
@@ -347,6 +438,7 @@ func TestLoginHandler_Success(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, nil)
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	expectPetsCount(mock, userID, 2)
@@ -369,6 +461,7 @@ func TestLoginHandler_PetsCountDBErrorReturns500WithoutTokens(t *testing.T) {
 	mock.ExpectQuery(`SELECT id, password FROM users WHERE lower\(trim\(login\)\) = lower\(\$1\)`).
 		WithArgs("john").
 		WillReturnRows(sqlmock.NewRows([]string{"id", "password"}).AddRow(userID, hashPassword(t, "password")))
+	expectLoginFailures(mock, nil)
 	mock.ExpectExec(`UPDATE users SET refresh_token=\$1 WHERE id=\$2`).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).

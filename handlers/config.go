@@ -31,5 +31,5 @@ func GetConfigHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, openapi.GetConfigResponse{AboutMeUrl: cfg.AboutMeURL})
+	writeJSON(w, http.StatusOK, openapi.GetConfigResponse{AboutMeUrl: cfg.AboutMeURL, AdsEnabled: cfg.AdsEnabled})
 }

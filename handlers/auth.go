@@ -12,6 +12,7 @@ import (
 	"myauthservice/openapi"
 	"myauthservice/utils"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,9 +87,32 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
 		return
 	default:
+		loginKey, ipKey := loginRateLimitKeys(req.Login, clientIP(r))
+		failures, err := database.GetLoginFailures(loginFailureWindow, loginKey, ipKey)
+		if err != nil {
+			// Fail closed: без счётчика пароль не проверяем, иначе лимит
+			// обходится ошибкой БД.
+			log.Printf("Ошибка проверки лимита неудачных входов: %v", err)
+			writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+			return
+		}
+		if failures[loginKey] >= maxLoginFailuresPerLogin || failures[ipKey] >= maxLoginFailuresPerIP {
+			w.Header().Set("Retry-After", strconv.Itoa(int(loginFailureWindow.Seconds())))
+			writeError(w, http.StatusTooManyRequests, openapi.RATELIMITED, "Слишком много неудачных попыток входа, попробуйте позже")
+			return
+		}
+
 		if bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)) != nil {
+			if err := database.AddLoginFailure(loginFailureWindow, loginKey, ipKey); err != nil {
+				log.Printf("Ошибка записи неудачной попытки входа: %v", err)
+			}
 			writeError(w, http.StatusForbidden, openapi.FORBIDDEN, "Неверный пароль")
 			return
+		}
+		if failures[loginKey] > 0 {
+			if err := database.ResetLoginFailures(loginKey); err != nil {
+				log.Printf("Ошибка сброса счётчика неудачных входов: %v", err)
+			}
 		}
 	}
 

@@ -224,7 +224,7 @@ func TestAdminBanner_PutCreateReturns201AndReplaceReturns200(t *testing.T) {
 	// Новый баннер: 201, строки связанных таблиц не удаляются.
 	mock := setupMockDB(t)
 	mock.ExpectBegin()
-	mock.ExpectQuery(`INSERT INTO banner \(`).WithArgs(bannerID1, "dialog", nil, true, nil, nil, 0, "once", nil, nil).
+	mock.ExpectQuery(`INSERT INTO banner \(`).WithArgs(bannerID1, "dialog", nil, true, nil, nil, 0, "once", true, nil, nil).
 		WillReturnRows(savedAtRow())
 	mock.ExpectExec(`INSERT INTO banner_translation`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
@@ -263,7 +263,7 @@ func TestAdminBanner_ListReturnsAllWithTranslations(t *testing.T) {
 	t.Setenv(adminKeyEnv, testAdminKey)
 	mock := setupMockDB(t)
 	rows := sqlmock.NewRows(bannerBaseColumns)
-	rows.AddRow(bannerID1, "dialog", nil, false, nil, nil, 5, "once", nil, nil, time.Now())
+	rows.AddRow(bannerID1, "dialog", nil, false, nil, nil, 5, "once", true, nil, nil, time.Now())
 	mock.ExpectQuery(`FROM banner b ORDER BY b\.created_at DESC`).WillReturnRows(rows)
 	mock.ExpectQuery(translationQuery).WillReturnRows(sqlmock.NewRows(translationColumns).
 		AddRow(bannerID1, "ru", nil, "Привет", nil, nil, nil, nil, nil, nil).
@@ -313,7 +313,7 @@ func TestAdminBanner_Patch(t *testing.T) {
 	mock = setupMockDB(t)
 	mock.ExpectExec(`UPDATE banner SET is_show`).WithArgs(bannerID1, false).WillReturnResult(sqlmock.NewResult(0, 1))
 	rows := sqlmock.NewRows(bannerBaseColumns)
-	rows.AddRow(bannerID1, "dialog", nil, false, nil, nil, 0, "once", nil, nil, time.Now())
+	rows.AddRow(bannerID1, "dialog", nil, false, nil, nil, 0, "once", true, nil, nil, time.Now())
 	mock.ExpectQuery(`FROM banner b WHERE b\.id = \$1`).WillReturnRows(rows)
 	mock.ExpectQuery(translationQuery).WillReturnRows(sqlmock.NewRows(translationColumns))
 	mock.ExpectQuery(slidesQuery).WillReturnRows(sqlmock.NewRows([]string{"banner_id", "id", "position", "locale", "title", "body", "image_url", "image_blurhash"}))
@@ -348,4 +348,54 @@ func TestAdminBanner_MethodNotAllowed(t *testing.T) {
 	t.Setenv(adminKeyEnv, testAdminKey)
 	w := serveAdmin(adminRequest(t, http.MethodDelete, "/admin/banner", nil, testAdminKey))
 	assert.Equal(t, http.StatusMethodNotAllowed, w.Code)
+}
+
+// --- Баннер без возможности закрытия ---
+
+func TestAdminBanner_NonDismissibleRequiresURLOrStoreAction(t *testing.T) {
+	t.Setenv(adminKeyEnv, testAdminKey)
+
+	for name, cta := range map[string]any{
+		"без действия": nil,
+		"deeplink":     map[string]any{"action": "deeplink", "target": "pets"},
+	} {
+		doc := validBannerDoc()
+		doc["dismissible"] = false
+		if cta != nil {
+			doc["cta"] = cta
+			doc["translations"] = map[string]any{"ru": map[string]any{"title": "Привет", "ctaLabel": "Go"}}
+		}
+		w := serveAdmin(adminRequest(t, http.MethodPost, "/admin/banner", doc, testAdminKey))
+
+		require.Equal(t, http.StatusBadRequest, w.Code, "%s: %s", name, w.Body.String())
+		var resp issuesResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+		require.NotEmpty(t, resp.Payload, name)
+		assert.Equal(t, "dismissible", resp.Payload[0].Path, name)
+	}
+}
+
+func TestAdminBanner_NonDismissibleWithStoreActionIsSaved(t *testing.T) {
+	t.Setenv(adminKeyEnv, testAdminKey)
+	mock := setupMockDB(t)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`INSERT INTO banner \(`).WithArgs(bannerID1, "dialog", nil, true, nil, nil, 0, "once", false, "store", nil).
+		WillReturnRows(savedAtRow())
+	mock.ExpectExec(`INSERT INTO banner_translation`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectCommit()
+
+	doc := validBannerDoc()
+	doc["dismissible"] = false
+	doc["cta"] = map[string]any{"action": "store"}
+	doc["translations"] = map[string]any{"ru": map[string]any{"title": "Обновите приложение", "ctaLabel": "Обновить"}}
+	w := serveAdmin(adminRequest(t, http.MethodPut, "/admin/banner/"+bannerID1, doc, testAdminKey))
+
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	var saved struct {
+		Dismissible *bool `json:"dismissible"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &saved))
+	require.NotNil(t, saved.Dismissible)
+	assert.False(t, *saved.Dismissible)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

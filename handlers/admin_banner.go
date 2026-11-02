@@ -319,6 +319,7 @@ func validateBannerDoc(doc adminapi.BannerDoc, id string) (database.BannerRecord
 		ID:           id,
 		Layout:       string(doc.Layout),
 		IsShow:       true,
+		Dismissible:  true,
 		Frequency:    string(doc.Frequency),
 		StartsAt:     doc.StartsAt,
 		EndsAt:       doc.EndsAt,
@@ -330,6 +331,9 @@ func validateBannerDoc(doc adminapi.BannerDoc, id string) (database.BannerRecord
 	}
 	if doc.IsShow != nil {
 		rec.IsShow = *doc.IsShow
+	}
+	if doc.Dismissible != nil {
+		rec.Dismissible = *doc.Dismissible
 	}
 	if doc.Priority != nil {
 		rec.Priority = *doc.Priority
@@ -350,6 +354,7 @@ func validateBannerDoc(doc adminapi.BannerDoc, id string) (database.BannerRecord
 	}
 
 	issues = append(issues, checkBannerEnums(rec.Layout, rec.Tone, rec.Frequency, rec.CtaAction)...)
+	issues = append(issues, checkBannerDismissible(rec.Dismissible, rec.CtaAction)...)
 	if doc.StartsAt != nil && doc.EndsAt != nil && !doc.EndsAt.After(*doc.StartsAt) {
 		issues = append(issues, bannerIssue{"endsAt", "должен быть позже startsAt"})
 	}
@@ -495,8 +500,8 @@ func bannerRecordToDoc(rec database.BannerRecord) adminapi.BannerDocResponse {
 		Layout:    adminapi.AdminBannerLayout(rec.Layout),
 		StartsAt:  rec.StartsAt,
 	}
-	isShow, priority := rec.IsShow, rec.Priority
-	doc.IsShow, doc.Priority = &isShow, &priority
+	isShow, priority, dismissible := rec.IsShow, rec.Priority, rec.Dismissible
+	doc.IsShow, doc.Priority, doc.Dismissible = &isShow, &priority, &dismissible
 	if rec.Tone != nil {
 		tone := adminapi.AdminBannerTone(*rec.Tone)
 		doc.Tone = &tone

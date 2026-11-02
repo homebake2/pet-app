@@ -157,10 +157,11 @@ func TestTargetingRules_Matches(t *testing.T) {
 
 func sheetRecord() database.BannerRecord {
 	return database.BannerRecord{
-		ID:        bannerID1,
-		Layout:    "sheet",
-		Frequency: "once",
-		IsShow:    true,
+		ID:          bannerID1,
+		Layout:      "sheet",
+		Frequency:   "once",
+		Dismissible: true,
+		IsShow:      true,
 		Translations: map[string]database.BannerTranslationRecord{
 			"ru": {Title: strp("Заголовок"), Body: strp("Текст"), ImageURL: strp("https://img/ru.png"), ImageBlurhash: strp("ru-hash")},
 		},
@@ -294,10 +295,10 @@ const (
 	petsQuery        = `SELECT EXISTS \(SELECT 1 FROM pet WHERE user_id = \$1 AND deleted_at IS NULL\)`
 )
 
-var bannerBaseColumns = []string{"id", "layout", "tone", "is_show", "starts_at", "ends_at", "priority", "frequency", "cta_action", "cta_target", "created_at"}
+var bannerBaseColumns = []string{"id", "layout", "tone", "is_show", "starts_at", "ends_at", "priority", "frequency", "dismissible", "cta_action", "cta_target", "created_at"}
 
 func baseRow(rows *sqlmock.Rows, id, layout string) *sqlmock.Rows {
-	return rows.AddRow(id, layout, nil, true, nil, nil, 0, "once", nil, nil, time.Now())
+	return rows.AddRow(id, layout, nil, true, nil, nil, 0, "once", true, nil, nil, time.Now())
 }
 
 var translationColumns = []string{"banner_id", "locale", "overline", "title", "body", "badge", "image_url", "image_blurhash", "cta_label", "secondary_label"}
@@ -536,4 +537,56 @@ func TestGetBannerHandler_ETagAndNotModified(t *testing.T) {
 		return w.Header().Get("ETag")
 	}
 	assert.NotEqual(t, same("ru"), same("en"))
+}
+
+// --- Баннер без возможности закрытия ---
+
+func nonDismissibleRecord(action string) database.BannerRecord {
+	rec := sheetRecord()
+	rec.Dismissible = false
+	rec.CtaAction = strp(action)
+	if action == "url" {
+		rec.CtaTarget = strp("https://example.com/update")
+	}
+	rec.Translations["ru"] = database.BannerTranslationRecord{
+		Title: strp("Обновите приложение"), CtaLabel: strp("Обновить"), SecondaryLabel: strp("Позже"),
+	}
+	return rec
+}
+
+func TestBuildLocalizedBanner_NonDismissibleWithStoreOrURLAction(t *testing.T) {
+	for _, action := range []string{"store", "url"} {
+		banner, issues := buildLocalizedBanner(nonDismissibleRecord(action), localeChain("ru"))
+		require.Empty(t, issues, action)
+		assert.False(t, banner.Dismissible, action)
+		assert.Nil(t, banner.SecondaryLabel, "«Позже» у баннера без закрытия не отдаётся: %s", action)
+		require.NotNil(t, banner.PrimaryCta, action)
+	}
+}
+
+func TestBuildLocalizedBanner_DismissibleKeepsSecondaryLabel(t *testing.T) {
+	rec := nonDismissibleRecord("store")
+	rec.Dismissible = true
+
+	banner, issues := buildLocalizedBanner(rec, localeChain("ru"))
+	require.Empty(t, issues)
+	assert.True(t, banner.Dismissible)
+	require.NotNil(t, banner.SecondaryLabel)
+	assert.Equal(t, "Позже", *banner.SecondaryLabel)
+}
+
+// Баннер без закрытия без действия (или с deeplink) оставил бы пользователя в
+// тупике, поэтому считается невалидным и исключается из выдачи.
+func TestBuildLocalizedBanner_NonDismissibleRequiresURLOrStoreAction(t *testing.T) {
+	noAction := nonDismissibleRecord("store")
+	noAction.CtaAction = nil
+	deeplink := nonDismissibleRecord("store")
+	deeplink.CtaAction = strp("deeplink")
+	deeplink.CtaTarget = strp("pets")
+
+	for name, rec := range map[string]database.BannerRecord{"без действия": noAction, "deeplink": deeplink} {
+		_, issues := buildLocalizedBanner(rec, localeChain("ru"))
+		require.NotEmpty(t, issues, name)
+		assert.Equal(t, "dismissible", issues[0].Path, name)
+	}
 }

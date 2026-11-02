@@ -55,6 +55,7 @@ type BannerRecord struct {
 	EndsAt       *time.Time
 	Priority     int
 	Frequency    string
+	Dismissible  bool
 	CtaAction    *string
 	CtaTarget    *string
 	CreatedAt    time.Time
@@ -64,12 +65,12 @@ type BannerRecord struct {
 	UserIDs      []string
 }
 
-const bannerColumns = `b.id, b.layout, b.tone, b.is_show, b.starts_at, b.ends_at, b.priority, b.frequency, b.cta_action, b.cta_target, b.created_at`
+const bannerColumns = `b.id, b.layout, b.tone, b.is_show, b.starts_at, b.ends_at, b.priority, b.frequency, b.dismissible, b.cta_action, b.cta_target, b.created_at`
 
 func scanBannerBase(rows *sql.Rows) (BannerRecord, error) {
 	var rec BannerRecord
 	err := rows.Scan(&rec.ID, &rec.Layout, &rec.Tone, &rec.IsShow, &rec.StartsAt, &rec.EndsAt,
-		&rec.Priority, &rec.Frequency, &rec.CtaAction, &rec.CtaTarget, &rec.CreatedAt)
+		&rec.Priority, &rec.Frequency, &rec.Dismissible, &rec.CtaAction, &rec.CtaTarget, &rec.CreatedAt)
 	return rec, err
 }
 
@@ -354,8 +355,8 @@ func SaveBanner(rec BannerRecord) (created bool, createdAt time.Time, err error)
 
 	// xmax = 0 — признак того, что строка вставлена, а не обновлена через ON CONFLICT.
 	err = tx.QueryRow(`
-		INSERT INTO banner (id, layout, tone, is_show, starts_at, ends_at, priority, frequency, cta_action, cta_target)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		INSERT INTO banner (id, layout, tone, is_show, starts_at, ends_at, priority, frequency, dismissible, cta_action, cta_target)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (id) DO UPDATE SET
 			layout = EXCLUDED.layout,
 			tone = EXCLUDED.tone,
@@ -364,10 +365,11 @@ func SaveBanner(rec BannerRecord) (created bool, createdAt time.Time, err error)
 			ends_at = EXCLUDED.ends_at,
 			priority = EXCLUDED.priority,
 			frequency = EXCLUDED.frequency,
+			dismissible = EXCLUDED.dismissible,
 			cta_action = EXCLUDED.cta_action,
 			cta_target = EXCLUDED.cta_target
 		RETURNING (xmax = 0), created_at
-	`, rec.ID, rec.Layout, rec.Tone, rec.IsShow, rec.StartsAt, rec.EndsAt, rec.Priority, rec.Frequency, rec.CtaAction, rec.CtaTarget).
+	`, rec.ID, rec.Layout, rec.Tone, rec.IsShow, rec.StartsAt, rec.EndsAt, rec.Priority, rec.Frequency, rec.Dismissible, rec.CtaAction, rec.CtaTarget).
 		Scan(&created, &createdAt)
 	if err != nil {
 		return false, time.Time{}, err

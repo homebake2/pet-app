@@ -30,6 +30,8 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 
 // LoggingMiddleware логирует метод, путь, тело запроса, статус и тело ответа
 // для каждого HTTP-запроса. Предназначено для вывода в stdout контейнера.
+// Секретные поля тел (пароли, токены, коды, подписанные ссылки) маскируются —
+// см. MaskBodyForLog.
 func LoggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var reqBody []byte
@@ -41,6 +43,15 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		rec := &responseRecorder{ResponseWriter: w, status: http.StatusOK}
 
+		// Версия мобильного приложения: в тег Sentry (ошибки и паники этого
+		// запроса видно в разрезе версий) и в строку лога.
+		appVersion := AppVersionFromRequest(r)
+		if appVersion != "" {
+			if hub := sentry.GetHubFromContext(r.Context()); hub != nil {
+				hub.Scope().SetTag("app_version", appVersion)
+			}
+		}
+
 		next.ServeHTTP(rec, r)
 
 		// Обработанные 5xx не паникуют, поэтому sentryhttp их не видит.
@@ -51,8 +62,8 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 		}
 
 		log.Printf(
-			"%s %s | request_body=%s | status=%d | response_body=%s",
-			r.Method, r.URL.Path, string(reqBody), rec.status, rec.body.String(),
+			"%s %s | app_version=%s | request_body=%s | status=%d | response_body=%s",
+			r.Method, r.URL.Path, appVersion, MaskBodyForLog(reqBody), rec.status, MaskBodyForLog(rec.body.Bytes()),
 		)
 	})
 }

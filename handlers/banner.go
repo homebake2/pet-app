@@ -256,6 +256,7 @@ func buildLocalizedBanner(rec database.BannerRecord, chain []string) (openapi.Ba
 	issues = checkBannerContent(rec.Layout, text, slides, action, "translation", func(i int) string {
 		return "slides[" + strconv.Itoa(i) + "]"
 	})
+	issues = append(issues, checkBannerDismissible(rec.Dismissible, rec.CtaAction)...)
 	if len(issues) > 0 {
 		return openapi.Banner{}, issues
 	}
@@ -266,9 +267,10 @@ func buildLocalizedBanner(rec database.BannerRecord, chain []string) (openapi.Ba
 	}
 
 	banner := openapi.Banner{
-		Id:        id,
-		Layout:    openapi.BannerLayout(rec.Layout),
-		Frequency: openapi.BannerFrequency(rec.Frequency),
+		Id:          id,
+		Layout:      openapi.BannerLayout(rec.Layout),
+		Frequency:   openapi.BannerFrequency(rec.Frequency),
+		Dismissible: rec.Dismissible,
 	}
 	if rec.Tone != nil {
 		tone := openapi.BannerTone(*rec.Tone)
@@ -288,7 +290,8 @@ func buildLocalizedBanner(rec database.BannerRecord, chain []string) (openapi.Ba
 	if spec.body {
 		banner.Body = text.Body
 	}
-	if spec.secondary {
+	// У баннера без закрытия нет «отложить/пропустить».
+	if spec.secondary && rec.Dismissible {
 		banner.SecondaryLabel = text.SecondaryLabel
 	}
 	if spec.image && text.Image != nil {

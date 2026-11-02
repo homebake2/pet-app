@@ -454,11 +454,14 @@ type AllergySeverityEnum string
 
 // Banner Локализованный баннер. Поля, которых нет у баннера, возвращаются как null.
 type Banner struct {
-	Badge     *string            `json:"badge"`
-	Body      *string            `json:"body"`
-	Frequency BannerFrequency    `json:"frequency"`
-	Id        openapi_types.UUID `json:"id"`
-	Image     *BannerImage       `json:"image"`
+	Badge *string `json:"badge"`
+	Body  *string `json:"body"`
+
+	// Dismissible false — баннер нельзя закрыть: клиент не показывает кнопку закрытия и не закрывает баннер жестом или системной навигацией, не учитывает frequency и список закрытых, а действие primaryCta (всегда url или store) не закрывает баннер. Такой баннер исчезает, только когда сервер перестаёт его отдавать (например, после обновления клиента). Поле secondaryLabel у него всегда null.
+	Dismissible bool               `json:"dismissible"`
+	Frequency   BannerFrequency    `json:"frequency"`
+	Id          openapi_types.UUID `json:"id"`
+	Image       *BannerImage       `json:"image"`
 
 	// Layout Шаблон баннера.
 	Layout         BannerLayout      `json:"layout"`
@@ -817,6 +820,9 @@ type GetBannerResponse struct {
 type GetConfigResponse struct {
 	// AboutMeUrl Абсолютный https URL внешней страницы, которую открывает пункт «Обо мне» на экране настроек.
 	AboutMeUrl string `json:"aboutMeUrl"`
+
+	// AdsEnabled Серверный выключатель рекламы: true — клиент может показывать функцию «Реклама», если рекламная сеть настроена в сборке; false — функция выключена у всех клиентов.
+	AdsEnabled bool `json:"adsEnabled"`
 }
 
 // GetDiseaseIdResponseRequest defines model for GetDiseaseIdResponseRequest.
@@ -2514,6 +2520,9 @@ type WidgetUpcomingReminder struct {
 	Type     GetEventEnum `json:"type"`
 }
 
+// AppVersion defines model for AppVersion.
+type AppVersion = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = openapi_types.UUID
 
@@ -2537,6 +2546,9 @@ type GetActivitiesParams struct {
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetActivitiesCalendarParams defines parameters for GetActivitiesCalendar.
@@ -2546,6 +2558,9 @@ type GetActivitiesCalendarParams struct {
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetActivitiesDayParams defines parameters for GetActivitiesDay.
@@ -2554,6 +2569,51 @@ type GetActivitiesDayParams struct {
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteAllergyParams defines parameters for DeleteAllergy.
+type DeleteAllergyParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PatchAllergyParams defines parameters for PatchAllergy.
+type PatchAllergyParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostGuestParams defines parameters for PostGuest.
+type PostGuestParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostLoginParams defines parameters for PostLogin.
+type PostLoginParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostLogoutParams defines parameters for PostLogout.
+type PostLogoutParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostRefreshParams defines parameters for PostRefresh.
+type PostRefreshParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostRegisterParams defines parameters for PostRegister.
+type PostRegisterParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetBannerParams defines parameters for GetBanner.
@@ -2567,15 +2627,39 @@ type GetBannerParams struct {
 
 	// IfNoneMatch ETag последнего успешного ответа; при совпадении сервер отвечает 304 без тела.
 	IfNoneMatch *string `json:"If-None-Match,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetBannerParamsLanguageCode defines parameters for GetBanner.
 type GetBannerParamsLanguageCode string
 
+// GetConfigParams defines parameters for GetConfig.
+type GetConfigParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteDiseaseParams defines parameters for DeleteDisease.
+type DeleteDiseaseParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PatchDiseaseParams defines parameters for PatchDisease.
+type PatchDiseaseParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
 // PostEventParams defines parameters for PostEvent.
 type PostEventParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetEventsStatsParams defines parameters for GetEventsStats.
@@ -2590,6 +2674,9 @@ type GetEventsStatsParams struct {
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetEventsStatsCountsParams defines parameters for GetEventsStatsCounts.
@@ -2600,30 +2687,189 @@ type GetEventsStatsCountsParams struct {
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteEventParams defines parameters for DeleteEvent.
+type DeleteEventParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetEventParams defines parameters for GetEvent.
+type GetEventParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PatchEventParams defines parameters for PatchEvent.
+type PatchEventParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostFilesUploadUrlParams defines parameters for PostFilesUploadUrl.
+type PostFilesUploadUrlParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteFilesParams defines parameters for DeleteFiles.
+type DeleteFilesParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostFilesCompleteParams defines parameters for PostFilesComplete.
+type PostFilesCompleteParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostImportLocalDataParams defines parameters for PostImportLocalData.
 type PostImportLocalDataParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз на попытку переноса локальных данных; повторная отправка с тем же ключом в течение окна дедупликации возвращает ранее сохранённый результат переноса вместо повторного создания сущностей.
 	IdempotencyKey IdempotencyKeyRequired `json:"Idempotency-Key"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteMedicationParams defines parameters for DeleteMedication.
+type DeleteMedicationParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PatchMedicationParams defines parameters for PatchMedication.
 type PatchMedicationParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteMedicationRemindersParams defines parameters for DeleteMedicationReminders.
+type DeleteMedicationRemindersParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostMedicationRemindersParams defines parameters for PostMedicationReminders.
 type PostMedicationRemindersParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetPetsParams defines parameters for GetPets.
+type GetPetsParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostPetParams defines parameters for PostPet.
 type PostPetParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetAccessInviteAcceptParams defines parameters for PostPetAccessInviteAccept.
+type PostPetAccessInviteAcceptParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetAccessInviteDeclineParams defines parameters for PostPetAccessInviteDecline.
+type PostPetAccessInviteDeclineParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeletePetAccessNoticeParams defines parameters for DeletePetAccessNotice.
+type DeletePetAccessNoticeParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetCodePreviewParams defines parameters for PostPetCodePreview.
+type PostPetCodePreviewParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetTransferAcceptParams defines parameters for PostPetTransferAccept.
+type PostPetTransferAcceptParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetTransferDeclineParams defines parameters for PostPetTransferDecline.
+type PostPetTransferDeclineParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeletePetParams defines parameters for DeletePet.
+type DeletePetParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetPetParams defines parameters for GetPet.
+type GetPetParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PutPetParams defines parameters for PutPet.
+type PutPetParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetPetAccessParams defines parameters for GetPetAccess.
+type GetPetAccessParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetAccessInviteParams defines parameters for PostPetAccessInvite.
+type PostPetAccessInviteParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeletePetAccessInviteParams defines parameters for DeletePetAccessInvite.
+type DeletePetAccessInviteParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeletePetAccessMeParams defines parameters for DeletePetAccessMe.
+type DeletePetAccessMeParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeletePetAccessMemberParams defines parameters for DeletePetAccessMember.
+type DeletePetAccessMemberParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PutPetAccessMemberParams defines parameters for PutPetAccessMember.
+type PutPetAccessMemberParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetAllergiesParams defines parameters for GetPetAllergies.
@@ -2633,12 +2879,18 @@ type GetPetAllergiesParams struct {
 
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostAllergyParams defines parameters for PostAllergy.
 type PostAllergyParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetDiseasesParams defines parameters for GetPetDiseases.
@@ -2648,12 +2900,18 @@ type GetPetDiseasesParams struct {
 
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostDiseaseParams defines parameters for PostDisease.
 type PostDiseaseParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetEventsParams defines parameters for GetPetEvents.
@@ -2678,6 +2936,9 @@ type GetPetEventsParams struct {
 
 	// Tz Имя часового пояса IANA. Обязателен, если передан from или to, иначе — 400. Если передан без from/to, используется для distinct_days в available_filters; без tz distinct_days считается в UTC.
 	Tz *string `form:"tz,omitempty" json:"tz,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetMedicationsParams defines parameters for GetPetMedications.
@@ -2690,6 +2951,9 @@ type GetPetMedicationsParams struct {
 
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostMedicationParams defines parameters for PostMedication.
@@ -2699,12 +2963,36 @@ type PostMedicationParams struct {
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetRemindersUpcomingParams defines parameters for GetPetRemindersUpcoming.
 type GetPetRemindersUpcomingParams struct {
 	// Limit Максимум элементов в ответе. По умолчанию 3.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeletePetTransferParams defines parameters for DeletePetTransfer.
+type DeletePetTransferParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetPetTransferParams defines parameters for GetPetTransfer.
+type GetPetTransferParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostPetTransferParams defines parameters for PostPetTransfer.
+type PostPetTransferParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetVaccinationsParams defines parameters for GetPetVaccinations.
@@ -2714,6 +3002,9 @@ type GetPetVaccinationsParams struct {
 
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostVaccinationParams defines parameters for PostVaccination.
@@ -2723,6 +3014,9 @@ type PostVaccinationParams struct {
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetPetVetVisitsParams defines parameters for GetPetVetVisits.
@@ -2732,30 +3026,99 @@ type GetPetVetVisitsParams struct {
 
 	// Offset Смещение для пагинации. По умолчанию 0.
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostVetVisitParams defines parameters for PostVetVisit.
 type PostVetVisitParams struct {
 	// IdempotencyKey UUID v4, генерируется клиентом один раз при открытии формы создания; повторная отправка с тем же ключом возвращает ранее созданную запись (тот же ответ 201) вместо дубликата. Действует одинаково для POST /events, POST /pet и POST /pet/{id}/{vaccinations,diseases,vet-visits,allergies,medications}: у событий и сущностей ветпаспорта ключ уникален на пару (pet_id, Idempotency-Key), у питомца — на пару (пользователь, Idempotency-Key). Невалидный UUID v4 — 400 VALIDATION_ERROR.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteProfileParams defines parameters for DeleteProfile.
+type DeleteProfileParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetProfileParams defines parameters for GetProfile.
+type GetProfileParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostProfileParams defines parameters for PostProfile.
+type PostProfileParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PutProfileParams defines parameters for PutProfile.
+type PutProfileParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostReminderPlanParams defines parameters for PostReminderPlan.
 type PostReminderPlanParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteReminderPlanParams defines parameters for DeleteReminderPlan.
+type DeleteReminderPlanParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetReminderPlanParams defines parameters for GetReminderPlan.
+type GetReminderPlanParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PatchReminderPlanParams defines parameters for PatchReminderPlan.
 type PatchReminderPlanParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetRemindersUpcomingParams defines parameters for GetRemindersUpcoming.
 type GetRemindersUpcomingParams struct {
 	// Limit Максимум элементов в ответе. По умолчанию 64.
 	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteReminderParams defines parameters for DeleteReminder.
+type DeleteReminderParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetReminderParams defines parameters for GetReminder.
+type GetReminderParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostReminderCompleteParams defines parameters for PostReminderComplete.
+type PostReminderCompleteParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PostReminderDetachParams defines parameters for PostReminderDetach.
@@ -2765,18 +3128,45 @@ type PostReminderDetachParams struct {
 
 	// IdempotencyKey UUID v4, генерируется клиентом один раз на попытку замены; невалидный UUID v4 — 400.
 	IdempotencyKey openapi_types.UUID `json:"Idempotency-Key"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteVaccinationParams defines parameters for DeleteVaccination.
+type DeleteVaccinationParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PatchVaccinationParams defines parameters for PatchVaccination.
 type PatchVaccinationParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты и время суток запроса/курса (administered_date, next_date, administered_time, next_time у прививок; start_date, end_date, times у курсов лекарств) трактуются как местное время этого пояса: связанные напоминания создаются/переносятся на соответствующий момент времени, next_dose вычисляется так же. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz ScheduleTimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// DeleteVetVisitParams defines parameters for DeleteVetVisit.
+type DeleteVetVisitParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PatchVetVisitParams defines parameters for PatchVetVisit.
+type PatchVetVisitParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // GetWidgetParams defines parameters for GetWidget.
 type GetWidgetParams struct {
 	// Tz Часовой пояс клиента — имя IANA (например, Europe/Moscow). Обязателен: значения по умолчанию нет. Календарные даты from/to/date трактуются как локальные даты этого пояса (полуоткрытый интервал от начала суток from до начала суток, следующих за to, по местному времени пояса, включая дни перехода на летнее/зимнее время), а календарный день события или напоминания (и интервал day/week/month у GET /events/stats) — как день его момента времени в этом поясе. Отсутствующий tz, неизвестное имя пояса и значение Local — 400 VALIDATION_ERROR.
 	Tz TimeZone `form:"tz" json:"tz"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
 // PatchAllergyJSONRequestBody defines body for PatchAllergy for application/json ContentType.

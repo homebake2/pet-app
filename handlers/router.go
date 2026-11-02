@@ -7,6 +7,9 @@ import "net/http"
 // набор роутов поверх httptest.Server, не дублируя список.
 func NewMux() *http.ServeMux {
 	mux := http.NewServeMux()
+	// Проверка живости для монитора доступности и health check хостинга
+	// (без авторизации, вне OpenAPI-контракта мобильного клиента).
+	mux.HandleFunc("/healthz", HealthHandler)
 	mux.HandleFunc("/auth/register", RegisterHandler)
 	mux.HandleFunc("/auth/login", LoginHandler)
 	mux.HandleFunc("/auth/refresh", RefreshTokenHandler)

@@ -94,7 +94,11 @@
         },
         "security": []
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/auth/refresh": {
       "post": {
@@ -160,7 +164,11 @@
         },
         "security": []
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/auth/logout": {
       "post": {
@@ -218,7 +226,11 @@
         },
         "parameters": []
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/profile": {
       "get": {
@@ -400,7 +412,12 @@
         },
         "operationId": "delete-profile",
         "parameters": []
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/activities": {
       "get": {
@@ -488,7 +505,11 @@
           }
         ]
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/events": {
       "post": {
@@ -566,7 +587,12 @@
         "tags": [
           "event-controller"
         ]
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet/{id}": {
       "get": {
@@ -731,6 +757,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -823,7 +852,12 @@
             "$ref": "#/components/parameters/IdempotencyKey"
           }
         ]
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/events/{id}": {
       "parameters": [
@@ -835,6 +869,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -1066,7 +1103,12 @@
           }
         },
         "security": []
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/auth/guest": {
       "post": {
@@ -1119,7 +1161,12 @@
           }
         },
         "security": []
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/config": {
       "get": {
@@ -1153,7 +1200,12 @@
         },
         "operationId": "get-config",
         "security": []
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet/{id}/events": {
       "parameters": [
@@ -1165,6 +1217,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -1367,7 +1422,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/import/local-data": {
       "post": {
@@ -1436,7 +1496,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/events/stats": {
       "get": {
@@ -1548,7 +1613,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/events/stats/counts": {
       "get": {
@@ -1643,7 +1712,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/files/upload-url": {
       "post": {
@@ -1727,7 +1800,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/files/{file_id}/complete": {
       "post": {
@@ -1806,7 +1884,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/files/{file_id}": {
       "delete": {
@@ -1875,7 +1958,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/activities/calendar": {
       "get": {
@@ -1954,7 +2042,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/activities/day": {
       "get": {
@@ -2024,7 +2116,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/banner": {
       "get": {
@@ -2121,7 +2217,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet/{id}/vaccinations": {
       "parameters": [
@@ -2133,6 +2234,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -2309,6 +2413,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "patch": {
@@ -2439,6 +2546,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -2612,6 +2722,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "patch": {
@@ -2729,6 +2842,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -2902,6 +3018,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "patch": {
@@ -3019,6 +3138,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -3192,6 +3314,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "patch": {
@@ -3309,6 +3434,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -3488,6 +3616,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "patch": {
@@ -3685,7 +3816,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/reminder-plans/{id}": {
       "parameters": [
@@ -3697,6 +3833,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -3912,7 +4051,12 @@
             }
           }
         }
-      }
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/reminders/{id}": {
       "parameters": [
@@ -3924,6 +4068,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -4020,6 +4167,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "post": {
@@ -4113,6 +4263,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "post": {
@@ -4228,6 +4381,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "get": {
@@ -4305,6 +4461,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ],
       "post": {
@@ -4619,6 +4778,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -4703,7 +4865,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet-transfers/accept": {
       "post": {
@@ -4786,7 +4952,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet-transfers/decline": {
       "post": {
@@ -4862,7 +5032,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet/{id}/access-invites": {
       "post": {
@@ -4954,6 +5128,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -5027,6 +5204,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -5165,6 +5345,9 @@
           "name": "user_id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -5231,6 +5414,9 @@
           "name": "id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -5306,6 +5492,9 @@
           "name": "invite_id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     },
@@ -5390,7 +5579,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet-access-invites/decline": {
       "post": {
@@ -5466,7 +5659,11 @@
           }
         }
       },
-      "parameters": []
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
     },
     "/pet-access-notices/{pet_id}": {
       "delete": {
@@ -5511,6 +5708,9 @@
           "name": "pet_id",
           "in": "path",
           "required": true
+        },
+        {
+          "$ref": "#/components/parameters/AppVersion"
         }
       ]
     }
@@ -6058,6 +6258,7 @@
           "layout",
           "tone",
           "frequency",
+          "dismissible",
           "overline",
           "title",
           "body",
@@ -6074,6 +6275,10 @@
           },
           "layout": {
             "$ref": "#/components/schemas/BannerLayout"
+          },
+          "dismissible": {
+            "type": "boolean",
+            "description": "false — баннер нельзя закрыть: клиент не показывает кнопку закрытия и не закрывает баннер жестом или системной навигацией, не учитывает frequency и список закрытых, а действие primaryCta (всегда url или store) не закрывает баннер. Такой баннер исчезает, только когда сервер перестаёт его отдавать (например, после обновления клиента). Поле secondaryLabel у него всегда null."
           },
           "tone": {
             "nullable": true,
@@ -6136,7 +6341,8 @@
         "title": "GetConfigResponse",
         "type": "object",
         "required": [
-          "aboutMeUrl"
+          "aboutMeUrl",
+          "adsEnabled"
         ],
         "properties": {
           "aboutMeUrl": {
@@ -6145,6 +6351,11 @@
             "pattern": "^https://",
             "description": "Абсолютный https URL внешней страницы, которую открывает пункт «Обо мне» на экране настроек.",
             "example": "https://example.com"
+          },
+          "adsEnabled": {
+            "type": "boolean",
+            "description": "Серверный выключатель рекламы: true — клиент может показывать функцию «Реклама», если рекламная сеть настроена в сборке; false — функция выключена у всех клиентов.",
+            "example": false
           }
         }
       },
@@ -10853,6 +11064,17 @@
         "schema": {
           "type": "string",
           "example": "Europe/Moscow"
+        }
+      },
+      "AppVersion": {
+        "name": "X-App-Version",
+        "in": "header",
+        "required": false,
+        "description": "Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.",
+        "schema": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "example": "1.2.0"
         }
       }
     }

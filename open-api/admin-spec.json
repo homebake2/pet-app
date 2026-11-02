@@ -583,6 +583,11 @@
           "frequency": {
             "$ref": "#/components/schemas/AdminBannerFrequency"
           },
+          "dismissible": {
+            "type": "boolean",
+            "default": true,
+            "description": "false — баннер нельзя закрыть (например, требование обновить приложение). Тогда обязательно действие cta.action = url или store, secondaryLabel не используется, frequency не учитывается клиентом."
+          },
           "cta": {
             "nullable": true,
             "allOf": [

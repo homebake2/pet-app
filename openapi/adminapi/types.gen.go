@@ -104,16 +104,19 @@ type AdminValidationIssue struct {
 
 // BannerDoc Единый нелокализованный документ баннера (все переводы). Отсутствующие поля трактуются как null; isShow по умолчанию true, priority — 0, массивы — пустые.
 type BannerDoc struct {
-	Cta       *BannerDocCta         `json:"cta"`
-	EndsAt    *time.Time            `json:"endsAt"`
-	Frequency AdminBannerFrequency  `json:"frequency"`
-	IsShow    *bool                 `json:"isShow,omitempty"`
-	Layout    AdminBannerLayout     `json:"layout"`
-	Priority  *int                  `json:"priority,omitempty"`
-	Slides    *[]BannerDocSlide     `json:"slides,omitempty"`
-	StartsAt  *time.Time            `json:"startsAt"`
-	Targeting *[]BannerDocTargeting `json:"targeting,omitempty"`
-	Tone      *AdminBannerTone      `json:"tone"`
+	Cta *BannerDocCta `json:"cta"`
+
+	// Dismissible false — баннер нельзя закрыть (например, требование обновить приложение). Тогда обязательно действие cta.action = url или store, secondaryLabel не используется, frequency не учитывается клиентом.
+	Dismissible *bool                 `json:"dismissible,omitempty"`
+	EndsAt      *time.Time            `json:"endsAt"`
+	Frequency   AdminBannerFrequency  `json:"frequency"`
+	IsShow      *bool                 `json:"isShow,omitempty"`
+	Layout      AdminBannerLayout     `json:"layout"`
+	Priority    *int                  `json:"priority,omitempty"`
+	Slides      *[]BannerDocSlide     `json:"slides,omitempty"`
+	StartsAt    *time.Time            `json:"startsAt"`
+	Targeting   *[]BannerDocTargeting `json:"targeting,omitempty"`
+	Tone        *AdminBannerTone      `json:"tone"`
 
 	// Translations Карта «код языка → поля»; обязан содержать ru.
 	Translations map[string]BannerDocTranslation `json:"translations"`
@@ -138,18 +141,21 @@ type BannerDocImage struct {
 
 // BannerDocResponse defines model for BannerDocResponse.
 type BannerDocResponse struct {
-	CreatedAt time.Time             `json:"createdAt"`
-	Cta       *BannerDocCta         `json:"cta"`
-	EndsAt    *time.Time            `json:"endsAt"`
-	Frequency AdminBannerFrequency  `json:"frequency"`
-	Id        openapi_types.UUID    `json:"id"`
-	IsShow    *bool                 `json:"isShow,omitempty"`
-	Layout    AdminBannerLayout     `json:"layout"`
-	Priority  *int                  `json:"priority,omitempty"`
-	Slides    *[]BannerDocSlide     `json:"slides,omitempty"`
-	StartsAt  *time.Time            `json:"startsAt"`
-	Targeting *[]BannerDocTargeting `json:"targeting,omitempty"`
-	Tone      *AdminBannerTone      `json:"tone"`
+	CreatedAt time.Time     `json:"createdAt"`
+	Cta       *BannerDocCta `json:"cta"`
+
+	// Dismissible false — баннер нельзя закрыть (например, требование обновить приложение). Тогда обязательно действие cta.action = url или store, secondaryLabel не используется, frequency не учитывается клиентом.
+	Dismissible *bool                 `json:"dismissible,omitempty"`
+	EndsAt      *time.Time            `json:"endsAt"`
+	Frequency   AdminBannerFrequency  `json:"frequency"`
+	Id          openapi_types.UUID    `json:"id"`
+	IsShow      *bool                 `json:"isShow,omitempty"`
+	Layout      AdminBannerLayout     `json:"layout"`
+	Priority    *int                  `json:"priority,omitempty"`
+	Slides      *[]BannerDocSlide     `json:"slides,omitempty"`
+	StartsAt    *time.Time            `json:"startsAt"`
+	Targeting   *[]BannerDocTargeting `json:"targeting,omitempty"`
+	Tone        *AdminBannerTone      `json:"tone"`
 
 	// Translations Карта «код языка → поля»; обязан содержать ru.
 	Translations map[string]BannerDocTranslation `json:"translations"`

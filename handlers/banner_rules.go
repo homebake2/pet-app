@@ -164,6 +164,20 @@ func checkBannerContent(layout string, text bannerText, slides []slideText, acti
 	return issues
 }
 
+// checkBannerDismissible проверяет баннер без возможности закрытия: ему
+// обязательно нужно действие url или store — иначе пользователь застрянет на
+// баннере. Deeplink не допускается: переход внутри приложения не должен
+// снимать блокировку баннера. Для закрываемого баннера ограничений нет.
+func checkBannerDismissible(dismissible bool, ctaAction *string) []bannerIssue {
+	if dismissible {
+		return nil
+	}
+	if ctaAction == nil || (*ctaAction != "url" && *ctaAction != "store") {
+		return []bannerIssue{{"dismissible", "баннер без закрытия требует действие cta.action = url или store"}}
+	}
+	return nil
+}
+
 // checkBannerAction проверяет действие: тип, цель и подпись.
 func checkBannerAction(spec layoutSpec, text bannerText, action bannerAction, textPath string) []bannerIssue {
 	if action.Action == nil || !containsString(bannerCtaActions, *action.Action) {

@@ -561,3 +561,43 @@ func TestBannerSchema_ChecksRejectBadData(t *testing.T) {
 	_, err = database.DB.Exec(`INSERT INTO banner_translation (banner_id, locale) VALUES ($1, 'ru')`, id)
 	require.Error(t, err, "PK (banner_id, locale)")
 }
+
+// Баннер без закрытия: сохраняется через admin API только с действием
+// url/store, в публичной выдаче отдаётся с dismissible=false и без
+// secondaryLabel; закрываемый баннер по умолчанию dismissible=true.
+func TestGetBanner_NonDismissible(t *testing.T) {
+	resetDB(t)
+	tokens := registerUser(t, uniqueLogin(t), "password123")
+	createBanner(t, dialogDoc("обычный"))
+
+	// Без действия баннер без закрытия отклоняется admin API.
+	rejected := dialogDoc("тупик")
+	rejected["dismissible"] = false
+	resp := doAdminRequest(t, http.MethodPost, "/admin/banner", rejected)
+	require.Equal(t, http.StatusBadRequest, resp.status, "%s", resp.body)
+
+	update := dialogDoc("обновите приложение")
+	update["dismissible"] = false
+	update["priority"] = 100
+	update["cta"] = map[string]any{"action": "store"}
+	update["translations"] = map[string]any{
+		"ru": map[string]any{"title": "обновите приложение", "ctaLabel": "Обновить", "secondaryLabel": "Позже"},
+	}
+	createBanner(t, update)
+
+	resp, raw := doRequest(t, http.MethodGet, "/banner?platform=ios&appVersion=1.0.0", nil, tokens.AccessToken, map[string]string{"LanguageCode": "ru"}), struct {
+		Items []struct {
+			Title          string  `json:"title"`
+			Dismissible    bool    `json:"dismissible"`
+			SecondaryLabel *string `json:"secondaryLabel"`
+		} `json:"items"`
+	}{}
+	require.Equal(t, http.StatusOK, resp.status, "%s", resp.body)
+	resp.decode(t, &raw)
+
+	require.Len(t, raw.Items, 2)
+	require.Equal(t, "обновите приложение", raw.Items[0].Title, "приоритет выше — первым")
+	require.False(t, raw.Items[0].Dismissible)
+	require.Nil(t, raw.Items[0].SecondaryLabel)
+	require.True(t, raw.Items[1].Dismissible)
+}

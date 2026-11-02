@@ -166,3 +166,34 @@ func TestAuthFlow_RegistrationRateLimitedPerIP(t *testing.T) {
 	blocked.decode(t, &body)
 	require.Equal(t, "RATE_LIMITED", body.Code)
 }
+
+// Десять неверных паролей подряд блокируют вход в аккаунт (429), в том числе с
+// верным паролем; другой аккаунт при этом не затронут.
+func TestAuthFlow_LoginFailuresLimit(t *testing.T) {
+	resetDB(t)
+
+	login := fmt.Sprintf("limited-%s", uuid.NewString())
+	other := fmt.Sprintf("other-%s", uuid.NewString())
+	registerUser(t, login, "correct-password")
+	registerUser(t, other, "correct-password")
+
+	for i := 0; i < 10; i++ {
+		resp := doRequest(t, http.MethodPost, "/auth/login", map[string]string{
+			"login":    login,
+			"password": "wrong-password",
+		}, "")
+		require.Equal(t, http.StatusForbidden, resp.status)
+	}
+
+	blocked := doRequest(t, http.MethodPost, "/auth/login", map[string]string{
+		"login":    login,
+		"password": "correct-password",
+	}, "")
+	require.Equal(t, http.StatusTooManyRequests, blocked.status)
+
+	otherOK := doRequest(t, http.MethodPost, "/auth/login", map[string]string{
+		"login":    other,
+		"password": "correct-password",
+	}, "")
+	require.Equal(t, http.StatusOK, otherOK.status)
+}
