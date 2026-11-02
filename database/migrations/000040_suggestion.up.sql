@@ -1,6 +1,7 @@
 -- Предложения с формы «Новые идеи» на сайте (POST /web/suggestions).
--- user_id — не внешний ключ: это `local`, `anonymous` или uuid аккаунта, и
--- предложение переживает удаление аккаунта.
+-- user_id — не внешний ключ: это `local`, `anonymous` или uuid аккаунта.
+-- Предложения аккаунта удаляет database.DeleteUser, остальные — очистка по
+-- сроку хранения (database/retention.go).
 CREATE TABLE suggestion (
     id         uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    text        NOT NULL,

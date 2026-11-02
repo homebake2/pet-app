@@ -50,6 +50,10 @@ func TestDeleteAccountHandler_Success(t *testing.T) {
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	expectEndUserPetAccess(mock)
+	// Предложения с сайта от имени аккаунта удаляются вместе с ним.
+	mock.ExpectExec(`DELETE FROM suggestion WHERE user_id=\$1`).
+		WithArgs(testUserID).
+		WillReturnResult(sqlmock.NewResult(0, 2))
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -70,6 +74,9 @@ func TestDeleteAccountHandler_DBError(t *testing.T) {
 		WithArgs(testUserID).
 		WillReturnResult(sqlmock.NewResult(0, 0))
 	expectEndUserPetAccess(mock)
+	mock.ExpectExec(`DELETE FROM suggestion WHERE user_id=\$1`).
+		WithArgs(testUserID).
+		WillReturnResult(sqlmock.NewResult(0, 0))
 	mock.ExpectExec(`DELETE FROM users WHERE id=\$1`).
 		WithArgs(testUserID).
 		WillReturnError(assertError)

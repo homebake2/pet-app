@@ -116,6 +116,80 @@ func runLoginRateLimitCleanup(interval time.Duration) {
 	}
 }
 
+// maxRetentionBatches ограничивает число порций одного вида за один проход
+// очистки: остаток уйдёт на следующем проходе, а сбой, при котором порции не
+// кончаются, не зациклит горутину.
+const maxRetentionBatches = 100
+
+// objectDeleter — часть хранилища файлов, нужная очистке.
+type objectDeleter interface {
+	DeleteObject(ctx context.Context, objectKey string) error
+}
+
+// runRetentionCleanup применяет сроки хранения данных (см. «Общие требования:
+// Сроки хранения данных»): сразу при старте и затем раз в interval. Данные,
+// у которых вышел срок, API и так не показывает — очистка лишь физически их
+// удаляет, поэтому сбой одного шага не мешает остальным и проходу в целом.
+func runRetentionCleanup(interval time.Duration, storage objectDeleter) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		runRetentionPass(storage)
+		<-ticker.C
+	}
+}
+
+func runRetentionPass(storage objectDeleter) {
+	for i := 0; i < maxRetentionBatches; i++ {
+		purged, err := database.PurgeSoftDeleted(database.SoftDeletedRetention)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Printf("Ошибка удаления записей с истёкшим сроком хранения: %v", err)
+			break
+		}
+		if purged == 0 {
+			break
+		}
+		log.Printf("Физически удалено записей с истёкшим сроком хранения: %d", purged)
+	}
+
+	for i := 0; i < maxRetentionBatches; i++ {
+		deleted, orphanKeys, err := database.SweepOrphanFiles(database.UnconfirmedFileRetention)
+		if err != nil {
+			sentry.CaptureException(err)
+			log.Printf("Ошибка очистки файлов без владельца: %v", err)
+			break
+		}
+		if deleted == 0 {
+			break
+		}
+		log.Printf("Удалено строк файлов без владельца: %d", deleted)
+		// Объект без строки file пользователю не виден, поэтому сбой удаления
+		// объекта только логируется.
+		for _, key := range orphanKeys {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := storage.DeleteObject(ctx, key); err != nil {
+				log.Printf("Не удалось удалить объект %q из хранилища: %v", key, err)
+			}
+			cancel()
+		}
+	}
+
+	if deleted, err := database.DeleteStaleRegistrationAttempts(database.RegistrationAttemptRetentionDays); err != nil {
+		sentry.CaptureException(err)
+		log.Printf("Ошибка очистки счётчиков регистраций: %v", err)
+	} else if deleted > 0 {
+		log.Printf("Удалено устаревших счётчиков регистраций: %d", deleted)
+	}
+
+	if deleted, err := database.DeleteStaleSuggestions(database.SuggestionRetentionMonths); err != nil {
+		sentry.CaptureException(err)
+		log.Printf("Ошибка удаления устаревших предложений: %v", err)
+	} else if deleted > 0 {
+		log.Printf("Удалено устаревших предложений: %d", deleted)
+	}
+}
+
 func main() {
 	initSentry()
 	defer sentry.Flush(2 * time.Second)
@@ -130,7 +204,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Ошибка конфигурации S3-хранилища: %v", err)
 	}
-	handlers.SetStorage(s3client.New(s3Config))
+	fileStorage := s3client.New(s3Config)
+	handlers.SetStorage(fileStorage)
 
 	// Список роутов живёт в handlers.NewMux() — единственном месте, где виден
 	// весь HTTP-контракт сервиса. Он не проверяется автоматически против
@@ -144,6 +219,7 @@ func main() {
 	go runPetTransferCleanup(time.Hour)
 	go runPetAccessInviteCleanup(time.Hour)
 	go runLoginRateLimitCleanup(time.Hour)
+	go runRetentionCleanup(time.Hour, fileStorage)
 
 	port := os.Getenv("PORT")
 	if port == "" {

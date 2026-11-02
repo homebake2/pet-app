@@ -157,12 +157,18 @@ func GetTokensInvalidatedAt(userID string) (sql.NullTime, error) {
 // его активные приглашения отменяются, а записи про чужих питомцев, автором
 // которых он был, переходят к владельцу этих питомцев (см. endUserPetAccessWith);
 // его собственные доступы к чужим питомцам удаляются каскадом.
+// Предложения с сайта, отправленные от имени аккаунта (suggestion.user_id — не
+// внешний ключ), удаляются в той же транзакции. Файлы удалённых записей
+// остаются без владельца и убираются очисткой SweepOrphanFiles.
 func DeleteUser(userID string) error {
 	return RunInTx(func(tx *sql.Tx) error {
 		if err := cancelPendingTransfersFromUserWith(tx, userID); err != nil {
 			return err
 		}
 		if err := endUserPetAccessWith(tx, userID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM suggestion WHERE user_id=$1", userID); err != nil {
 			return err
 		}
 		_, err := tx.Exec("DELETE FROM users WHERE id=$1", userID)
