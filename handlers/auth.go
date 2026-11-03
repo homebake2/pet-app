@@ -140,10 +140,18 @@ func authenticateOrRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	consentRequired, err := isConsentRequired(userId.String())
+	if err != nil {
+		log.Printf("Ошибка проверки принятия документов: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, models.AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		PetsCount:    petsCount,
+		AccessToken:     accessToken,
+		RefreshToken:    refreshToken,
+		PetsCount:       petsCount,
+		ConsentRequired: consentRequired,
 	})
 }
 
@@ -434,10 +442,18 @@ func GuestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	consentRequired, err := isConsentRequired(userId.String())
+	if err != nil {
+		log.Printf("Ошибка проверки принятия документов гостя: %v", err)
+		writeError(w, http.StatusInternalServerError, openapi.INTERNALERROR, "Ошибка базы данных")
+		return
+	}
+
 	writeJSON(w, http.StatusOK, models.AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		PetsCount:    petsCount,
+		AccessToken:     accessToken,
+		RefreshToken:    refreshToken,
+		PetsCount:       petsCount,
+		ConsentRequired: consentRequired,
 	})
 }
 

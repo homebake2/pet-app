@@ -29,10 +29,22 @@ func writeError(w http.ResponseWriter, status int, code openapi.ErrorCodeEnum, m
 	})
 }
 
-// requireUserID проверяет Bearer-токен из заголовка Authorization.
+// requireUserID проверяет Bearer-токен из заголовка Authorization и то, что
+// пользователь принял текущие версии документов (иначе 403 CONSENT_REQUIRED).
 // При ошибке сама пишет ответ клиенту и возвращает ok=false —
 // вызывающему достаточно сделать `if !ok { return }`.
 func requireUserID(w http.ResponseWriter, r *http.Request) (userID string, ok bool) {
+	return authenticate(w, r, true)
+}
+
+// requireUserIDWithoutConsent — то же, что requireUserID, но без проверки
+// принятия документов. Только для методов, которые должны работать до
+// принятия: статус и принятие документов, удаление аккаунта.
+func requireUserIDWithoutConsent(w http.ResponseWriter, r *http.Request) (userID string, ok bool) {
+	return authenticate(w, r, false)
+}
+
+func authenticate(w http.ResponseWriter, r *http.Request, requireConsent bool) (userID string, ok bool) {
 	authHeader := r.Header.Get("Authorization")
 	if authHeader == "" {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Отсутствует токен авторизации")
@@ -63,7 +75,7 @@ func requireUserID(w http.ResponseWriter, r *http.Request) (userID string, ok bo
 		return "", false
 	}
 
-	invalidatedAt, err := database.GetTokensInvalidatedAt(id)
+	invalidatedAt, consentAccepted, err := database.GetAuthState(id)
 	if err == sql.ErrNoRows {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Пользователь не найден")
 		return "", false
@@ -74,6 +86,10 @@ func requireUserID(w http.ResponseWriter, r *http.Request) (userID string, ok bo
 	}
 	if invalidatedAt.Valid && time.Unix(int64(iat), 0).Before(invalidatedAt.Time) {
 		writeError(w, http.StatusUnauthorized, openapi.UNAUTHORIZED, "Токен отозван")
+		return "", false
+	}
+	if requireConsent && !consentAccepted {
+		writeError(w, http.StatusForbidden, openapi.CONSENTREQUIRED, "Требуется принять условия использования и согласие на обработку персональных данных")
 		return "", false
 	}
 

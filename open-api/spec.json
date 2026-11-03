@@ -1168,6 +1168,180 @@
         }
       ]
     },
+    "/consent-documents": {
+      "get": {
+        "summary": "/consent-documents",
+        "description": "Актуальные версии и тексты документов (условия использования и политика конфиденциальности) на запрошенном языке. Публичный эндпоинт (без Authorization). Текст — Markdown без собственного заголовка. Клиент хранит последний полученный ответ и вшитые запасные тексты на случай, если запрос не удался.",
+        "tags": [
+          "public",
+          "consent-controller"
+        ],
+        "parameters": [
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "description": "Язык текстов; по умолчанию ru",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ru",
+                "en"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetConsentDocumentsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request: неизвестный language",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-consent-documents",
+        "security": []
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
+    },
+    "/consents": {
+      "get": {
+        "summary": "/consents",
+        "description": "Статус принятия документов текущим пользователем. Не требует принятых документов. Методы, доступные без принятых документов: GET /consent-documents, GET и POST /consents, POST /auth/logout, POST /auth/refresh, DELETE /profile, GET /config. Остальные защищённые методы отвечают 403 CONSENT_REQUIRED, пока не приняты текущие версии обоих документов.",
+        "tags": [
+          "consent-controller"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetConsentsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "get-consents"
+      },
+      "post": {
+        "summary": "/consents",
+        "description": "Принять документы. Передаются оба документа с версиями показанных пользователю текстов; версии должны совпадать с текущими. Повторный запрос с теми же версиями также возвращает 204.",
+        "tags": [
+          "consent-controller"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostConsentsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request: не оба документа, дубликат или неизвестный doc_type",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "CONSENT_VERSION_MISMATCH: версия не совпадает с текущей, клиенту нужно обновить приложение",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal Server Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "operationId": "post-consents"
+      },
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/AppVersion"
+        }
+      ]
+    },
     "/config": {
       "get": {
         "summary": "/config",
@@ -6076,7 +6250,8 @@
         "required": [
           "access_token",
           "refresh_token",
-          "pets_count"
+          "pets_count",
+          "consent_required"
         ],
         "properties": {
           "access_token": {
@@ -6095,6 +6270,144 @@
             "type": "integer",
             "minimum": 0,
             "description": "Количество не мягко удалённых питомцев пользователя"
+          },
+          "consent_required": {
+            "type": "boolean",
+            "description": "true, если пользователь не принял текущие версии обоих документов (условия использования и согласие на обработку персональных данных). Пока документы не приняты, защищённые методы (кроме перечисленных в описании /consents) отвечают 403 CONSENT_REQUIRED."
+          }
+        }
+      },
+      "ConsentDocumentType": {
+        "title": "ConsentDocumentType",
+        "type": "string",
+        "description": "Документ, принятие которого запрашивается: условия использования или согласие на обработку персональных данных.",
+        "enum": [
+          "terms",
+          "personal_data"
+        ]
+      },
+      "ConsentDocumentStatus": {
+        "title": "ConsentDocumentStatus",
+        "type": "object",
+        "required": [
+          "doc_type",
+          "version",
+          "accepted"
+        ],
+        "properties": {
+          "doc_type": {
+            "$ref": "#/components/schemas/ConsentDocumentType"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Текущая версия документа"
+          },
+          "accepted": {
+            "type": "boolean",
+            "description": "Принята ли текущая версия этим пользователем"
+          }
+        }
+      },
+      "ConsentDocumentText": {
+        "title": "ConsentDocumentText",
+        "type": "object",
+        "required": [
+          "doc_type",
+          "version",
+          "language",
+          "text"
+        ],
+        "properties": {
+          "doc_type": {
+            "$ref": "#/components/schemas/ConsentDocumentType"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Текущая версия документа, которой соответствует текст"
+          },
+          "language": {
+            "type": "string",
+            "enum": [
+              "ru",
+              "en"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "Текст документа в Markdown без собственного заголовка"
+          }
+        }
+      },
+      "GetConsentDocumentsResponse": {
+        "title": "GetConsentDocumentsResponse",
+        "type": "object",
+        "required": [
+          "documents"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentDocumentText"
+            }
+          }
+        }
+      },
+      "GetConsentsResponse": {
+        "title": "GetConsentsResponse",
+        "type": "object",
+        "required": [
+          "consent_required",
+          "documents"
+        ],
+        "properties": {
+          "consent_required": {
+            "type": "boolean",
+            "description": "true, если принята не текущая версия хотя бы одного документа"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentDocumentStatus"
+            }
+          }
+        }
+      },
+      "ConsentAcceptance": {
+        "title": "ConsentAcceptance",
+        "type": "object",
+        "required": [
+          "doc_type",
+          "version"
+        ],
+        "properties": {
+          "doc_type": {
+            "$ref": "#/components/schemas/ConsentDocumentType"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Версия текста, показанного пользователю"
+          }
+        }
+      },
+      "PostConsentsRequest": {
+        "title": "PostConsentsRequest",
+        "type": "object",
+        "required": [
+          "documents"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "description": "Оба документа, по одному разу каждый",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": {
+              "$ref": "#/components/schemas/ConsentAcceptance"
+            }
           }
         }
       },
@@ -6420,7 +6733,9 @@
           "TRANSFER_OWN_PET",
           "ACCESS_OWN_PET",
           "ACCESS_ALREADY_GRANTED",
-          "ACCESS_LIMIT_REACHED"
+          "ACCESS_LIMIT_REACHED",
+          "CONSENT_REQUIRED",
+          "CONSENT_VERSION_MISMATCH"
         ]
       },
       "GetProfileRequest": {

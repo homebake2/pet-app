@@ -94,7 +94,7 @@ func TestRequireUserID_Valid(t *testing.T) {
 
 func TestRequireUserID_UserNotFound(t *testing.T) {
 	mock := setupMockDB(t)
-	mock.ExpectQuery(`SELECT tokens_invalidated_at FROM users WHERE id=\$1`).
+	mock.ExpectQuery(authStateQuery).
 		WithArgs("user-42").
 		WillReturnError(sql.ErrNoRows)
 
@@ -111,9 +111,9 @@ func TestRequireUserID_UserNotFound(t *testing.T) {
 
 func TestRequireUserID_RevokedToken(t *testing.T) {
 	mock := setupMockDB(t)
-	mock.ExpectQuery(`SELECT tokens_invalidated_at FROM users WHERE id=\$1`).
+	mock.ExpectQuery(authStateQuery).
 		WithArgs("user-42").
-		WillReturnRows(sqlmock.NewRows([]string{"tokens_invalidated_at"}).AddRow(time.Now().Add(time.Hour)))
+		WillReturnRows(sqlmock.NewRows([]string{"tokens_invalidated_at", "consent_accepted"}).AddRow(time.Now().Add(time.Hour), true))
 
 	token := validAccessToken(t, "user-42")
 	w := httptest.NewRecorder()
@@ -124,4 +124,40 @@ func TestRequireUserID_RevokedToken(t *testing.T) {
 	assert.False(t, ok)
 	assert.Empty(t, id)
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func expectConsentNotAccepted(mock sqlmock.Sqlmock, userID string) {
+	mock.ExpectQuery(authStateQuery).
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"tokens_invalidated_at", "consent_accepted"}).AddRow(nil, false))
+}
+
+func TestRequireUserID_ConsentNotAccepted(t *testing.T) {
+	mock := setupMockDB(t)
+	expectConsentNotAccepted(mock, "user-42")
+
+	token := validAccessToken(t, "user-42")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+
+	id, ok := requireUserID(w, r)
+	assert.False(t, ok)
+	assert.Empty(t, id)
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Contains(t, w.Body.String(), "CONSENT_REQUIRED")
+}
+
+func TestRequireUserIDWithoutConsent_ConsentNotAccepted(t *testing.T) {
+	mock := setupMockDB(t)
+	expectConsentNotAccepted(mock, "user-42")
+
+	token := validAccessToken(t, "user-42")
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.Header.Set("Authorization", "Bearer "+token)
+
+	id, ok := requireUserIDWithoutConsent(w, r)
+	require.True(t, ok)
+	assert.Equal(t, "user-42", id)
 }

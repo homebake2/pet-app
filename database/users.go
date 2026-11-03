@@ -139,14 +139,6 @@ func CreateGuestUser(login, deviceID string) (uuid.UUID, error) {
 	return id, err
 }
 
-// GetTokensInvalidatedAt возвращает момент серверной инвалидации токенов
-// пользователя (NULL, если токены никогда не отзывались).
-func GetTokensInvalidatedAt(userID string) (sql.NullTime, error) {
-	var invalidatedAt sql.NullTime
-	err := DB.QueryRow("SELECT tokens_invalidated_at FROM users WHERE id=$1", userID).Scan(&invalidatedAt)
-	return invalidatedAt, err
-}
-
 // DeleteUser удаляет пользователя по id; profile/pet/event/reminder_plan и
 // их зависимые строки удаляются каскадно через ON DELETE CASCADE (см.
 // database/migrations/000033_user_delete_cascade.up.sql).

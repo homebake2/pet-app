@@ -107,6 +107,7 @@ func TestGuestAuth_CreatesAndReusesIdempotently(t *testing.T) {
 	var secondTokens authTokens
 	second.decode(t, &secondTokens)
 	require.NotEmpty(t, secondTokens.AccessToken)
+	acceptConsents(t, firstTokens.AccessToken)
 
 	// Оба вызова относятся к одному и тому же (не продублированному) гостевому
 	// пользователю: профиль, созданный под токеном первого вызова, виден и

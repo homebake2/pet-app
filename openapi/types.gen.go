@@ -63,6 +63,18 @@ const (
 	Promo     BannerTone = "promo"
 )
 
+// Defines values for ConsentDocumentTextLanguage.
+const (
+	ConsentDocumentTextLanguageEn ConsentDocumentTextLanguage = "en"
+	ConsentDocumentTextLanguageRu ConsentDocumentTextLanguage = "ru"
+)
+
+// Defines values for ConsentDocumentType.
+const (
+	PersonalData ConsentDocumentType = "personal_data"
+	Terms        ConsentDocumentType = "terms"
+)
+
 // Defines values for DiseaseStatusEnum.
 const (
 	Active DiseaseStatusEnum = "active"
@@ -76,6 +88,8 @@ const (
 	ACCESSOWNPET           ErrorCodeEnum = "ACCESS_OWN_PET"
 	BADREQUEST             ErrorCodeEnum = "BAD_REQUEST"
 	CONFLICT               ErrorCodeEnum = "CONFLICT"
+	CONSENTREQUIRED        ErrorCodeEnum = "CONSENT_REQUIRED"
+	CONSENTVERSIONMISMATCH ErrorCodeEnum = "CONSENT_VERSION_MISMATCH"
 	FORBIDDEN              ErrorCodeEnum = "FORBIDDEN"
 	INTERNALERROR          ErrorCodeEnum = "INTERNAL_ERROR"
 	NOTFOUND               ErrorCodeEnum = "NOT_FOUND"
@@ -370,6 +384,12 @@ const (
 	GetBannerParamsLanguageCodeRu GetBannerParamsLanguageCode = "ru"
 )
 
+// Defines values for GetConsentDocumentsParamsLanguage.
+const (
+	GetConsentDocumentsParamsLanguageEn GetConsentDocumentsParamsLanguage = "en"
+	GetConsentDocumentsParamsLanguageRu GetConsentDocumentsParamsLanguage = "ru"
+)
+
 // ActivitiesCalendarItem defines model for ActivitiesCalendarItem.
 type ActivitiesCalendarItem struct {
 	Date openapi_types.Date `json:"date"`
@@ -527,6 +547,46 @@ type CompleteReminderResponse struct {
 	// FactEventId Id факта, созданного при done=true; null при done=false.
 	FactEventId *openapi_types.UUID `json:"fact_event_id"`
 }
+
+// ConsentAcceptance defines model for ConsentAcceptance.
+type ConsentAcceptance struct {
+	// DocType Документ, принятие которого запрашивается: условия использования или согласие на обработку персональных данных.
+	DocType ConsentDocumentType `json:"doc_type"`
+
+	// Version Версия текста, показанного пользователю
+	Version int `json:"version"`
+}
+
+// ConsentDocumentStatus defines model for ConsentDocumentStatus.
+type ConsentDocumentStatus struct {
+	// Accepted Принята ли текущая версия этим пользователем
+	Accepted bool `json:"accepted"`
+
+	// DocType Документ, принятие которого запрашивается: условия использования или согласие на обработку персональных данных.
+	DocType ConsentDocumentType `json:"doc_type"`
+
+	// Version Текущая версия документа
+	Version int `json:"version"`
+}
+
+// ConsentDocumentText defines model for ConsentDocumentText.
+type ConsentDocumentText struct {
+	// DocType Документ, принятие которого запрашивается: условия использования или согласие на обработку персональных данных.
+	DocType  ConsentDocumentType         `json:"doc_type"`
+	Language ConsentDocumentTextLanguage `json:"language"`
+
+	// Text Текст документа в Markdown без собственного заголовка
+	Text string `json:"text"`
+
+	// Version Текущая версия документа, которой соответствует текст
+	Version int `json:"version"`
+}
+
+// ConsentDocumentTextLanguage defines model for ConsentDocumentText.Language.
+type ConsentDocumentTextLanguage string
+
+// ConsentDocumentType Документ, принятие которого запрашивается: условия использования или согласие на обработку персональных данных.
+type ConsentDocumentType string
 
 // DetachReminderRequest Ровно одно из event и plan: оба или ни одного — 400. Для plan обязателен query-параметр tz.
 type DetachReminderRequest struct {
@@ -825,6 +885,18 @@ type GetConfigResponse struct {
 	AdsEnabled bool `json:"adsEnabled"`
 }
 
+// GetConsentDocumentsResponse defines model for GetConsentDocumentsResponse.
+type GetConsentDocumentsResponse struct {
+	Documents []ConsentDocumentText `json:"documents"`
+}
+
+// GetConsentsResponse defines model for GetConsentsResponse.
+type GetConsentsResponse struct {
+	// ConsentRequired true, если принята не текущая версия хотя бы одного документа
+	ConsentRequired bool                    `json:"consent_required"`
+	Documents       []ConsentDocumentStatus `json:"documents"`
+}
+
 // GetDiseaseIdResponseRequest defines model for GetDiseaseIdResponseRequest.
 type GetDiseaseIdResponseRequest struct {
 	Id openapi_types.UUID `json:"id"`
@@ -1023,6 +1095,9 @@ type GetLoginRequest struct {
 // GetLoginResponse defines model for GetLoginResponse.
 type GetLoginResponse struct {
 	AccessToken string `json:"access_token"`
+
+	// ConsentRequired true, если пользователь не принял текущие версии обоих документов (условия использования и согласие на обработку персональных данных). Пока документы не приняты, защищённые методы (кроме перечисленных в описании /consents) отвечают 403 CONSENT_REQUIRED.
+	ConsentRequired bool `json:"consent_required"`
 
 	// PetsCount Количество не мягко удалённых питомцев пользователя
 	PetsCount    int    `json:"pets_count"`
@@ -1949,6 +2024,12 @@ type PetUpcomingReminderItem struct {
 // PetWaterTypeEnum Тип водоёма питомца — профильное поле группы видов «Водные и полуводные» (см. «Профильные поля питомца по видам»).
 type PetWaterTypeEnum string
 
+// PostConsentsRequest defines model for PostConsentsRequest.
+type PostConsentsRequest struct {
+	// Documents Оба документа, по одному разу каждый
+	Documents []ConsentAcceptance `json:"documents"`
+}
+
 // PostFilesUploadUrlRequest defines model for PostFilesUploadUrlRequest.
 type PostFilesUploadUrlRequest struct {
 	// ContentType MIME-тип файла, должен входить в список допустимых для данного owner_type
@@ -2641,6 +2722,30 @@ type GetConfigParams struct {
 	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
 }
 
+// GetConsentDocumentsParams defines parameters for GetConsentDocuments.
+type GetConsentDocumentsParams struct {
+	// Language Язык текстов; по умолчанию ru
+	Language *GetConsentDocumentsParamsLanguage `form:"language,omitempty" json:"language,omitempty"`
+
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// GetConsentDocumentsParamsLanguage defines parameters for GetConsentDocuments.
+type GetConsentDocumentsParamsLanguage string
+
+// GetConsentsParams defines parameters for GetConsents.
+type GetConsentsParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
+// PostConsentsParams defines parameters for PostConsents.
+type PostConsentsParams struct {
+	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
+	XAppVersion *AppVersion `json:"X-App-Version,omitempty"`
+}
+
 // DeleteDiseaseParams defines parameters for DeleteDisease.
 type DeleteDiseaseParams struct {
 	// XAppVersion Версия мобильного приложения в формате MAJOR.MINOR.PATCH; приложение отправляет её в каждом запросе. Используется только для диагностики (лог, тег Sentry): отсутствие или некорректное значение не приводят к ошибке и не меняют ответ.
@@ -3186,6 +3291,9 @@ type PostRefreshJSONRequestBody = GetRefreshRequest
 
 // PostRegisterJSONRequestBody defines body for PostRegister for application/json ContentType.
 type PostRegisterJSONRequestBody = GetLoginRequest
+
+// PostConsentsJSONRequestBody defines body for PostConsents for application/json ContentType.
+type PostConsentsJSONRequestBody = PostConsentsRequest
 
 // PatchDiseaseJSONRequestBody defines body for PatchDisease for application/json ContentType.
 type PatchDiseaseJSONRequestBody = UpdateDiseaseRequest

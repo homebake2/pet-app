@@ -227,9 +227,18 @@ type authTokens struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-// registerUser регистрирует нового пользователя со случайным логином и
-// возвращает пару токенов.
+// registerUser регистрирует нового пользователя со случайным логином,
+// принимает для него документы (без этого защищённые методы отвечают
+// 403 CONSENT_REQUIRED) и возвращает пару токенов.
 func registerUser(t *testing.T, login, password string) authTokens {
+	t.Helper()
+	tokens := registerUserWithoutConsent(t, login, password)
+	acceptConsents(t, tokens.AccessToken)
+	return tokens
+}
+
+// registerUserWithoutConsent регистрирует пользователя, не принимая документы.
+func registerUserWithoutConsent(t *testing.T, login, password string) authTokens {
 	t.Helper()
 	resp := doRequest(t, http.MethodPost, "/auth/register", map[string]string{
 		"login":    login,
@@ -241,6 +250,24 @@ func registerUser(t *testing.T, login, password string) authTokens {
 	resp.decode(t, &tokens)
 	require.NotEmpty(t, tokens.AccessToken)
 	return tokens
+}
+
+// acceptConsents принимает текущие версии обоих документов.
+func acceptConsents(t *testing.T, accessToken string) {
+	t.Helper()
+	status := doRequest(t, http.MethodGet, "/consents", nil, accessToken)
+	require.Equalf(t, http.StatusOK, status.status, "статус документов не получен: %s", status.body)
+	var parsed struct {
+		Documents []map[string]any `json:"documents"`
+	}
+	status.decode(t, &parsed)
+
+	documents := make([]map[string]any, 0, len(parsed.Documents))
+	for _, doc := range parsed.Documents {
+		documents = append(documents, map[string]any{"doc_type": doc["doc_type"], "version": doc["version"]})
+	}
+	resp := doRequest(t, http.MethodPost, "/consents", map[string]any{"documents": documents}, accessToken)
+	require.Equalf(t, http.StatusNoContent, resp.status, "принятие документов не удалось: %s", resp.body)
 }
 
 // createProfile создаёт минимальный профиль для пользователя — требуется

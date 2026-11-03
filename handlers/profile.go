@@ -82,7 +82,9 @@ func ProfileHandler(w http.ResponseWriter, r *http.Request) {
 // пользователя целиком. profile/pet/event удаляются каскадно через
 // ON DELETE CASCADE (см. database/migrations/000001_init_schema.up.sql).
 func DeleteAccountHandler(w http.ResponseWriter, r *http.Request) {
-	userID, ok := requireUserID(w, r)
+	// Удалить аккаунт можно и не приняв документы: это один из двух ответов на
+	// отказ от принятия.
+	userID, ok := requireUserIDWithoutConsent(w, r)
 	if !ok {
 		return
 	}

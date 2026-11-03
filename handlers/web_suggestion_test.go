@@ -38,6 +38,7 @@ func validSuggestion() map[string]any {
 		"userId":   "local",
 		"category": "pets",
 		"title":    "График веса по всем питомцам",
+		"consent":  true,
 	}
 }
 
@@ -90,7 +91,7 @@ func TestWebSuggestion_OptionalFieldsDefaultToEmpty(t *testing.T) {
 		WithArgs("anonymous", "other", "Идея", "", "").
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(suggestionRowID))
 
-	body := map[string]any{"userId": "anonymous", "category": "other", "title": "Идея"}
+	body := map[string]any{"userId": "anonymous", "category": "other", "title": "Идея", "consent": true}
 	w := serveWeb(webRequest(t, body, testWebAPIKey))
 
 	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
@@ -119,13 +120,15 @@ func TestWebSuggestion_ValidationErrors(t *testing.T) {
 		mutate func(map[string]any)
 		field  string
 	}{
-		"пустой userId":      {func(b map[string]any) { b["userId"] = "" }, "userId"},
-		"userId с пробелом":  {func(b map[string]any) { b["userId"] = "a b" }, "userId"},
-		"неизвестный раздел": {func(b map[string]any) { b["category"] = "nope" }, "category"},
-		"пустой заголовок":   {func(b map[string]any) { b["title"] = "   " }, "title"},
-		"длинный заголовок":  {func(b map[string]any) { b["title"] = strings.Repeat("я", suggestionTitleMax+1) }, "title"},
-		"длинное описание":   {func(b map[string]any) { b["body"] = strings.Repeat("я", suggestionBodyMax+1) }, "body"},
-		"длинный контакт":    {func(b map[string]any) { b["contact"] = strings.Repeat("я", suggestionContactMax+1) }, "contact"},
+		"пустой userId":        {func(b map[string]any) { b["userId"] = "" }, "userId"},
+		"userId с пробелом":    {func(b map[string]any) { b["userId"] = "a b" }, "userId"},
+		"неизвестный раздел":   {func(b map[string]any) { b["category"] = "nope" }, "category"},
+		"пустой заголовок":     {func(b map[string]any) { b["title"] = "   " }, "title"},
+		"длинный заголовок":    {func(b map[string]any) { b["title"] = strings.Repeat("я", suggestionTitleMax+1) }, "title"},
+		"длинное описание":     {func(b map[string]any) { b["body"] = strings.Repeat("я", suggestionBodyMax+1) }, "body"},
+		"длинный контакт":      {func(b map[string]any) { b["contact"] = strings.Repeat("я", suggestionContactMax+1) }, "contact"},
+		"нет согласия":         {func(b map[string]any) { b["consent"] = false }, "consent"},
+		"согласие не передано": {func(b map[string]any) { delete(b, "consent") }, "consent"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

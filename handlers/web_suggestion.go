@@ -105,6 +105,9 @@ func CreateWebSuggestionHandler(w http.ResponseWriter, r *http.Request) {
 	if utf8.RuneCountInString(contact) > suggestionContactMax {
 		issues = append(issues, bannerIssue{"contact", "слишком длинный"})
 	}
+	if !req.Consent {
+		issues = append(issues, bannerIssue{"consent", "требуется согласие на обработку персональных данных"})
+	}
 	if len(issues) > 0 {
 		writeWebError(w, http.StatusBadRequest, webapi.VALIDATIONERROR, "Предложение не прошло валидацию", issues)
 		return

@@ -22,6 +22,7 @@ func TestWebSuggestion_Create(t *testing.T) {
 			"title":    "  Напоминание о вакцинации  ",
 			"body":     "Подробнее",
 			"contact":  "@me",
+			"consent":  true,
 		}, "", map[string]string{"X-Api-Key": testWebAPIKey})
 	require.Equal(t, http.StatusCreated, resp.status, "%s", resp.body)
 
@@ -31,16 +32,19 @@ func TestWebSuggestion_Create(t *testing.T) {
 	resp.decode(t, &created)
 
 	var userID, category, title, body, contact string
-	err := database.DB.QueryRow(`SELECT user_id, category, title, body, contact FROM suggestion WHERE id = $1`, created.ID).
-		Scan(&userID, &category, &title, &body, &contact)
+	var consentVersion int
+	err := database.DB.QueryRow(`SELECT user_id, category, title, body, contact, consent_version FROM suggestion WHERE id = $1`, created.ID).
+		Scan(&userID, &category, &title, &body, &contact, &consentVersion)
 	require.NoError(t, err)
+	// Записана текущая версия документа personal_data.
+	require.Equal(t, 1, consentVersion)
 	require.Equal(t, []string{"local", "reminders", "Напоминание о вакцинации", "Подробнее", "@me"},
 		[]string{userID, category, title, body, contact})
 }
 
 func TestWebSuggestion_AccessAndValidation(t *testing.T) {
 	resetDB(t)
-	valid := `{"userId":"local","category":"pets","title":"x"}`
+	valid := `{"userId":"local","category":"pets","title":"x","consent":true}`
 	post := func(headers map[string]string, body string) apiResponse {
 		return doRawRequest(t, http.MethodPost, "/web/suggestions", []byte(body), headers)
 	}
@@ -52,6 +56,10 @@ func TestWebSuggestion_AccessAndValidation(t *testing.T) {
 
 	bad := post(map[string]string{"X-Api-Key": testWebAPIKey}, `{"userId":"local","category":"nope","title":""}`)
 	require.Equal(t, http.StatusBadRequest, bad.status, "%s", bad.body)
+
+	// Без согласия предложение не принимается.
+	noConsent := post(map[string]string{"X-Api-Key": testWebAPIKey}, `{"userId":"local","category":"pets","title":"x","consent":false}`)
+	require.Equal(t, http.StatusBadRequest, noConsent.status, "%s", noConsent.body)
 
 	var count int
 	require.NoError(t, database.DB.QueryRow(`SELECT count(*) FROM suggestion`).Scan(&count))

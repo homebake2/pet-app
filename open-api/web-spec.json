@@ -180,7 +180,8 @@
         "required": [
           "userId",
           "category",
-          "title"
+          "title",
+          "consent"
         ],
         "properties": {
           "userId": {
@@ -206,6 +207,10 @@
             "type": "string",
             "maxLength": 200,
             "description": "Контакт для ответа (почта или Telegram)."
+          },
+          "consent": {
+            "type": "boolean",
+            "description": "Согласие на обработку персональных данных формы. Должно быть true, иначе 400 VALIDATION_ERROR."
           }
         }
       },

@@ -38,6 +38,9 @@ type CreateSuggestionRequest struct {
 	// Category Раздел приложения, к которому относится предложение.
 	Category SuggestionCategory `json:"category"`
 
+	// Consent Согласие на обработку персональных данных формы. Должно быть true, иначе 400 VALIDATION_ERROR.
+	Consent bool `json:"consent"`
+
 	// Contact Контакт для ответа (почта или Telegram).
 	Contact *string `json:"contact,omitempty"`
 

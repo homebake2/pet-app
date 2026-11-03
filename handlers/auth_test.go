@@ -54,11 +54,13 @@ func expectLoginFailures(mock sqlmock.Sqlmock, failures map[string]int) {
 
 // expectPetsCount мокает CountPetsByUserID — запрос количества не мягко
 // удалённых питомцев пользователя, выполняемый login/register/guest перед
-// финальным ответом.
+// финальным ответом, и следующую за ним проверку принятия документов
+// (consent_required = true: пользователь ещё ничего не принимал).
 func expectPetsCount(mock sqlmock.Sqlmock, userID string, count int) {
 	mock.ExpectQuery(`SELECT COUNT\(\*\) FROM pet p\s+WHERE p\.deleted_at IS NULL`).
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(count))
+	expectConsentNotAccepted(mock, userID)
 }
 
 func TestRegisterHandler_MethodNotAllowed(t *testing.T) {
@@ -161,6 +163,8 @@ func TestRegisterHandler_CreatesNewUserWithHashedPassword(t *testing.T) {
 	assert.NotEmpty(t, resp.RefreshToken)
 	// Новый пользователь только что создан — питомцев у него ещё нет.
 	assert.Equal(t, 0, resp.PetsCount)
+	// И ничего не принимал.
+	assert.True(t, resp.ConsentRequired)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

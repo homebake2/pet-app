@@ -50,13 +50,18 @@ func validRefreshToken(t *testing.T, login, userID string) string {
 	return token
 }
 
-// expectTokensValid mocks the tokens_invalidated_at lookup that requireUserID
-// performs for every authenticated request, reporting the user's tokens as
-// never revoked. Call it first, before any handler-specific expectations.
+// authStateQuery — regexp запроса database.GetAuthState, который
+// requireUserID выполняет на каждый аутентифицированный запрос.
+const authStateQuery = `SELECT u\.tokens_invalidated_at`
+
+// expectTokensValid mocks the auth-state lookup that requireUserID performs
+// for every authenticated request, reporting the user's tokens as never
+// revoked and the current consent documents as accepted. Call it first,
+// before any handler-specific expectations.
 func expectTokensValid(mock sqlmock.Sqlmock, userID string) {
-	mock.ExpectQuery(`SELECT tokens_invalidated_at FROM users WHERE id=\$1`).
+	mock.ExpectQuery(authStateQuery).
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"tokens_invalidated_at"}).AddRow(nil))
+		WillReturnRows(sqlmock.NewRows([]string{"tokens_invalidated_at", "consent_accepted"}).AddRow(nil, true))
 }
 
 // expectEndUserPetAccess мокирует завершение доступов при удалении аккаунта

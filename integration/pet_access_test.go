@@ -31,6 +31,7 @@ func newAccessUser(t *testing.T, firstName string) transferUser {
 	require.Equalf(t, http.StatusOK, resp.status, "регистрация не удалась: %s", resp.body)
 	var tokens authTokens
 	resp.decode(t, &tokens)
+	acceptConsents(t, tokens.AccessToken)
 	if firstName != "" {
 		createProfile(t, tokens.AccessToken, firstName)
 	}
