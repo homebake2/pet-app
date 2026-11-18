@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy backend:3000 {
+		# Заменяем присланное клиентом значение реальным адресом соединения.
+		header_up X-Real-IP {remote_host}
+	}
+}

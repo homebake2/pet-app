@@ -1,0 +1,4 @@
+.git
+pgdata
+*.env
+.env

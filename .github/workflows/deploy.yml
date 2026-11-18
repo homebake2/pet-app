@@ -1,0 +1,96 @@
+name: deploy
+
+# Сборка и деплой запускаются только вручную: Actions → deploy → Run workflow.
+# Тесты идут автоматически в отдельном workflow (test.yml).
+on:
+  workflow_dispatch:
+
+# Два деплоя одновременно не запускаем; свежий ждёт, пока закончится текущий.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_DIR: /opt/pet
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build -f deploy/Dockerfile \
+            -t pet-backend:latest \
+            -t pet-backend:${{ github.sha }} .
+
+      - name: Configure SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          echo "${{ secrets.DEPLOY_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      # Значения берутся из GitHub: секретные из secrets, остальные из variables.
+      # Имена совпадают с deploy/.env.example. Пустые необязательные значения
+      # (ADMIN_KEY, WEB_API_KEY, SENTRY_DSN) приложение считает незаданными.
+      # Значения идут через env, а не подставляются в текст скрипта, чтобы
+      # спецсимволы в секретах не ломали shell.
+      - name: Render .env
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+          POSTGRES_DB: ${{ vars.POSTGRES_DB }}
+          S3_ENDPOINT: ${{ vars.S3_ENDPOINT }}
+          S3_REGION: ${{ vars.S3_REGION }}
+          S3_BUCKET: ${{ vars.S3_BUCKET }}
+          SENTRY_ENVIRONMENT: ${{ vars.SENTRY_ENVIRONMENT || 'production' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          S3_KEY_ID: ${{ secrets.S3_KEY_ID }}
+          S3_APPLICATION_KEY: ${{ secrets.S3_APPLICATION_KEY }}
+          ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+          WEB_API_KEY: ${{ secrets.WEB_API_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_RELEASE: ${{ github.sha }}
+        run: |
+          umask 077
+          : > "$RUNNER_TEMP/app.env"
+          for name in DOMAIN POSTGRES_USER POSTGRES_DB POSTGRES_PASSWORD JWT_SECRET \
+            S3_ENDPOINT S3_REGION S3_BUCKET S3_KEY_ID S3_APPLICATION_KEY \
+            ADMIN_KEY WEB_API_KEY SENTRY_DSN SENTRY_ENVIRONMENT SENTRY_RELEASE; do
+            printf '%s=%s\n' "$name" "${!name}" >> "$RUNNER_TEMP/app.env"
+          done
+
+      - name: Copy compose files and .env
+        run: |
+          SSH="ssh -i ~/.ssh/id_deploy"
+          TARGET="${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+          $SSH "$TARGET" "mkdir -p $DEPLOY_DIR"
+          scp -i ~/.ssh/id_deploy deploy/docker-compose.prod.yml deploy/Caddyfile "$TARGET:$DEPLOY_DIR/"
+          scp -i ~/.ssh/id_deploy "$RUNNER_TEMP/app.env" "$TARGET:$DEPLOY_DIR/.env"
+          $SSH "$TARGET" "chmod 600 $DEPLOY_DIR/.env"
+
+      - name: Ship image and restart
+        run: |
+          SSH="ssh -i ~/.ssh/id_deploy"
+          TARGET="${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+          docker save pet-backend:latest pet-backend:${{ github.sha }} | gzip | $SSH "$TARGET" "gunzip | docker load"
+          $SSH "$TARGET" "cd $DEPLOY_DIR && docker compose -f docker-compose.prod.yml up -d --no-build --remove-orphans && docker image prune -f"
+
+      # Проверяем всю цепочку снаружи: DNS, HTTPS-сертификат Caddy, бэкенд и БД.
+      # На первом деплое Caddy выпускает сертификат, поэтому ждём до ~2 минут.
+      - name: Check /healthz
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+        run: |
+          for attempt in $(seq 1 24); do
+            if curl -fsS --max-time 5 "https://$DOMAIN/healthz" > /dev/null; then
+              echo "healthz OK (попытка $attempt)"
+              exit 0
+            fi
+            echo "healthz недоступен, попытка $attempt из 24"
+            sleep 5
+          done
+          echo "healthz не ответил 200 за 2 минуты" >&2
+          exit 1
