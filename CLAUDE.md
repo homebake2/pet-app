@@ -25,7 +25,7 @@ docker compose up -d   # local Postgres must be running
 export DATABASE_URL="postgres://postgres@127.0.0.1:5555/pets?sslmode=disable"
 go test -tags integration ./integration/...
 
-# Build (matches Render's build command)
+# Build (same flags as deploy/Dockerfile)
 go build -tags netgo -ldflags '-s -w' -o app
 
 # Regenerate OpenAPI types after editing open-api/spec.json
@@ -57,7 +57,7 @@ Migrations are embedded into the binary (`database/migrate.go`, `//go:embed migr
 
 ## Deployment
 
-Full details in `docs/deploy.md`. Summary: Render (Go web service, auto-deploy on push to `main`) + Neon (serverless Postgres). `DATABASE_URL` and `JWT_SECRET` are set in Render's environment, never in the repo.
+Full details in `docs/deploy.md`. Summary: one Yandex Cloud VM running Docker Compose (`deploy/docker-compose.prod.yml`: Postgres 18, the backend image, Caddy for HTTPS), files in Yandex Object Storage, API at `https://api.pethealth-app.ru`. `.github/workflows/test.yml` runs the tests on every push; `.github/workflows/deploy.yml` is manual only (Actions → deploy → Run workflow). It builds the image, renders `.env` on the VM from GitHub Secrets/Variables (same names as `deploy/.env.example`), ships the image over SSH and checks `/healthz`. Secrets live in GitHub and in `/opt/pet/.env` on the VM, never in the repo.
 
 ## Known limitations (tracked in docs/deploy.md)
 
