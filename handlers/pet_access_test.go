@@ -264,7 +264,7 @@ func TestPetAccess_ViewRoleCannotWritePet(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "view", true, testUserID, "Owner"))
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "view", true, testUserID, "Owner", nil))
 
 	expectNoWeightEvent(mock)
 
@@ -278,7 +278,7 @@ func TestPetAccess_FullRoleCannotDeletePetViaUpdate(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "full", true, testUserID, "Owner"))
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "full", true, testUserID, "Owner", nil))
 	expectNoWeightEvent(mock)
 
 	w := serveAccess(t, http.MethodPut, "/pet/"+testPetID, map[string]any{"is_deleted": true})
@@ -290,7 +290,7 @@ func TestPetAccess_GetPetReturnsAccessAndShared(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "view", true, testUserID, "Owner"))
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "view", true, testUserID, "Owner", nil))
 	expectNoWeightEvent(mock)
 	expectNoPetPhoto(mock)
 

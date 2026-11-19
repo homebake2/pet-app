@@ -382,6 +382,9 @@ func previewPetAccessInvite(w http.ResponseWriter, r *http.Request, userID, code
 		if pet.Breed.Valid {
 			item.Breed = pet.Breed.String
 		}
+		if pet.BreedCustom.Valid {
+			item.BreedCustom = &pet.BreedCustom.String
+		}
 		if pet.Gender.Valid {
 			gender := openapi.GetGenderEnum(pet.Gender.String)
 			item.Gender = &gender

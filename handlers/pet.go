@@ -256,6 +256,11 @@ func CreatePetHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := models.ValidateBreedCustom(req.Breed, req.BreedCustom); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
+		return
+	}
+
 	if req.Color != nil && len(*req.Color) > models.PetColorMaxLen {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле color превышает допустимую длину")
 		return
@@ -415,13 +420,18 @@ func GetAllPetHandler(w http.ResponseWriter, r *http.Request) {
 	petIDs := make([]uuid.UUID, 0, len(pets))
 
 	for _, pet := range pets {
+		var breedCustom *string
+		if pet.BreedCustom.Valid {
+			breedCustom = &pet.BreedCustom.String
+		}
 		response.Items = append(response.Items, models.PetItem{
-			ID:      pet.ID.String(),
-			Name:    pet.Name,
-			Breed:   pet.Breed.String,
-			Species: pet.Species,
-			Access:  pet.Access,
-			Owner:   models.PetOwnerRef{ID: pet.OwnerID, Name: ownerNames[pet.OwnerID]},
+			ID:          pet.ID.String(),
+			Name:        pet.Name,
+			Breed:       pet.Breed.String,
+			BreedCustom: breedCustom,
+			Species:     pet.Species,
+			Access:      pet.Access,
+			Owner:       models.PetOwnerRef{ID: pet.OwnerID, Name: ownerNames[pet.OwnerID]},
 		})
 		petIDs = append(petIDs, pet.ID)
 	}
@@ -527,6 +537,17 @@ func UpdatePetHandler(w http.ResponseWriter, r *http.Request) {
 
 	if req.Breed != nil && len(*req.Breed) > models.PetBreedMaxLen {
 		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, "Поле breed превышает допустимую длину")
+		return
+	}
+
+	// Итоговая порода — переданная в запросе либо текущая; собственное название
+	// допустимо только при итоговом breed = other.
+	effectiveBreed := pet.Breed
+	if req.Breed != nil {
+		effectiveBreed = req.Breed
+	}
+	if msg := models.ValidateBreedCustom(effectiveBreed, req.BreedCustom); msg != "" {
+		writeError(w, http.StatusBadRequest, openapi.VALIDATIONERROR, msg)
 		return
 	}
 

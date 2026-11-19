@@ -181,11 +181,11 @@ func (s TypeSpec) MetricValueKind(m Metric) ValueKind {
 }
 
 // allSpecies — полный справочник видов питомца (см. «Питомцы — Вид
-// (species)»), 31 значение. Используется для построения применимости «все,
+// (species)»), 32 значения. Используется для построения применимости «все,
 // кроме …» без переписывания списка целиком под каждое исключение.
 var allSpecies = []string{
 	"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "PARROT", "CANARY", "FISH",
-	"TURTLE", "RAT", "MOUSE", "FERRET", "HEDGEHOG", "CHINCHILLA", "MINI_PIG",
+	"TURTLE", "RAT", "MOUSE", "FERRET", "WEASEL", "HEDGEHOG", "CHINCHILLA", "MINI_PIG",
 	"MINI_GOAT", "CHICKEN", "DUCK", "PIGEON", "IGUANA", "GECKO", "BEARDED_AGAMA",
 	"SNAKE", "PYTHON", "FROG", "AXOLOTL", "TARANTULA", "HERMIT_CRAB", "ANT_FARM",
 	"SNAIL", "OTHER",
@@ -299,17 +299,17 @@ const (
 // «Применимость типа события к виду питомца»).
 var (
 	urineSpecies = []string{
-		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET",
+		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET", "WEASEL",
 		"HEDGEHOG", "CHINCHILLA", "MINI_PIG", "MINI_GOAT", "OTHER",
 	}
 	vomitSpecies = []string{
-		"DOG", "CAT", "FERRET", "HEDGEHOG", "MINI_PIG", "PARROT", "CANARY",
+		"DOG", "CAT", "FERRET", "WEASEL", "HEDGEHOG", "MINI_PIG", "PARROT", "CANARY",
 		"CHICKEN", "DUCK", "PIGEON", "TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA",
 		"SNAKE", "PYTHON", "FROG", "OTHER",
 	}
 	moltingSpecies = []string{
 		"TURTLE", "IGUANA", "GECKO", "BEARDED_AGAMA", "SNAKE", "PYTHON", "FROG",
-		"AXOLOTL", "TARANTULA", "HERMIT_CRAB", "CHINCHILLA", "FERRET", "PARROT",
+		"AXOLOTL", "TARANTULA", "HERMIT_CRAB", "CHINCHILLA", "FERRET", "WEASEL", "PARROT",
 		"CANARY", "CHICKEN", "DUCK", "PIGEON", "OTHER",
 	}
 	eggLayingSpecies = []string{
@@ -340,11 +340,11 @@ var (
 // speciesUnion, вместо повторения списков видов под каждое значение enum.
 var (
 	mammalSpecies = []string{
-		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET",
+		"DOG", "CAT", "HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET", "WEASEL",
 		"HEDGEHOG", "CHINCHILLA", "MINI_PIG", "MINI_GOAT",
 	}
 	cagedMammalSpecies = []string{
-		"HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET", "HEDGEHOG", "CHINCHILLA",
+		"HAMSTER", "GUINEA_PIG", "RABBIT", "RAT", "MOUSE", "FERRET", "WEASEL", "HEDGEHOG", "CHINCHILLA",
 	}
 	nonCagedMammalSpecies   = []string{"DOG", "CAT", "MINI_PIG", "MINI_GOAT"}
 	birdSpecies             = []string{"PARROT", "CANARY", "CHICKEN", "DUCK", "PIGEON"}

@@ -820,12 +820,14 @@ func grantablePetIDsWith(exec dbExecutor, petIDs []uuid.UUID, userID string) ([]
 
 // PetAccessPreviewPet — данные питомца для предпросмотра приглашения.
 type PetAccessPreviewPet struct {
-	ID        uuid.UUID
-	Name      string
-	Species   string
-	Breed     sql.NullString
-	Gender    sql.NullString
-	BirthDate sql.NullTime
+	ID      uuid.UUID
+	Name    string
+	Species string
+	Breed   sql.NullString
+	// BreedCustom — собственное название породы (только при breed = other).
+	BreedCustom sql.NullString
+	Gender      sql.NullString
+	BirthDate   sql.NullTime
 }
 
 // PetAccessPreview — результат предпросмотра приглашения: питомцы, доступ к
@@ -870,7 +872,7 @@ func PreviewPetAccessInvite(code, userID string) (*PetAccessPreview, error) {
 	}
 
 	rows, err := DB.Query(`
-		SELECT id, name, species, breed, gender, birth_date
+		SELECT id, name, species, breed, breed_custom, gender, birth_date
 		FROM pet WHERE id = ANY($1)
 		ORDER BY created_at, id
 	`, pq.Array(grantable))
@@ -881,7 +883,7 @@ func PreviewPetAccessInvite(code, userID string) (*PetAccessPreview, error) {
 	preview := &PetAccessPreview{Role: invite.Role, FromUserID: invite.FromUserID, ExpiresAt: invite.ExpiresAt}
 	for rows.Next() {
 		var pet PetAccessPreviewPet
-		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Species, &pet.Breed, &pet.Gender, &pet.BirthDate); err != nil {
+		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Species, &pet.Breed, &pet.BreedCustom, &pet.Gender, &pet.BirthDate); err != nil {
 			return nil, err
 		}
 		preview.Pets = append(preview.Pets, pet)

@@ -25,10 +25,12 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 	query := `
         INSERT INTO pet (
             user_id, breed, name, species, birth_date, gender, color, sterilized, habitation, notes, deleted_at, body_condition,
-            microchipped, microchip_number, ringed, ring_number, uv_lamp_required, water_type, enclosure_volume_l, group_size
+            microchipped, microchip_number, ringed, ring_number, uv_lamp_required, water_type, enclosure_volume_l, group_size,
+            breed_custom
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-            $13, $14, $15, $16, $17, $18, $19, $20
+            $13, $14, $15, $16, $17, $18, $19, $20,
+            $21
         ) RETURNING id
     `
 
@@ -135,6 +137,7 @@ func insertPetWith(exec dbExecutor, userID string, req models.CreatePetRequest) 
 		query,
 		userID, req.Breed, req.Name, req.Species, birthDate, gender, req.Color, sterilized, habitat, req.Notes, deletedAt, bodyCondition,
 		microchipped, microchipNumber, ringed, ringNumber, uvLampRequired, waterType, enclosureVolumeL, groupSize,
+		models.NormalizeBreedCustom(req.BreedCustom),
 	).Scan(&newID)
 	if err != nil {
 		log.Println("InsertPet error:", err)
@@ -202,7 +205,7 @@ func GetAccessiblePetsByUserID(userID string) ([]models.PetDB, error) {
 	var pets []models.PetDB
 
 	rows, err := DB.Query(`
-	SELECT p.id, p.name, p.breed, p.species, CASE WHEN p.user_id = $1 THEN 'owner' ELSE pa.role END, p.user_id::text
+	SELECT p.id, p.name, p.breed, p.species, CASE WHEN p.user_id = $1 THEN 'owner' ELSE pa.role END, p.user_id::text, p.breed_custom
 	FROM pet p
 	LEFT JOIN pet_access pa ON pa.pet_id = p.id AND pa.user_id = $1
 	WHERE p.deleted_at IS NULL
@@ -216,7 +219,7 @@ func GetAccessiblePetsByUserID(userID string) ([]models.PetDB, error) {
 
 	for rows.Next() {
 		var pet models.PetDB
-		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Breed, &pet.Species, &pet.Access, &pet.OwnerID); err != nil {
+		if err := rows.Scan(&pet.ID, &pet.Name, &pet.Breed, &pet.Species, &pet.Access, &pet.OwnerID, &pet.BreedCustom); err != nil {
 			return nil, err
 		}
 		pets = append(pets, pet)
@@ -242,7 +245,7 @@ func GetPetForUser(petID uuid.UUID, userID string) (*models.PetIdResponse, error
 	       p.uv_lamp_required, p.water_type, p.enclosure_volume_l, p.group_size,
 	       CASE WHEN p.user_id = $2 THEN 'owner' ELSE pa.role END,
 	       EXISTS (SELECT 1 FROM pet_access shared_pa WHERE shared_pa.pet_id = p.id),
-	       p.user_id::text, ` + ownerNameSQL + `
+	       p.user_id::text, ` + ownerNameSQL + `, p.breed_custom
 	FROM pet p
 	JOIN users ou ON ou.id = p.user_id
 	LEFT JOIN profile opr ON opr.user_id = p.user_id
@@ -280,6 +283,7 @@ func GetPetForUser(petID uuid.UUID, userID string) (*models.PetIdResponse, error
 		&shared,
 		&owner.ID,
 		&owner.Name,
+		&petDB.BreedCustom,
 	)
 
 	if err != nil {
@@ -320,6 +324,10 @@ func GetPetForUser(petID uuid.UUID, userID string) (*models.PetIdResponse, error
 
 	if petDB.Breed.Valid {
 		pet.Breed = &petDB.Breed.String
+	}
+
+	if petDB.BreedCustom.Valid {
+		pet.BreedCustom = &petDB.BreedCustom.String
 	}
 
 	if petDB.BodyCondition.Valid {
@@ -451,6 +459,20 @@ func UpdatePet(petID uuid.UUID, req models.UpdatePetRequest) error {
 
 	if req.Breed != nil {
 		add("breed", *req.Breed)
+		// Собственное название породы относится только к breed = other: при
+		// смене породы на другую оно очищается вместе с ней, если запрос не
+		// задаёт его явно.
+		if *req.Breed != models.PetBreedOther && req.BreedCustom == nil {
+			add("breed_custom", sql.NullString{Valid: false})
+		}
+	}
+
+	if req.BreedCustom != nil {
+		if custom := models.NormalizeBreedCustom(req.BreedCustom); custom == nil {
+			add("breed_custom", sql.NullString{Valid: false})
+		} else {
+			add("breed_custom", *custom)
+		}
 	}
 
 	if req.BodyCondition != nil {

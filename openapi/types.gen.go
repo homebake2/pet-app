@@ -1188,7 +1188,10 @@ type GetPetProfileRequest struct {
 	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
 	Breed         *string               `json:"breed,omitempty"`
-	Color         *string               `json:"color,omitempty"`
+
+	// BreedCustom Собственное название породы. Допустимо только при breed = other.
+	BreedCustom *string `json:"breed_custom,omitempty"`
+	Color       *string `json:"color,omitempty"`
 
 	// EnclosureVolumeL Профильное поле группы видов «Водные и полуводные», опционально, 0.1–5000 (см. «Профильные поля питомца по видам»).
 	EnclosureVolumeL *float32       `json:"enclosure_volume_l,omitempty"`
@@ -1233,7 +1236,10 @@ type GetPetProfileResponse struct {
 	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
 	Breed         *string               `json:"breed,omitempty"`
-	Color         *string               `json:"color"`
+
+	// BreedCustom Собственное название породы; задано только при breed = other.
+	BreedCustom *string `json:"breed_custom,omitempty"`
+	Color       *string `json:"color"`
 
 	// EnclosureVolumeL Профильное поле группы видов «Водные и полуводные», 0.1–5000 (см. «Профильные поля питомца по видам»).
 	EnclosureVolumeL *float32       `json:"enclosure_volume_l"`
@@ -1327,10 +1333,13 @@ type GetShortInfoAllPetResponse struct {
 // GetShortInfoPetResponse defines model for GetShortInfoPetResponse.
 type GetShortInfoPetResponse struct {
 	// Access Роль текущего пользователя по отношению к питомцу: owner — владелец, full — полный доступ, view — только просмотр.
-	Access PetAccessEnum      `json:"access"`
-	Breed  string             `json:"breed"`
-	Id     openapi_types.UUID `json:"id"`
-	Name   string             `json:"name"`
+	Access PetAccessEnum `json:"access"`
+	Breed  string        `json:"breed"`
+
+	// BreedCustom Собственное название породы; задано только при breed = other.
+	BreedCustom *string            `json:"breed_custom,omitempty"`
+	Id          openapi_types.UUID `json:"id"`
+	Name        string             `json:"name"`
 
 	// Owner Владелец питомца. Для собственных питомцев — сам пользователь.
 	Owner PetOwnerRef `json:"owner"`
@@ -1517,13 +1526,16 @@ type ImportLocalDataPet struct {
 	BirthDate *openapi_types.Date `json:"birth_date,omitempty"`
 
 	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
-	BodyCondition    *PetBodyConditionEnum `json:"body_condition,omitempty"`
-	Breed            *string               `json:"breed,omitempty"`
-	Color            *string               `json:"color,omitempty"`
-	EnclosureVolumeL *float32              `json:"enclosure_volume_l,omitempty"`
-	Gender           *GetGenderEnum        `json:"gender,omitempty"`
-	GroupSize        *int                  `json:"group_size,omitempty"`
-	Habitation       *GetHabilitationEnum  `json:"habitation,omitempty"`
+	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
+	Breed         *string               `json:"breed,omitempty"`
+
+	// BreedCustom Собственное название породы. Допустимо только при breed = other.
+	BreedCustom      *string              `json:"breed_custom,omitempty"`
+	Color            *string              `json:"color,omitempty"`
+	EnclosureVolumeL *float32             `json:"enclosure_volume_l,omitempty"`
+	Gender           *GetGenderEnum       `json:"gender,omitempty"`
+	GroupSize        *int                 `json:"group_size,omitempty"`
+	Habitation       *GetHabilitationEnum `json:"habitation,omitempty"`
 
 	// LocalId Клиентский UUID питомца в локальном хранилище устройства; используется только как временный ключ ссылки внутри этого запроса (для сопоставления с events[].pet_local_id), не сохраняется на сервере.
 	LocalId         string  `json:"local_id"`
@@ -1855,8 +1867,11 @@ type PetAccessInviteCreateRequest struct {
 type PetAccessInvitePreviewPet struct {
 	BirthDate *openapi_types.Date `json:"birth_date"`
 	Breed     string              `json:"breed"`
-	Gender    *GetGenderEnum      `json:"gender,omitempty"`
-	Name      string              `json:"name"`
+
+	// BreedCustom Собственное название породы; задано только при breed = other.
+	BreedCustom *string        `json:"breed_custom,omitempty"`
+	Gender      *GetGenderEnum `json:"gender,omitempty"`
+	Name        string         `json:"name"`
 
 	// PhotoUrl Presigned GET URL на фотографию питомца; null если фотографии нет.
 	PhotoUrl *string `json:"photo_url"`
@@ -1988,8 +2003,11 @@ type PetTransferCodeRequest struct {
 type PetTransferPreviewPet struct {
 	BirthDate *openapi_types.Date `json:"birth_date"`
 	Breed     string              `json:"breed"`
-	Gender    *GetGenderEnum      `json:"gender,omitempty"`
-	Name      string              `json:"name"`
+
+	// BreedCustom Собственное название породы; задано только при breed = other.
+	BreedCustom *string        `json:"breed_custom,omitempty"`
+	Gender      *GetGenderEnum `json:"gender,omitempty"`
+	Name        string         `json:"name"`
 
 	// PhotoUrl Presigned GET URL на фотографию питомца; null если фотографии нет.
 	PhotoUrl *string `json:"photo_url"`
@@ -2394,7 +2412,10 @@ type UpdatePetProfileRequest struct {
 	// BodyCondition Кондиция тела питомца (body condition score), вычисляется/задаётся вручную, хранится как поле питомца.
 	BodyCondition *PetBodyConditionEnum `json:"body_condition,omitempty"`
 	Breed         *string               `json:"breed,omitempty"`
-	Color         *string               `json:"color,omitempty"`
+
+	// BreedCustom Собственное название породы. Допустимо только при итоговом breed = other; отсутствие ключа не меняет значение, пустая строка очищает поле. При смене breed на значение, отличное от other, поле очищается автоматически.
+	BreedCustom *string `json:"breed_custom,omitempty"`
+	Color       *string `json:"color,omitempty"`
 
 	// EnclosureVolumeL Профильное поле группы видов «Водные и полуводные», 0.1–5000. Отсутствие ключа не меняет значение, явный null очищает поле.
 	EnclosureVolumeL *float32       `json:"enclosure_volume_l"`

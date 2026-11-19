@@ -58,7 +58,7 @@ func TestGetWidgetHandler_NoPets(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id", "breed_custom"}))
 
 	w := httptest.NewRecorder()
 	GetWidgetHandler(w, eventRequest(t, http.MethodGet, "/widget?tz=Europe/Moscow", nil, true))
@@ -75,8 +75,8 @@ func TestGetWidgetHandler_Success(t *testing.T) {
 	setupFakeStorage(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.breed, p\.species, CASE WHEN p\.user_id`).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id"}).
-			AddRow(testPetID, "Tom", "Siamese", "CAT", "owner", testUserID))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "breed", "species", "access", "owner_id", "breed_custom"}).
+			AddRow(testPetID, "Tom", "Siamese", "CAT", "owner", testUserID, nil))
 	fileID := "55555555-5555-5555-5555-555555555555"
 	mock.ExpectQuery(`FROM file\s+WHERE owner_type = \$1 AND owner_id = ANY\(\$2\) AND confirmed_at IS NOT NULL`).
 		WillReturnRows(sqlmock.NewRows(fileColumns).AddRow(

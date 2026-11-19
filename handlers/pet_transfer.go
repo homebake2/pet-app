@@ -285,6 +285,7 @@ func previewPetTransfer(w http.ResponseWriter, r *http.Request, userID, code str
 	if pet.Breed != nil {
 		preview.Pet.Breed = *pet.Breed
 	}
+	preview.Pet.BreedCustom = pet.BreedCustom
 	if pet.Gender != nil {
 		gender := openapi.GetGenderEnum(*pet.Gender)
 		preview.Pet.Gender = &gender

@@ -34,6 +34,10 @@ func validateImportPet(pet models.ImportLocalDataPet) string {
 		return "Поле breed питомца превышает допустимую длину"
 	}
 
+	if msg := models.ValidateBreedCustom(pet.Breed, pet.BreedCustom); msg != "" {
+		return msg + " (питомец)"
+	}
+
 	if pet.Color != nil && len(*pet.Color) > models.PetColorMaxLen {
 		return "Поле color питомца превышает допустимую длину"
 	}

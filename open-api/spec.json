@@ -5971,6 +5971,11 @@
               "id": "b29ija62yatih"
             }
           },
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы; задано только при breed = other."
+          },
           "habitation": {
             "$ref": "#/components/schemas/GetHabilitationEnum",
             "x-stoplight": {
@@ -6984,6 +6989,11 @@
               "id": "ukdxphop4efhj"
             }
           },
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы; задано только при breed = other."
+          },
           "species": {
             "type": "string",
             "x-stoplight": {
@@ -7102,6 +7112,11 @@
               "id": "evi4rzr8r8uu6"
             }
           },
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы. Допустимо только при breed = other."
+          },
           "weight": {
             "type": "number",
             "x-stoplight": {
@@ -7208,6 +7223,11 @@
             "x-stoplight": {
               "id": "evi4rzr8r8uu6"
             }
+          },
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы. Допустимо только при итоговом breed = other; отсутствие ключа не меняет значение, пустая строка очищает поле. При смене breed на значение, отличное от other, поле очищается автоматически."
           },
           "weight": {
             "type": "number",
@@ -7472,6 +7492,11 @@
             "x-stoplight": {
               "id": "moph76u7cpbl1"
             }
+          },
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы. Допустимо только при breed = other."
           },
           "habitation": {
             "$ref": "#/components/schemas/GetHabilitationEnum",
@@ -10900,6 +10925,11 @@
           "breed"
         ],
         "properties": {
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы; задано только при breed = other."
+          },
           "name": {
             "type": "string"
           },
@@ -11153,6 +11183,11 @@
           "breed"
         ],
         "properties": {
+          "breed_custom": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Собственное название породы; задано только при breed = other."
+          },
           "name": {
             "type": "string"
           },

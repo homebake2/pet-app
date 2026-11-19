@@ -353,7 +353,7 @@ func TestPetTransferPreview_Success(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows(pendingTransferColumns).AddRow(testTransferID, testPetID, otherTestUserID, expiresAt))
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
 		WithArgs(testPetID, otherTestUserID).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", time.Date(2020, 5, 17, 0, 0, 0, 0, time.UTC), nil, false, nil, nil, nil, "Corgi", nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", "male", "dog", time.Date(2020, 5, 17, 0, 0, 0, 0, time.UTC), nil, false, nil, nil, nil, "Corgi", nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner", nil))
 	expectNoWeightEvent(mock)
 	mock.ExpectQuery(`SELECT COALESCE\(NULLIF\(trim\(concat_ws\(' ', NULLIF\(trim\(opr\.last_name\)`).
 		WithArgs(otherTestUserID).
@@ -476,7 +476,7 @@ func TestUpdatePetHandler_SoftDeleteCancelsTransfer(t *testing.T) {
 	mock := setupMockDB(t)
 	expectTokensValid(mock, testUserID)
 	mock.ExpectQuery(`SELECT p\.id, p\.name, p\.gender, p\.species, p\.birth_date, p\.color, p\.sterilized`).
-		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner"))
+		WillReturnRows(sqlmock.NewRows(petColumns).AddRow(testPetID, "Rex", nil, "dog", nil, nil, false, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, "owner", false, testUserID, "Owner", nil))
 	expectNoWeightEvent(mock)
 	mock.ExpectBegin()
 	mock.ExpectExec(`UPDATE pet_transfer SET status = 'cancelled'`).

@@ -3,7 +3,9 @@ package models
 import (
 	"database/sql"
 	"encoding/json"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -14,10 +16,47 @@ const (
 	PetNameMaxLen            = 100
 	PetNotesMaxLen           = 1000
 	PetBreedMaxLen           = 100
+	PetBreedCustomMaxLen     = 100
 	PetColorMaxLen           = 100
 	PetMicrochipNumberMaxLen = 50
 	PetRingNumberMaxLen      = 50
 )
+
+// PetBreedOther — значение breed «Другая»: единственное, при котором допустимо
+// собственное название породы breed_custom. Остальные значения breed —
+// идентификаторы пород из клиентского справочника, сервер их не интерпретирует.
+const PetBreedOther = "other"
+
+// ValidateBreedCustom проверяет собственное название породы относительно
+// итогового значения breed: не длиннее PetBreedCustomMaxLen символов и
+// допустимо только при breed = "other". Пустое после trim название не
+// проверяется — оно трактуется как отсутствие (см. NormalizeBreedCustom).
+// Возвращает текст ошибки валидации или пустую строку.
+func ValidateBreedCustom(breed, custom *string) string {
+	if custom == nil || strings.TrimSpace(*custom) == "" {
+		return ""
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(*custom)) > PetBreedCustomMaxLen {
+		return "Поле breed_custom превышает допустимую длину"
+	}
+	if breed == nil || *breed != PetBreedOther {
+		return "Поле breed_custom допустимо только при breed = other"
+	}
+	return ""
+}
+
+// NormalizeBreedCustom обрезает пробелы по краям собственного названия
+// породы; пустое название превращается в nil (в БД — NULL).
+func NormalizeBreedCustom(custom *string) *string {
+	if custom == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*custom)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
 
 // Диапазоны значений профильных числовых полей питомца по видам (см.
 // «Профильные поля питомца по видам»).
@@ -131,6 +170,7 @@ var knownSpeciesValues = map[string]bool{
 	"RAT":           true,
 	"MOUSE":         true,
 	"FERRET":        true,
+	"WEASEL":        true,
 	"HEDGEHOG":      true,
 	"CHINCHILLA":    true,
 	"MINI_PIG":      true,
@@ -202,6 +242,9 @@ type CreatePetRequest struct {
 	Habitation *string `json:"habitation,omitempty"` // enum: indoor, outside, both
 	Notes      *string `json:"notes,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
+	// BreedCustom — собственное название породы, допустимо только при
+	// breed = "other".
+	BreedCustom *string `json:"breed_custom,omitempty"`
 	// Weight — вес питомца в кг (0.001–400), опционально; НЕ сохраняется как
 	// поле питомца. При передаче сервер создаёт событие типа weight со
 	// значением amount=weight (см. «Вес питомца — Backend»).
@@ -228,6 +271,9 @@ type PetItem struct {
 	Name    string `json:"name"`
 	Breed   string `json:"breed"`
 	Species string `json:"species"`
+	// BreedCustom — собственное название породы, задано только при
+	// breed = "other".
+	BreedCustom *string `json:"breed_custom,omitempty"`
 	// PhotoURL — presigned GET URL на текущую фотографию питомца (owner_type
 	// = "pet_photo" в generic-механизме файлов сущностей); null, если
 	// фотографии нет. См. «Фотография питомца — Backend».
@@ -263,10 +309,12 @@ type PetResponse struct {
 }
 
 type PetDB struct {
-	ID      uuid.UUID      `db:"id"`
-	Name    string         `db:"name"`
-	Breed   sql.NullString `db:"breed"`
-	Species string         `db:"species"`
+	ID    uuid.UUID      `db:"id"`
+	Name  string         `db:"name"`
+	Breed sql.NullString `db:"breed"`
+	// BreedCustom — pet.breed_custom.
+	BreedCustom sql.NullString `db:"breed_custom"`
+	Species     string         `db:"species"`
 	// Access — роль текущего пользователя у питомца: owner, full или view.
 	Access string `db:"access"`
 	// OwnerID — pet.user_id.
@@ -285,6 +333,9 @@ type PetIdResponse struct {
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  bool    `json:"is_deleted"`
 	Breed      *string `json:"breed,omitempty"`
+	// BreedCustom — собственное название породы, задано только при
+	// breed = "other".
+	BreedCustom *string `json:"breed_custom,omitempty"`
 	// Access — роль текущего пользователя у питомца: owner, full или view.
 	Access string `json:"access"`
 	// Shared — питомцем пользуются несколько человек: у него есть хотя бы
@@ -331,6 +382,7 @@ type PetIdDB struct {
 	Notes            sql.NullString
 	DeletedAt        sql.NullTime
 	Breed            sql.NullString
+	BreedCustom      sql.NullString
 	BodyCondition    sql.NullString
 	Microchipped     sql.NullBool
 	MicrochipNumber  sql.NullString
@@ -354,6 +406,11 @@ type UpdatePetRequest struct {
 	Notes      *string `json:"notes,omitempty"`
 	IsDeleted  *bool   `json:"is_deleted,omitempty"`
 	Breed      *string `json:"breed,omitempty"`
+	// BreedCustom — собственное название породы, допустимо только при итоговом
+	// breed = "other": отсутствие ключа не меняет значение, пустая строка
+	// очищает поле. При смене breed на значение, отличное от "other", поле
+	// очищается автоматически.
+	BreedCustom *string `json:"breed_custom,omitempty"`
 	// Weight — вес питомца в кг (0.001–400), опционально и nullable.
 	// Отсутствие ключа и явный null равнозначны: событие weight не
 	// создаётся. Очистки веса через этот эндпоинт нет — только передача
